@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "wyrd"
 version = "0.1.0"
-description = "Experiment runner for Odin III flows (part of Wyrd-I)"
+description = "Experiment runner for Odin III flows (part of Wyrd III)"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = []

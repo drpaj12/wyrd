@@ -1,4 +1,4 @@
-# W2: the Wyrd-I GUI (design)
+# W2: the Wyrd III GUI (design)
 
 Status: decisions 1 to 6 approved by Peter, 2026-10-21; the rest is the author's resolution of
 everything those decisions left open (Section 16 lists what Peter may still change). Plan:
@@ -312,7 +312,7 @@ dialog), then writes `machine_path()` (creating the directory). Unknown tool key
 file are kept. The dialog shows the file path. Settings take effect for the next flow run
 (the subprocess reads the file).
 
-**About.** Text: Wyrd-I, version (`importlib.metadata.version("wyrd")`), MIT licence, a one-line
+**About.** Text: Wyrd III, version (`importlib.metadata.version("wyrd")`), MIT licence, a one-line
 description, and a table of the citations (columns Name, Kind, Role, Reference, Link). Rows come
 from `citations.load()`. `docs/CITATIONS.md` is generated from the same file by
 `python -m wyrd.citations`, and a test fails when the committed file differs.
@@ -359,7 +359,7 @@ verified detail carry `id`, `name`, `kind` only. Peter fills the rest (open ques
 ## 15. Not in W2
 
 Per-module resource use (W2.1), schematic viewer, waveform or simulation views (W3),
-Verilog Town (W4), editing Verilog, editing recipes other than as text, multi-project windows,
+Midgard III (Verilog Town, W4), editing Verilog, editing recipes other than as text, multi-project windows,
 Windows-native builds, running steps without `wyrd run`, any change to Odin III or VPR.
 
 ## 16. Decisions on the open questions (Peter, 2026-10-21: all good)
