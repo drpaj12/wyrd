@@ -8,6 +8,7 @@ import sqlite3
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import quote
 
 from wyrd.model import Metric, RunSpec
 
@@ -84,6 +85,16 @@ def _now() -> str:
 class Store:
     """The SQLite index of a project's runs. One short-lived connection per call."""
 
+    _read_only = False
+
+    @classmethod
+    def open_readonly(cls, path: Path) -> Store:
+        """Open an existing database read-only: no directory creation, no PRAGMA, no schema."""
+        store = cls.__new__(cls)
+        store.path = path
+        store._read_only = True
+        return store
+
     def __init__(self, path: Path) -> None:
         self.path = path
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -92,6 +103,9 @@ class Store:
             conn.executescript(_SCHEMA)
 
     def _connect(self) -> sqlite3.Connection:
+        if self._read_only:
+            uri = f"file:{quote(str(self.path))}?mode=ro"
+            return sqlite3.connect(uri, timeout=30, uri=True)
         return sqlite3.connect(self.path, timeout=30)
 
     def _exec(self, sql: str, args: tuple[object, ...] = ()) -> None:

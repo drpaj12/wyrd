@@ -2,6 +2,7 @@ import contextlib
 import io
 import os
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 import unittest
@@ -191,3 +192,89 @@ class ScriptTest(CliBase):
         self.seed(db, 11, key="abcdef2" + "0" * 57)
         code, _, err = wyrd("script", "abcdef", "--project", str(db))
         self.assertEqual((code, "ambiguous" in err), (2, True))
+
+
+class RobustnessTest(CliBase):
+    def test_run_prints_each_run_once(self) -> None:
+        root = self.init_project()
+        code, out, err = wyrd("run", "--project", str(root))
+        self.assertEqual(code, 0)
+        self.assertEqual(len(out.splitlines()), 1)
+        self.assertEqual(err, "")
+
+    def test_unexpected_load_error_exit_2(self) -> None:
+        root = self.init_project()
+        with mock.patch.object(cli, "load_project", side_effect=RuntimeError("boom")):
+            code, _, err = wyrd("run", "--project", str(root))
+        self.assertEqual((code, "boom" in err), (2, True))
+
+    def test_run_all_errors_exit_2_and_release_lock(self) -> None:
+        root = self.init_project()
+        for exc in (OSError("disk"), sqlite3.OperationalError("locked")):
+            with mock.patch.object(cli, "run_all", side_effect=exc):
+                code, _, err = wyrd("run", "--project", str(root))
+            self.assertEqual((code, str(exc) in err), (2, True))
+        from wyrd.preflight import acquire_lock
+
+        os.close(acquire_lock(root))
+
+    def test_interrupted_run_exit_1(self) -> None:
+        root = self.init_project()
+        with mock.patch.object(cli, "run_all", return_value={}):
+            self.assertEqual(wyrd("run", "--project", str(root))[0], 1)
+
+    def test_empty_sweep_exit_2(self) -> None:
+        root = self.init_project()
+        project = load_project(root / "wyrd.toml")
+        empty = type(project)(
+            project.root, project.name, project.designs, project.recipes, project.run, ()
+        )
+        with mock.patch.object(cli, "load_project", return_value=empty):
+            code, _, err = wyrd("run", "--project", str(root))
+        self.assertEqual((code, "no runs in the sweep" in err), (2, True))
+
+    def test_read_only_store_cannot_write(self) -> None:
+        root = self.tmp / "p"
+        self.seed(root, 10)
+        ro = Store.open_readonly(root / "wyrd.db")
+        self.assertEqual(len(ro.rows()), 1)
+        with self.assertRaises(sqlite3.OperationalError):
+            ro.finish(str(ro.rows()[0]["key"]), "fail")
+
+    def test_corrupt_db_exit_2(self) -> None:
+        root = self.tmp / "p"
+        root.mkdir()
+        (root / "wyrd.db").write_text("not a database" * 100, encoding="utf-8")
+        for cmd in ("status", "table"):
+            code, _, err = wyrd(cmd, "--project", str(root))
+            self.assertEqual((code, "cannot read" in err), (2, True))
+        self.assertEqual(wyrd("compare", str(root), str(root))[0], 2)
+
+    def test_compare_reports_unmatched_on_stderr(self) -> None:
+        a, b = self.tmp / "a", self.tmp / "b"
+        self.seed(a, 10)
+        self.seed(b, 12)
+        con = sqlite3.connect(b / "wyrd.db")
+        with con:
+            con.execute("UPDATE runs SET arch = 'other'")
+        con.close()
+        code, _, err = wyrd("compare", str(a), str(b))
+        self.assertEqual(code, 0)
+        self.assertIn("only in A: d k6", err)
+        self.assertIn("only in B: d other", err)
+
+    def test_script_orders_numerically_and_skips_strays(self) -> None:
+        root = self.tmp / "p"
+        key = self.seed(root, 10)
+        directory = root / "runs" / key[:12]
+        for name in ("2-b", "10-c", "1-a", "x-skip", "3x-skip", "notes"):
+            (directory / name).mkdir(parents=True)
+            (directory / name / "cmd.sh").write_text("true\n", encoding="utf-8")
+        code, out, _ = wyrd("script", key[:8], "--project", str(root))
+        self.assertEqual(code, 0)
+        text = Path(out.strip()).read_text(encoding="utf-8")
+        self.assertLess(text.index("/1-a/"), text.index("/2-b/"))
+        self.assertLess(text.index("/2-b/"), text.index("/10-c/"))
+        self.assertNotIn("skip", text)
+        self.assertNotIn("notes", text)
+        self.assertIn("overwrites", text.splitlines()[1])

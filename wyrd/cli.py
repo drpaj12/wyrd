@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shlex
+import sqlite3
 import sys
 from collections import Counter
 from pathlib import Path
@@ -88,6 +90,10 @@ def _init(directory: str) -> int:
     return 0
 
 
+def _quiet(line: str) -> None:
+    """The CLI prints its own per-run lines; the scheduler's progress log is dropped."""
+
+
 def _run(args: argparse.Namespace) -> int:
     root = Path(args.project)
     try:
@@ -96,6 +102,8 @@ def _run(args: argparse.Namespace) -> int:
         s = settings.load(project.run, cli)
     except (ConfigError, ValueError, OSError) as e:
         return _err(str(e))
+    except Exception as e:
+        return _err(f"{type(e).__name__}: {e}")
     try:
         fd = acquire_lock(project.root)
     except ProjectLocked as e:
@@ -114,13 +122,19 @@ def _run_locked(project: Project, s: settings.Settings, force: bool) -> int:
         for problem in problems:
             print(f"wyrd: {problem}", file=sys.stderr)
         return 2
-    store = Store(project.root / "wyrd.db")
-    results = run_all(project, s, store, force)
-    by_key = {str(r["key"]): r for r in store.rows()}
+    if not project.runs:
+        return _err("no runs in the sweep")
+    try:
+        store = Store(project.root / "wyrd.db")
+        results = run_all(project, s, store, force, log=_quiet)
+        by_key = {str(r["key"]): r for r in store.rows()}
+    except (OSError, sqlite3.Error) as e:
+        return _err(f"run failed: {e}")
     for key, status in results.items():
         row = by_key.get(key, {})
         print(f"{status} {row.get('design', '?')} {row.get('arch', '?')} {key[:12]}")
-    return 0 if all(v == "ok" for v in results.values()) else 1
+    complete = len(results) >= len(project.runs)
+    return 0 if complete and all(v == "ok" for v in results.values()) else 1
 
 
 def _rows(project: str) -> list[dict[str, object]] | None:
@@ -128,7 +142,11 @@ def _rows(project: str) -> list[dict[str, object]] | None:
     if not db.is_file():
         _err(f"{db} not found (nothing has run in {project})")
         return None
-    return Store(db).rows()
+    try:
+        return Store.open_readonly(db).rows()
+    except sqlite3.Error as e:
+        _err(f"cannot read {db}: {e}")
+        return None
 
 
 def _status(args: argparse.Namespace) -> int:
@@ -157,6 +175,8 @@ def _compare(args: argparse.Namespace) -> int:
     a, b = _rows(args.a), _rows(args.b)
     if a is None or b is None:
         return 2
+    for line in report.unmatched(a, b):
+        print(line, file=sys.stderr)
     print(report.render(report.compare(a, b, _split(args.metrics)), args.format))
     return 0
 
@@ -180,10 +200,20 @@ def _script(args: argparse.Namespace) -> int:
     if isinstance(run, str):
         return _err(run)
     directory = Path(str(run["run_dir"]))
-    cmds = sorted(directory.glob("*/cmd.sh"), key=lambda p: int(p.parent.name.split("-", 1)[0]))
+    numbered: list[tuple[int, Path]] = []
+    for cmd in directory.glob("[0-9]*-*/cmd.sh"):
+        m = re.fullmatch(r"(\d+)-.+", cmd.parent.name)
+        if m:
+            numbered.append((int(m.group(1)), cmd))
+    cmds = [c for _, c in sorted(numbered)]
     if not cmds:
         return _err(f"no cmd.sh files under {directory}")
-    lines = ["#!/bin/sh", "set -e"] + [f"sh {shlex.quote(str(c))}" for c in cmds]
+    header = [
+        "#!/bin/sh",
+        "# Replay re-runs the steps in place and overwrites their outputs in this run directory.",
+        "set -e",
+    ]
+    lines = header + [f"sh {shlex.quote(str(c))}" for c in cmds]
     out = directory / "replay.sh"
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     out.chmod(0o755)
