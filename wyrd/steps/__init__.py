@@ -47,12 +47,21 @@ def tool_path(settings: Settings, name: str) -> str:
     return settings.tools[name]
 
 
-def tool_versions(settings: Settings, names: Iterable[str]) -> dict[str, str]:
+def _from_root(path: str, root: Path | None) -> str:
+    """A path-like tool value (contains '/') that is relative resolves from `root`."""
+    if root is None or "/" not in path:
+        return path
+    return str(root / path)  # an absolute path stays as it is
+
+
+def tool_versions(
+    settings: Settings, names: Iterable[str], root: Path | None = None
+) -> dict[str, str]:
     out: dict[str, str] = {}
     for name in names:
         try:
             proc = subprocess.run(
-                [tool_path(settings, name), "--version"],
+                [_from_root(tool_path(settings, name), root), "--version"],
                 capture_output=True,
                 text=True,
                 timeout=10,
