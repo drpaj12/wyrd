@@ -1,0 +1,11 @@
+#!/usr/bin/env python3
+"""Fake step: sleepy SECONDS MB EXIT. Touches MB megabytes, sleeps, exits EXIT."""
+
+import sys
+import time
+
+seconds, mb, code = float(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3])
+block = bytearray(b"\x01") * (mb * 2**20)
+time.sleep(seconds)
+print(f"sleepy done {len(block)}")
+sys.exit(code)
