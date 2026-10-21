@@ -5,6 +5,7 @@ from __future__ import annotations
 import fcntl
 import os
 import shutil
+import subprocess
 from pathlib import Path
 
 from wyrd.model import RunSpec
@@ -43,20 +44,25 @@ def plan_run(run: RunSpec, settings: Settings) -> list[tuple[Step, list[str], di
     return out
 
 
-def run_arch_xml(settings: Settings, run: RunSpec, argvs: list[list[str]]) -> Path | None:
-    """The run's arch file when some step's command names it, else None."""
-    try:
-        xml = arch_xml(settings, run.arch)
-    except ValueError:
-        return None
-    named = any(str(xml) in word for argv in argvs for word in argv)
-    return xml if named else None
+def run_arch_xml(settings: Settings, run: RunSpec) -> Path | None:
+    """The run's arch file (None when the run has no arch).
+
+    Raises ValueError when vtr_root is not set.
+    """
+    return arch_xml(settings, run.arch) if run.arch else None
 
 
 def _plan_messages(project: Project, settings: Settings) -> tuple[list[str], set[str]]:
     problems: list[str] = []
     tools: set[str] = set()
     for run in project.runs:
+        try:
+            xml = run_arch_xml(settings, run)
+        except ValueError as exc:
+            problems.append(str(exc))
+        else:
+            if xml is not None and not xml.is_file():
+                problems.append(f"arch file not found: {xml}")
         try:
             plan = plan_run(run, settings)
         except KeyError as exc:
@@ -67,26 +73,46 @@ def _plan_messages(project: Project, settings: Settings) -> tuple[list[str], set
             continue
         for step, _, _ in plan:
             tools.update(step.tools)
-        xml = run_arch_xml(settings, run, [argv for _, argv, _ in plan])
-        if xml is not None and not xml.is_file():
-            problems.append(f"arch file not found: {xml}")
     return problems, tools
 
 
-def _resolves(path: str) -> bool:
-    return shutil.which(path) is not None or Path(path).exists()
+def _resolves(path: str, root: Path) -> bool:
+    if "/" not in path:
+        return shutil.which(path) is not None
+    full = root / path  # an absolute path stays as it is
+    return full.is_file() and os.access(full, os.X_OK)
 
 
-def _tool_messages(settings: Settings, tools: set[str]) -> list[str]:
+def _tool_messages(settings: Settings, tools: set[str], root: Path) -> list[str]:
     problems: list[str] = []
     for name in sorted(tools):
         try:
             path = tool_path(settings, name)
         except (ValueError, KeyError):
             continue  # already reported while planning (vtr_root) or not a setting
-        if not _resolves(path):
-            problems.append(f"tool {name!r} not found: {path}")
+        if not _resolves(path, root):
+            problems.append(f"tool {name!r} not found or not executable: {path}")
     return problems
+
+
+def _systemd_messages() -> list[str]:
+    if shutil.which("systemd-run") is None:
+        return ["launcher is systemd but systemd-run is not on PATH"]
+    try:
+        done = subprocess.run(
+            ["systemd-run", "--user", "--scope", "--quiet", "true"],
+            capture_output=True,
+            timeout=5,
+        )
+        failure = "" if done.returncode == 0 else f"exit code {done.returncode}"
+    except (OSError, subprocess.SubprocessError) as exc:
+        failure = type(exc).__name__
+    if failure:
+        return [
+            f"launcher is systemd but `systemd-run --user --scope` failed ({failure}); "
+            'set launcher = "plain" in machine.toml to run without memory caps'
+        ]
+    return []
 
 
 def _disk_message(settings: Settings) -> list[str]:
@@ -105,10 +131,10 @@ def _disk_message(settings: Settings) -> list[str]:
 def preflight(project: Project, settings: Settings) -> list[str]:
     """Problems that stop a run before it starts; empty means ok. Makes no run directory."""
     problems, tools = _plan_messages(project, settings)
-    problems += _tool_messages(settings, tools)
+    problems += _tool_messages(settings, tools, project.root)
     if settings.vtr_root is not None and not settings.vtr_root.is_dir():
         problems.append(f"vtr_root not found: {settings.vtr_root}")
-    if settings.launcher == "systemd" and shutil.which("systemd-run") is None:
-        problems.append("launcher is systemd but systemd-run is not on PATH")
+    if settings.launcher == "systemd":
+        problems += _systemd_messages()
     problems += _disk_message(settings)
     return list(dict.fromkeys(problems))

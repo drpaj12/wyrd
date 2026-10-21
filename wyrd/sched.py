@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from types import FrameType
+from typing import Any
 
 from wyrd.launch import Launcher, StepResult, SystemdLauncher, kill_group, make_launcher, wait_step
 from wyrd.model import RunSpec
@@ -24,14 +25,19 @@ from wyrd.settings import Settings
 from wyrd.steps import Step, tool_versions
 from wyrd.store import Store, run_dir, run_key
 
+_UNSET = object()
+
 
 def estimate(
     store: Store, design: str, arch: str, step: str, is_vpr: bool, settings: Settings
 ) -> int:
-    """Expected peak memory of a step: history times the factor, else the configured default."""
+    """Expected peak of a step: history times the factor (capped at the budget), else the default.
+
+    Only a configured default larger than the whole budget can exceed the budget.
+    """
     peak = store.peak_mem(design, arch, step)
     if peak:
-        return int(peak * settings.history_factor)
+        return min(int(peak * settings.history_factor), settings.mem_budget)
     return settings.vpr_mem if is_vpr else settings.other_mem
 
 
@@ -58,7 +64,7 @@ def _build_plans(project: Project, settings: Settings) -> list[_Plan]:
     for run, plan in planned:
         argvs = [argv for _, argv, _ in plan]
         wanted = {t: versions[t] for t in _tools_of(plan)}
-        key = run_key(run, run_arch_xml(settings, run, argvs), wanted, argvs)
+        key = run_key(run, run_arch_xml(settings, run), wanted, argvs)
         plans.setdefault(
             key, _Plan(run, key, run_dir(project.root, run, key), tuple(s for s, _, _ in plan))
         )
@@ -161,6 +167,8 @@ class _Scheduler:
             _note(step_dir, msg)
             return "oom", msg
         res = self.attempt(argv, env, step_dir, cap)
+        if res is not None and self.cancel.is_set() and res.outcome != "ok":
+            return "cancelled", "cancelled"  # killed by us: not an oom, not recorded, no retry
         if res is not None and res.outcome == "oom":
             retry = int(cap * self.settings.oom_retry_factor)
             if retry <= self.settings.mem_budget:
@@ -168,9 +176,9 @@ class _Scheduler:
                 res = self.attempt(argv, env, step_dir, retry)
         if res is None:
             return "cancelled", "cancelled"
-        self.record(key, n, step, argv, step_dir, res)
         if self.cancel.is_set() and res.outcome != "ok":
             return "cancelled", "cancelled"
+        self.record(key, n, step, argv, step_dir, res)
         return self.finish_step(key, step, step_dir, res)
 
     def record(
@@ -237,7 +245,7 @@ def run_all(
             sched.results[plan.key] = "ok"
         else:
             todo.append(plan)
-    previous = None
+    previous: Any = _UNSET
     on_main = threading.current_thread() is threading.main_thread()
     if on_main:
         previous = signal.signal(signal.SIGINT, sched.on_sigint)
@@ -245,6 +253,6 @@ def run_all(
         with ThreadPoolExecutor(max_workers=settings.jobs) as pool:
             list(pool.map(sched.run_one, todo))
     finally:
-        if on_main and previous is not None:
-            signal.signal(signal.SIGINT, previous)
+        if on_main and previous is not _UNSET:
+            signal.signal(signal.SIGINT, signal.SIG_DFL if previous is None else previous)
     return dict(sched.results)

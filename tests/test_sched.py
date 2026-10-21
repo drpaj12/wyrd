@@ -8,9 +8,10 @@ import time
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 from tests.helpers import GB, MB, SLEEPY, make_project, make_settings, shell, sleepy
-from wyrd.launch import PlainLauncher, SystemdLauncher, wait_step
+from wyrd.launch import PlainLauncher, SystemdLauncher, kill_group, wait_step
 from wyrd.sched import estimate, run_all
 from wyrd.store import Store
 
@@ -43,13 +44,14 @@ class SchedBase(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.store = Store(self.root / "wyrd.db")
+        self.lines: list[str] = []
 
     def go(self, designs: dict[str, int], steps: list[Any], force: bool = False,
            launcher: Any = None, **changes: Any) -> dict[str, str]:  # fmt: skip
         project = make_project(self.root, designs, steps)
         return run_all(
             project, make_settings(**changes), self.store, force,
-            launcher=launcher, log=lambda line: None,
+            launcher=launcher, log=self.lines.append,
         )  # fmt: skip
 
 
@@ -87,6 +89,79 @@ class WaitStepTest(unittest.TestCase):
         self.assertEqual(res.outcome, "ok")
         self.assertGreaterEqual(res.peak_mem_bytes, 150 * MB)
         self.assertLess(res.peak_mem_bytes, 600 * MB)
+
+
+class PlainAsSystemd(SystemdLauncher):
+    """Counts starts; runs plain, but the scheduler treats a SIGKILL as an oom."""
+
+    def __init__(self) -> None:
+        self.count = 0
+
+    def start(self, argv: list[str], env: dict[str, str], cwd: Path, mem_cap: int,
+              log_out: Path, log_err: Path) -> "subprocess.Popen[bytes]":  # fmt: skip
+        self.count += 1
+        return PlainLauncher().start(argv, env, cwd, mem_cap, log_out, log_err)
+
+
+class FakeTimer:
+    """Timer stand-in: start() runs the callback at once (or raises); cancel() is recorded."""
+
+    on_cancel: Any = None
+    run_now = False
+    fail_start = False
+
+    def __init__(self, interval: float, fn: Any, args: tuple[Any, ...] = ()) -> None:
+        self.fn, self.args = fn, args
+        self.daemon = False
+
+    def start(self) -> None:
+        if self.fail_start:
+            raise RuntimeError("boom: cannot start new thread")
+        if self.run_now and self.fn.__name__ == "expire":
+            self.fn(*self.args)
+
+    def cancel(self) -> None:
+        if FakeTimer.on_cancel is not None:
+            FakeTimer.on_cancel()
+
+
+class WaitStepHardeningTest(unittest.TestCase):
+    def start(self, *argv: str) -> "subprocess.Popen[bytes]":
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        d = Path(tmp.name)
+        return PlainLauncher().start(list(argv), dict(os.environ), d, GB, d / "o", d / "e")
+
+    def setUp(self) -> None:
+        FakeTimer.on_cancel, FakeTimer.run_now, FakeTimer.fail_start = None, False, False
+
+    def test_timer_start_failure_kills_group(self) -> None:
+        proc = self.start(SLEEPY, "30", "0", "0")
+        FakeTimer.fail_start = True
+        with (
+            mock.patch("wyrd.launch.threading.Timer", FakeTimer),
+            self.assertRaisesRegex(RuntimeError, "boom"),
+        ):
+            wait_step(proc, 30)
+        with self.assertRaises(ProcessLookupError):
+            os.killpg(proc.pid, 0)
+
+    def test_returncode_set_right_after_wait4(self) -> None:
+        proc = self.start(sys.executable, "-c", "pass")
+        seen: list[Any] = []
+        FakeTimer.on_cancel = lambda: seen.append(proc.returncode)
+        with mock.patch("wyrd.launch.threading.Timer", FakeTimer):
+            wait_step(proc, 30)
+        self.assertEqual(seen[0], 0)
+
+    def test_exit_zero_before_timeout_is_ok(self) -> None:
+        proc = self.start(sys.executable, "-c", "pass")
+        os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOWAIT)  # exited, not yet reaped
+        FakeTimer.run_now = True
+        with mock.patch("wyrd.launch.threading.Timer", FakeTimer):
+            res = wait_step(proc, 30)
+        self.assertEqual((res.exit_code, res.outcome), (0, "ok"))
+        kill_group(proc, signal.SIGKILL)
 
 
 class RunAllTest(SchedBase):
@@ -199,15 +274,48 @@ class RunAllTest(SchedBase):
         self.assertEqual({r["status"] for r in self.store.rows()}, {"cancelled"})
 
 
+class SigintTest(SchedBase):
+    def test_killed_by_cancel_is_cancelled_not_oom(self) -> None:
+        launcher = PlainAsSystemd()
+        timer = threading.Timer(1.0, lambda: os.kill(os.getpid(), signal.SIGINT))
+        timer.start()
+        self.addCleanup(timer.cancel)
+        got = self.go({"a": 1}, [sleepy(seconds=30)], launcher=launcher)
+        self.assertEqual(list(got.values()), ["cancelled"])
+        self.assertEqual(launcher.count, 1)
+        self.assertIsNone(self.store.peak_mem("a", "", "shell"))
+
+    def test_previous_handler_none_restored_as_default(self) -> None:
+        with mock.patch("wyrd.sched.signal.signal", return_value=None) as sig:
+            self.go({"a": 1}, [sleepy()])
+        self.assertEqual(sig.call_args_list[-1].args, (signal.SIGINT, signal.SIG_DFL))
+        self.assertEqual(len(sig.call_args_list), 2)
+
+    def test_wait_failure_marks_fail_and_kills(self) -> None:
+        with mock.patch("wyrd.launch.threading.Timer", FakeTimer):
+            FakeTimer.fail_start = True
+            self.addCleanup(setattr, FakeTimer, "fail_start", False)
+            got = self.go({"a": 1}, [sleepy(seconds=30)])
+        self.assertEqual(list(got.values()), ["fail"])
+        self.assertTrue(any("RuntimeError: boom" in line for line in self.lines))
+
+
 class EstimateTest(SchedBase):
+    def test_history_estimate_is_clamped_to_budget(self) -> None:
+        self.go({"a": 1}, [sleepy(mb=50)])
+        s = make_settings(mem_budget=GB, history_factor=1000.0)
+        self.assertEqual(estimate(self.store, "a", "", "shell", False, s), GB)
+        got = self.go({"a": 1}, [sleepy(mb=51)], mem_budget=GB, history_factor=1000.0)
+        self.assertEqual(list(got.values()), ["ok"])
+
     def test_defaults_and_history(self) -> None:
         s = make_settings(vpr_mem=4 * GB, other_mem=2 * GB, history_factor=1.5)
-        self.assertEqual(estimate(self.store, "a", "k6", "vpr", True, s), 4 * GB)
-        self.assertEqual(estimate(self.store, "a", "k6", "abc", False, s), 2 * GB)
+        self.assertEqual(estimate(self.store, "a", "", "vpr", True, s), 4 * GB)
+        self.assertEqual(estimate(self.store, "a", "", "abc", False, s), 2 * GB)
         self.go({"a": 1}, [sleepy(mb=50)])
-        peak = self.store.peak_mem("a", "k6", "shell")
+        peak = self.store.peak_mem("a", "", "shell")
         assert peak is not None
-        self.assertEqual(estimate(self.store, "a", "k6", "shell", False, s), int(peak * 1.5))
+        self.assertEqual(estimate(self.store, "a", "", "shell", False, s), int(peak * 1.5))
 
 
 @unittest.skipUnless(systemd_ok(), "systemd --user scope unavailable")

@@ -1,8 +1,10 @@
 import dataclasses
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from tests.helpers import make_project, make_settings, shell, sleepy
 from wyrd.model import StepSpec
@@ -49,7 +51,7 @@ class PreflightTest(unittest.TestCase):
 
     def test_vtr_root_and_arch_missing(self) -> None:
         step = shell("echo", "{arch_xml}")
-        project = make_project(self.root, {"a": 1}, [step])
+        project = make_project(self.root, {"a": 1}, [step], "k6")
         self.assertTrue(any("vtr_root" in p for p in preflight(project, make_settings())))
         vtr = self.root / "vtr"
         vtr.mkdir()
@@ -73,6 +75,55 @@ class PreflightTest(unittest.TestCase):
         s = dataclasses.replace(make_settings(), launcher="systemd")
         problems = preflight(project, s)
         self.assertTrue(all("systemd-run" in p for p in problems))
+
+    def test_path_tool_needs_executable_regular_file(self) -> None:
+        project = make_project(self.root, {"a": 1}, [StepSpec("odin3", {"argv": ["odin3"]})])
+        flow = {"odin3_flow": "odin3-flow"}
+        plain = self.root / "tools" / "t"
+        plain.parent.mkdir()
+        plain.write_text("#!/bin/sh\n")  # not executable
+        s = make_settings(tools={"odin3": "tools/t", **flow})
+        self.assertEqual(len(preflight(project, s)), 1)
+        plain.chmod(0o755)
+        self.assertEqual(preflight(project, s), [])  # relative to the project root, not CWD
+        (self.root / "dir").mkdir()
+        s = make_settings(tools={"odin3": str(self.root / "dir"), **flow})
+        self.assertEqual(len(preflight(project, s)), 1)
+
+    def test_bare_tool_name_uses_path_only(self) -> None:
+        project = make_project(self.root, {"a": 1}, [StepSpec("odin3", {"argv": ["odin3"]})])
+        (self.root / "mytool").write_text("#!/bin/sh\n")
+        (self.root / "mytool").chmod(0o755)
+        s = make_settings(tools={"odin3": "mytool", "odin3_flow": "odin3-flow"})
+        self.assertEqual(len(preflight(project, s)), 1)
+
+    def test_arch_error_reported_even_if_argv_ignores_arch(self) -> None:
+        project = make_project(self.root, {"a": 1}, [sleepy()], "k6")
+        self.assertTrue(any("vtr_root" in p for p in preflight(project, make_settings())))
+        vtr = self.root / "vtr"
+        vtr.mkdir()
+        problems = preflight(project, make_settings(vtr_root=vtr))
+        self.assertEqual(len(problems), 1)
+        self.assertIn("k6.xml", problems[0])
+
+    def test_systemd_probe_failure_suggests_plain(self) -> None:
+        project = make_project(self.root, {"a": 1}, [sleepy()])
+        s = dataclasses.replace(make_settings(), launcher="systemd")
+        bad: subprocess.CompletedProcess[bytes] = subprocess.CompletedProcess([], 1)
+        with (
+            mock.patch("wyrd.preflight.shutil.which", return_value="/usr/bin/systemd-run"),
+            mock.patch("wyrd.preflight.subprocess.run", return_value=bad) as run,
+        ):
+            problems = preflight(project, s)
+        self.assertEqual(len(problems), 1)
+        self.assertIn('launcher = "plain"', problems[0])
+        self.assertEqual(run.call_args.kwargs["timeout"], 5)
+        timeout = subprocess.TimeoutExpired("systemd-run", 5)
+        with (
+            mock.patch("wyrd.preflight.shutil.which", return_value="/usr/bin/systemd-run"),
+            mock.patch("wyrd.preflight.subprocess.run", side_effect=timeout),
+        ):
+            self.assertEqual(len(preflight(project, s)), 1)
 
     def test_second_run_is_locked(self) -> None:
         fd = acquire_lock(self.root)

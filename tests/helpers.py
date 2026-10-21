@@ -31,8 +31,10 @@ def sleepy(seconds: float = 0, mb: int = 0, code: int = 0) -> StepSpec:
     return shell(SLEEPY, str(seconds), str(mb), str(code))
 
 
-def make_project(root: Path, designs: dict[str, int], steps: list[StepSpec]) -> Project:
-    """One run per design (name to input size in bytes), all through one recipe."""
+def make_project(
+    root: Path, designs: dict[str, int], steps: list[StepSpec], arch: str = ""
+) -> Project:
+    """One run per design (name to size in bytes), all through one recipe (no arch)."""
     recipe = Recipe("r", tuple(steps))
     made: dict[str, Design] = {}
     runs: list[RunSpec] = []
@@ -41,5 +43,5 @@ def make_project(root: Path, designs: dict[str, int], steps: list[StepSpec]) -> 
         src.parent.mkdir(parents=True, exist_ok=True)
         src.write_text("x" * size, encoding="utf-8")
         made[name] = Design(name, (src,), None)
-        runs.append(RunSpec(made[name], "k6", recipe))
+        runs.append(RunSpec(made[name], arch, recipe))
     return Project(root, "p", made, {"r": recipe}, {}, tuple(runs))

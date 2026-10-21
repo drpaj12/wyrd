@@ -13,8 +13,8 @@ dependencies = []
 [project.scripts]
 wyrd = "wyrd.cli:main"
 
-[tool.setuptools]
-packages = ["wyrd"]
+[tool.setuptools.packages.find]
+include = ["wyrd*"]
 
 [tool.ruff]
 line-length = 100

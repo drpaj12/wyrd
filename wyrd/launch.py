@@ -120,6 +120,12 @@ def wait_step(
     timers: list[threading.Timer] = []
 
     def expire() -> None:
+        try:
+            done = os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+        except OSError:
+            return  # already reaped: it finished before the timeout
+        if done is not None:
+            return  # exited before the timeout fired; wait4 below reports its real status
         timed_out.set()
         kill_group(proc, signal.SIGTERM)
         hard = threading.Timer(KILL_GRACE_S, kill_group, (proc, signal.SIGKILL))
@@ -127,17 +133,23 @@ def wait_step(
         timers.append(hard)
         hard.start()
 
-    soft = threading.Timer(timeout, expire)
-    soft.daemon = True
-    timers.append(soft)
-    soft.start()
     try:
+        soft = threading.Timer(timeout, expire)
+        soft.daemon = True
+        timers.append(soft)
+        soft.start()
         _, status, usage = os.wait4(proc.pid, 0)
-    finally:
+        proc.returncode = os.waitstatus_to_exitcode(status)
+    except BaseException:
         for timer in timers:
             timer.cancel()
-    code = os.waitstatus_to_exitcode(status)
-    proc.returncode = code
+        kill_group(proc, signal.SIGKILL)  # no-op once the child was reaped
+        with contextlib.suppress(OSError):
+            os.waitpid(proc.pid, 0)
+        raise
+    for timer in timers:
+        timer.cancel()
+    code = proc.returncode
     if timed_out.is_set():  # stragglers of the group we started
         _killpg(proc.pid, signal.SIGKILL)
     peak = usage.ru_maxrss * 1024

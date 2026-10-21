@@ -54,6 +54,22 @@ class KeyTest(unittest.TestCase):
         self.assertNotEqual(base, run_key(make_spec(self.src, {"seed": 2}), None, VERSIONS, ARGV))
         self.assertNotEqual(base, run_key(spec, None, VERSIONS, [["odin3-flow", "b.v"]]))
 
+    def test_same_files_different_design_names_do_not_collapse(self) -> None:
+        recipe = Recipe("vtr", (StepSpec("odin3-flow"),))
+        one = RunSpec(Design("one", (self.src,), "top"), "EArch", recipe, {"seed": 1})
+        two = RunSpec(Design("two", (self.src,), "top"), "EArch", recipe, {"seed": 1})
+        k1, k2 = run_key(one, None, VERSIONS, ARGV), run_key(two, None, VERSIONS, ARGV)
+        self.assertNotEqual(k1, k2)
+        store = Store(self.root / "wyrd.db")
+        for key, spec in ((k1, one), (k2, two)):
+            store.begin(key, spec, run_dir(self.root, spec, key))
+            store.finish(key, "ok")
+        self.assertEqual(sorted(str(r["design"]) for r in store.rows()), ["one", "two"])
+        other_arch = RunSpec(one.design, "Other", recipe, {"seed": 1})
+        other_recipe = RunSpec(one.design, "EArch", Recipe("x", recipe.steps), {"seed": 1})
+        self.assertNotEqual(k1, run_key(other_arch, None, VERSIONS, ARGV))
+        self.assertNotEqual(k1, run_key(other_recipe, None, VERSIONS, ARGV))
+
     def test_key_rejects_bad_param(self) -> None:
         spec = make_spec(self.src, {"seed": {1}})
         with self.assertRaisesRegex(TypeError, "seed"):
