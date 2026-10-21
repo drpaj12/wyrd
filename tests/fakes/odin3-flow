@@ -1,0 +1,19 @@
+#!/usr/bin/env python3
+"""Fake odin3-flow: writes a canned summary.json into --out."""
+
+import json
+import sys
+from pathlib import Path
+
+args = sys.argv[1:]
+out = Path(args[args.index("--out") + 1])
+out.mkdir(parents=True, exist_ok=True)
+summary = {
+    "luts": 120,
+    "luts_note": "approx",
+    "hard_blocks": {"multiply": 2.0},
+    "min_chan_width": None,
+    "crit_path_ns": 4.5,
+    "seconds": {"vpr": 1.5},
+}
+(out / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
