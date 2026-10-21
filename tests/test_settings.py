@@ -34,7 +34,7 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(s.jobs, max(1, (os.cpu_count() or 2) // 2))
         self.assertEqual(s.launcher, "systemd")
         self.assertEqual(s.disk_min_free, 20 * 2**30)
-        want = "/mnt/c" if "microsoft" in Path("/proc/version").read_text().lower() else "/"
+        want = "/mnt/c" if settings.is_wsl() else "/"
         self.assertEqual(s.disk_check_path, Path(want))
         self.assertEqual(s.vpr_mem, 4 * 2**30)
         self.assertEqual(s.other_mem, 2 * 2**30)
@@ -76,3 +76,57 @@ class SettingsTest(unittest.TestCase):
         self.assertTrue(self.machine.is_file())
         self.assertEqual(cli.main(["config", "init"]), 2)
         self.assertEqual(cli.main(["config", "show"]), 0)
+
+    def _bad(self, text: str, key: str) -> None:
+        self.machine.write_text(text)
+        with self.assertRaises(ValueError) as cm:
+            settings.load(None, {})
+        self.assertIn(key, str(cm.exception))
+
+    def test_parse_bytes_rejects_bad_percent_and_huge(self) -> None:
+        for bad in ("-5%", "101%", "nan%", "inf%", "1e3%", "9" * 400 + "G", "9" * 400 + "%"):
+            with self.assertRaises(ValueError, msg=bad):
+                parse_bytes(bad, 100)
+
+    def test_range_checks(self) -> None:
+        for key, val, table in [
+            ("mem_budget", '"0"', "resources"),
+            ("disk_min_free", "0", "resources"),
+            ("vpr_mem", "-1", "defaults"),
+            ("other_mem", '"0G"', "defaults"),
+            ("step_timeout", "0", "defaults"),
+            ("history_factor", "0.5", "defaults"),
+            ("oom_retry_factor", "0.9", "defaults"),
+            ("jobs", "0", "resources"),
+        ]:
+            self._bad(f"[{table}]\n{key} = {val}\n", key)
+
+    def test_cli_jobs_zero_errors(self) -> None:
+        with self.assertRaises(ValueError) as cm:
+            settings.load(None, {"jobs": 0})
+        self.assertIn("jobs", str(cm.exception))
+
+    def test_tool_named_like_resource_key(self) -> None:
+        self.machine.write_text('[tools]\njobs = "/bin/jobs"\nmem_budget = "x"\n')
+        s = settings.load(None, {})
+        self.assertEqual(s.tools["jobs"], "/bin/jobs")
+        self.assertEqual(s.sources["jobs"], "default")
+        self.assertEqual(s.sources["mem_budget"], "default")
+
+    def test_unknown_table_and_key(self) -> None:
+        self._bad("[bogus]\na = 1\n", "bogus")
+        self._bad("[resources]\nnope = 1\n", "nope")
+        self._bad("[defaults]\njobs = 1\n", "jobs")
+
+    def test_disk_min_free_percent_rejected(self) -> None:
+        self._bad('[resources]\ndisk_min_free = "10%"\n', "disk_min_free")
+
+    def test_config_init_write_error(self) -> None:
+        with mock.patch.object(settings, "write_machine_file", side_effect=OSError("denied")):
+            self.assertEqual(cli.main(["config", "init"]), 2)
+
+    def test_vtr_root_from_env(self) -> None:
+        with mock.patch.dict(os.environ, {"VTR_ROOT": "/opt/vtr"}):
+            s = settings.load(None, {})
+        self.assertEqual(s.vtr_root, Path("/opt/vtr"))
+        self.assertEqual(s.sources["vtr_root"], "default")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import tomllib
 from dataclasses import dataclass, fields
@@ -13,7 +14,7 @@ PROJECT_KEYS = {"step_timeout"}
 
 _SIZE_FIELDS = {"mem_budget", "disk_min_free", "vpr_mem", "other_mem"}
 _TABLE_OF = {
-    "tools": ("tools", "vtr_root"),
+    "tools": ("vtr_root",),
     "resources": ("mem_budget", "jobs", "launcher", "disk_min_free", "disk_check_path"),
     "defaults": ("vpr_mem", "other_mem", "history_factor", "oom_retry_factor", "step_timeout"),
 }
@@ -77,19 +78,6 @@ def _defaults() -> dict[str, object]:
     }
 
 
-def _flatten_machine(data: dict[str, object]) -> dict[str, object]:
-    out: dict[str, object] = {}
-    for table, keys in _TABLE_OF.items():
-        sub = data.get(table, {})
-        if not isinstance(sub, dict):
-            raise ValueError(f"machine.toml: [{table}] must be a table")
-        for k, v in sub.items():
-            if k not in keys and not (table == "tools" and isinstance(v, str)):
-                raise ValueError(f"machine.toml: unknown key {k!r} in [{table}]")
-            out[k] = v
-    return out
-
-
 def _merge_tools(base: dict[str, str], value: object) -> dict[str, str]:
     if not isinstance(value, dict):
         raise ValueError("tools must be a table")
@@ -104,17 +92,11 @@ def _tools_of(values: dict[str, object]) -> dict[str, str]:
     return {str(k): str(v) for k, v in tools.items()}
 
 
-def _flat_tools(layer: dict[str, object]) -> dict[str, object]:
-    """Split tool names out of a flattened machine layer."""
-    tools = {k: v for k, v in layer.items() if k not in _all_keys()}
-    rest = {k: v for k, v in layer.items() if k in _all_keys()}
-    if tools:
-        rest["tools"] = tools
-    return rest
-
-
-def _all_keys() -> set[str]:
-    return {k for keys in _TABLE_OF.values() for k in keys if k != "tools"}
+def _machine_table(data: dict[str, object], table: str) -> dict[str, object]:
+    sub = data[table]
+    if not isinstance(sub, dict):
+        raise ValueError(f"machine.toml: [{table}] must be a table")
+    return sub
 
 
 def _read_machine(path: Path) -> dict[str, object]:
@@ -122,17 +104,54 @@ def _read_machine(path: Path) -> dict[str, object]:
         return {}
     with open(path, "rb") as f:
         data = tomllib.load(f)
-    return _flat_tools(_flatten_machine(data))
+    unknown = sorted(set(data) - set(_TABLE_OF))
+    if unknown:
+        raise ValueError(f"machine.toml: unknown table {', '.join(unknown)}")
+    out: dict[str, object] = {}
+    for table, keys in _TABLE_OF.items():
+        if table not in data:
+            continue
+        sub = _machine_table(data, table)
+        if table == "tools":
+            _read_tools(sub, out)
+            continue
+        for k, v in sub.items():
+            if k not in keys:
+                raise ValueError(f"machine.toml: unknown key {k!r} in [{table}]")
+            out[k] = v
+    return out
+
+
+def _read_tools(sub: dict[str, object], out: dict[str, object]) -> None:
+    tools: dict[str, object] = {}
+    for k, v in sub.items():
+        if k == "vtr_root":
+            out["vtr_root"] = v
+        elif isinstance(v, str):
+            tools[k] = v
+        else:
+            raise ValueError(f"machine.toml: tool {k!r} in [tools] must be a string")
+    if tools:
+        out["tools"] = tools
 
 
 def _size(name: str, value: object, total: int) -> int:
     if isinstance(value, bool):
         raise ValueError(f"{name}: bad size {value!r}")
     if isinstance(value, int):
-        return value
-    if isinstance(value, str):
-        return parse_bytes(value, total)
-    raise ValueError(f"{name}: bad size {value!r}")
+        result = value
+    elif isinstance(value, str):
+        if name == "disk_min_free" and value.strip().endswith("%"):
+            raise ValueError(f"{name}: disk thresholds take an absolute size, got {value!r}")
+        try:
+            result = parse_bytes(value, total)
+        except ValueError as e:
+            raise ValueError(f"{name}: {e}") from None
+    else:
+        raise ValueError(f"{name}: bad size {value!r}")
+    if result <= 0:
+        raise ValueError(f"{name}: must be > 0, got {value!r}")
+    return result
 
 
 def _as_int(name: str, value: object) -> int:
@@ -144,7 +163,31 @@ def _as_int(name: str, value: object) -> int:
 def _as_float(name: str, value: object) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{name}: expected a number, got {value!r}")
-    return float(value)
+    result = float(value)
+    if not math.isfinite(result):
+        raise ValueError(f"{name}: must be finite, got {value!r}")
+    return result
+
+
+def _factor(name: str, value: object) -> float:
+    result = _as_float(name, value)
+    if result < 1.0:
+        raise ValueError(f"{name}: must be >= 1.0, got {value!r}")
+    return result
+
+
+def _jobs(value: object) -> int:
+    result = _as_int("jobs", value)
+    if result < 1:
+        raise ValueError(f"jobs: must be >= 1, got {value!r}")
+    return result
+
+
+def _timeout(value: object) -> int:
+    result = _as_int("step_timeout", value)
+    if result <= 0:
+        raise ValueError(f"step_timeout: must be > 0, got {value!r}")
+    return result
 
 
 def load(project_run: dict[str, object] | None, cli: dict[str, object]) -> Settings:
@@ -178,15 +221,15 @@ def _build(values: dict[str, object], sources: dict[str, str], total: int) -> Se
         tools=dict(tools),
         vtr_root=Path(str(vtr)) if vtr else None,
         mem_budget=_size("mem_budget", values["mem_budget"], total),
-        jobs=max(1, _as_int("jobs", values["jobs"])),
+        jobs=_jobs(values["jobs"]),
         launcher=str(values["launcher"]),
         disk_min_free=_size("disk_min_free", values["disk_min_free"], total),
         disk_check_path=Path(str(values["disk_check_path"])),
         vpr_mem=_size("vpr_mem", values["vpr_mem"], total),
         other_mem=_size("other_mem", values["other_mem"], total),
-        history_factor=_as_float("history_factor", values["history_factor"]),
-        oom_retry_factor=_as_float("oom_retry_factor", values["oom_retry_factor"]),
-        step_timeout=_as_int("step_timeout", values["step_timeout"]),
+        history_factor=_factor("history_factor", values["history_factor"]),
+        oom_retry_factor=_factor("oom_retry_factor", values["oom_retry_factor"]),
+        step_timeout=_timeout(values["step_timeout"]),
         sources=sources,
     )
 

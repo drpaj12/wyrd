@@ -14,7 +14,11 @@ def _config_init() -> int:
     if path.exists():
         print(f"wyrd: {path} already exists", file=sys.stderr)
         return 2
-    settings.write_machine_file(path)
+    try:
+        settings.write_machine_file(path)
+    except OSError as e:
+        print(f"wyrd: cannot write {path}: {e}", file=sys.stderr)
+        return 2
     print(f"wrote {path}")
     return 0
 
