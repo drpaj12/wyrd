@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -21,6 +22,8 @@ files = ["x.v"]
 steps = [{ use = "odin3-flow" }]
 
 """
+
+SWEEP = '[sweep]\nrecipe = ["r"]\ndesign = ["d"]\narch = ["a"]\n'
 
 
 def _write(text: str, with_file: bool = True) -> Path:
@@ -92,6 +95,108 @@ class ProjectTests(unittest.TestCase):
         with self.assertRaises(ConfigError) as cm:
             load_project(Path(tempfile.mkdtemp()) / "wyrd.toml")
         self.assertIsNone(cm.exception.line)
+
+    def _err(self, text: str, with_file: bool = True) -> ConfigError:
+        with self.assertRaises(ConfigError) as cm:
+            load_project(_write(text, with_file))
+        return cm.exception
+
+    def test_absolute_and_dotdot_patterns(self) -> None:
+        outer = Path(tempfile.mkdtemp())
+        (outer / "ext").mkdir()
+        (outer / "ext" / "z.v").write_text("module z; endmodule\n")
+        (outer / "ext" / "z.v.bak").write_text("")
+        proj_dir = outer / "proj"
+        proj_dir.mkdir()
+        (proj_dir / "x.v").write_text("module x; endmodule\n")
+        text = (BASE.replace('["x.v"]', f'["../ext/*.v", "{outer}/ext/z.v", "x.v"]')
+                + SWEEP)
+        path = proj_dir / "wyrd.toml"
+        path.write_text(text)
+        files = load_project(path).designs["d"].files
+        self.assertEqual(files, (
+            (outer / "ext" / "z.v").resolve(), (proj_dir / "x.v").resolve()))
+
+    def test_env_var_expansion(self) -> None:
+        outer = Path(tempfile.mkdtemp())
+        (outer / "q.v").write_text("")
+        os.environ["WYRD_T_DIR"] = str(outer)
+        self.addCleanup(os.environ.pop, "WYRD_T_DIR", None)
+        for form in ("${WYRD_T_DIR}", "$WYRD_T_DIR"):
+            path = _write(BASE.replace('"x.v"', f'"{form}/q.v"') + SWEEP, False)
+            files = load_project(path).designs["d"].files
+            self.assertEqual(files, ((outer / "q.v").resolve(),))
+
+    def test_unset_env_var(self) -> None:
+        os.environ.pop("WYRD_T_UNSET", None)
+        e = self._err(BASE.replace('"x.v"', '"${WYRD_T_UNSET}/q.v"') + SWEEP)
+        self.assertIn("WYRD_T_UNSET", str(e))
+        self.assertEqual(e.line, 6)
+
+    def test_absolute_empty_match(self) -> None:
+        e = self._err(BASE.replace('"x.v"', '"/nonexistent-wyrd/*.v"') + SWEEP)
+        self.assertIn("/nonexistent-wyrd/*.v", str(e))
+        self.assertIn("'d'", str(e))
+
+    def test_duplicate_design(self) -> None:
+        text = BASE.replace("[recipe.r]", '[[design]]\nname = "d"\nfiles = ["x.v"]\n\n[recipe.r]')
+        e = self._err(text + SWEEP)
+        self.assertIn("duplicate", str(e))
+        self.assertEqual(e.line, 9)
+
+    def test_empty_sweep_lists(self) -> None:
+        for key in ("recipe", "design", "arch", "seed"):
+            body = {"recipe": '["r"]', "design": '["d"]', "arch": '["a"]'}
+            body["seed"] = "[1]"
+            body[key] = "[]"
+            sweep = "[sweep]\n" + "".join(f"{k} = {v}\n" for k, v in body.items())
+            e = self._err(BASE + sweep)
+            self.assertIn(key, str(e))
+            self.assertIn("empty", str(e))
+            self.assertEqual(e.line, 12 + list(body).index(key))
+
+    def test_design_wrong_shape(self) -> None:
+        tail = '[recipe.r]\nsteps = [{ use = "u" }]\n' + SWEEP
+        self._err('[project]\nname = "t"\ndesign = "x"\n' + tail)
+        self._err('[project]\nname = "t"\n[design]\nname = "d"\n' + tail)
+
+    def test_wrong_types(self) -> None:
+        for old, new in (('files = ["x.v"]', 'files = "x.v"'),
+                         ('files = ["x.v"]', "files = [1]"),
+                         ('files = ["x.v"]', 'files = ["x.v"]\ntop = 3'),
+                         ('steps = [{ use = "odin3-flow" }]', "steps = [1]"),
+                         ('steps = [{ use = "odin3-flow" }]', "steps = [{ use = 1 }]"),
+                         ('steps = [{ use = "odin3-flow" }]', "steps = []")):
+            self._err(BASE.replace(old, new) + SWEEP)
+
+    def test_missing_required(self) -> None:
+        self._err(BASE.replace('name = "t"', "") + SWEEP)
+        e = self._err(BASE.replace('name = "d"', "") + SWEEP)
+        self.assertEqual(e.line, 4)
+        e = self._err(BASE.replace('files = ["x.v"]', "") + SWEEP)
+        self.assertIn("files", str(e))
+
+    def test_bad_utf8(self) -> None:
+        path = _write(BASE + SWEEP)
+        path.write_bytes(b'[project]\nname = "\xff\xfe"\n')
+        with self.assertRaises(ConfigError):
+            load_project(path)
+
+    def test_line_lookup_from_header(self) -> None:
+        # steps key appears earlier in an unrelated recipe and a design 'files' precedes.
+        text = ('[project]\nname = "t"\n\n[[design]]\nname = "d1"\nfiles = ["x.v"]\n\n'
+                '[[design]]\nname = "d2"\nfiles = "bad"\n\n'
+                '[recipe.a]\nsteps = [{ use = "u" }]\n\n[recipe.b]\nsteps = []\n')
+        e = self._err(text + SWEEP)
+        self.assertEqual(e.line, 10)
+        text = text.replace('files = "bad"', 'files = ["x.v"]')
+        e = self._err(text + SWEEP)
+        self.assertEqual(e.line, 16)
+
+    def test_root_resolved(self) -> None:
+        path = _write(BASE + SWEEP)
+        rel = Path(os.path.relpath(path))
+        self.assertEqual(load_project(rel).root, path.resolve().parent)
 
 
 if __name__ == "__main__":
