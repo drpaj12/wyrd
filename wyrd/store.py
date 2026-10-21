@@ -33,6 +33,24 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+_STATUSES = frozenset({"ok", "fail", "oom", "timeout", "cancelled"})
+
+
+def _norm(name: str, value: object) -> object:
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, list | tuple):
+        return [_norm(name, item) for item in value]
+    raise TypeError(f"param {name!r}: unsupported type {type(value).__name__}")
+
+
+def _norm_params(params: dict[str, object]) -> dict[str, object]:
+    """Params as JSON-safe values: scalars, Path as str, list/tuple as list; else TypeError."""
+    return {name: _norm(name, value) for name, value in params.items()}
+
+
 def run_key(
     spec: RunSpec,
     arch_xml: Path | None,
@@ -45,9 +63,9 @@ def run_key(
         "files": {str(path): _sha256_file(path) for path in spec.design.files},
         "arch": _sha256_file(arch_xml) if arch_xml is not None else None,
         "tools": tool_versions,
-        "params": spec.params,
+        "params": _norm_params(spec.params),
     }
-    text = json.dumps(payload, sort_keys=True, default=str)
+    text = json.dumps(payload, sort_keys=True)
     return hashlib.sha256(text.encode()).hexdigest()
 
 
@@ -66,7 +84,8 @@ class Store:
     def __init__(self, path: Path) -> None:
         self.path = path
         path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
+            conn.execute("PRAGMA journal_mode=WAL")
             conn.executescript(_SCHEMA)
 
     def _connect(self) -> sqlite3.Connection:
@@ -81,23 +100,35 @@ class Store:
             return conn.execute(sql, args).fetchall()
 
     def begin(self, key: str, spec: RunSpec, run_dir: Path) -> None:
-        self._exec(
-            "INSERT OR REPLACE INTO runs VALUES (?,?,?,?,?,?,?,?,?)",
-            (
-                key,
-                spec.design.name,
-                spec.arch,
-                spec.recipe.name,
-                json.dumps(spec.params, sort_keys=True, default=str),
-                "running",
-                _now(),
-                None,
-                str(run_dir),
-            ),
-        )
+        """Start (or restart) a run; drops the key's old steps and metrics atomically."""
+        params = json.dumps(_norm_params(spec.params), sort_keys=True)
+        with closing(self._connect()) as conn, conn:
+            conn.execute("DELETE FROM steps WHERE key = ?", (key,))
+            conn.execute("DELETE FROM metrics WHERE key = ?", (key,))
+            conn.execute(
+                "INSERT OR REPLACE INTO runs VALUES (?,?,?,?,?,?,?,?,?)",
+                (
+                    key,
+                    spec.design.name,
+                    spec.arch,
+                    spec.recipe.name,
+                    params,
+                    "running",
+                    _now(),
+                    None,
+                    str(run_dir),
+                ),
+            )
 
     def finish(self, key: str, status: str) -> None:
-        self._exec("UPDATE runs SET status = ?, ended = ? WHERE key = ?", (status, _now(), key))
+        if status not in _STATUSES:
+            raise ValueError(f"bad status {status!r}")
+        with closing(self._connect()) as conn, conn:
+            cur = conn.execute(
+                "UPDATE runs SET status = ?, ended = ? WHERE key = ?", (status, _now(), key)
+            )
+            if cur.rowcount == 0:
+                raise KeyError(key)
 
     def add_step(
         self,
@@ -135,12 +166,23 @@ class Store:
         return int(value) if isinstance(value, int) else None
 
     def rows(self) -> list[dict[str, object]]:
+        """One dict per run: the runs columns plus one entry per metric name.
+
+        A metric whose name equals a runs column is stored as ``metric.<name>``. When several
+        steps report the same metric name, the later step (higher step n) wins; the order is an
+        explicit ORDER BY on the step number, then insertion order.
+        """
         with closing(self._connect()) as conn:
             conn.row_factory = sqlite3.Row
             runs = [dict(r) for r in conn.execute("SELECT * FROM runs ORDER BY design, arch, key")]
             for row in runs:
+                columns = set(row)
                 for m in conn.execute(
-                    "SELECT name, value FROM metrics WHERE key = ? ORDER BY rowid", (row["key"],)
+                    "SELECT m.name, m.value FROM metrics m LEFT JOIN steps s "
+                    "ON s.key = m.key AND s.step = m.step WHERE m.key = ? "
+                    "ORDER BY COALESCE(s.n, 0), m.rowid",
+                    (row["key"],),
                 ):
-                    row[m["name"]] = m["value"]
+                    name = m["name"]
+                    row[f"metric.{name}" if name in columns else name] = m["value"]
         return runs

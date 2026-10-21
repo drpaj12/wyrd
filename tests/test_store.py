@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -53,6 +54,16 @@ class KeyTest(unittest.TestCase):
         self.assertNotEqual(base, run_key(make_spec(self.src, {"seed": 2}), None, VERSIONS, ARGV))
         self.assertNotEqual(base, run_key(spec, None, VERSIONS, [["odin3-flow", "b.v"]]))
 
+    def test_key_rejects_bad_param(self) -> None:
+        spec = make_spec(self.src, {"seed": {1}})
+        with self.assertRaisesRegex(TypeError, "seed"):
+            run_key(spec, None, VERSIONS, ARGV)
+
+    def test_key_path_and_tuple_params(self) -> None:
+        a = make_spec(self.src, {"p": Path("x"), "t": (1, 2)})
+        b = make_spec(self.src, {"p": "x", "t": [1, 2]})
+        self.assertEqual(run_key(a, None, VERSIONS, ARGV), run_key(b, None, VERSIONS, ARGV))
+
     def test_run_dir_layout(self) -> None:
         spec = make_spec(self.src)
         key = "0123456789abcdef" * 4
@@ -94,6 +105,53 @@ class StoreTest(unittest.TestCase):
             self.store.add_step(key, 1, "odin3-flow", [], 0, 1.0, peak)
         self.assertEqual(self.store.peak_mem("d", "EArch", "odin3-flow"), 300)
         self.assertIsNone(self.store.peak_mem("d", "EArch", "vpr"))
+
+    def test_begin_clears_stale_rows(self) -> None:
+        self.store.begin("k1", self.spec, self.root / "r")
+        self.store.add_step("k1", 1, "odin3-flow", [], 0, 1.0, 10)
+        self.store.add_metrics("k1", "odin3-flow", [Metric("luts", 1.0, "")])
+        self.store.begin("k1", self.spec, self.root / "r")
+        self.assertEqual(self.store.peak_mem("d", "EArch", "odin3-flow"), None)
+        with closing(sqlite3.connect(self.root / "wyrd.db")) as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM steps").fetchone()[0], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM metrics").fetchone()[0], 0)
+
+    def test_begin_rejects_bad_param(self) -> None:
+        spec = make_spec(self.root / "a.v", {"seed": object()})
+        with self.assertRaisesRegex(TypeError, "seed"):
+            self.store.begin("k1", spec, self.root / "r")
+
+    def test_begin_params_normalised(self) -> None:
+        spec = make_spec(self.root / "a.v", {"p": Path("x"), "t": (1, "a"), "n": None})
+        self.store.begin("k1", spec, self.root / "r")
+        with closing(sqlite3.connect(self.root / "wyrd.db")) as conn:
+            text = conn.execute("SELECT params FROM runs").fetchone()[0]
+        self.assertEqual(json.loads(text), {"p": "x", "t": [1, "a"], "n": None})
+
+    def test_wal_enabled(self) -> None:
+        with closing(sqlite3.connect(self.root / "wyrd.db")) as conn:
+            self.assertEqual(conn.execute("PRAGMA journal_mode").fetchone()[0], "wal")
+
+    def test_rows_metric_name_clash_and_later_step_wins(self) -> None:
+        self.store.begin("k1", self.spec, self.root / "r")
+        self.store.add_step("k1", 1, "a", [], 0, 1.0, None)
+        self.store.add_step("k1", 2, "b", [], 0, 1.0, None)
+        # inserted out of order: step b (n=2) first, then a (n=1)
+        self.store.add_metrics("k1", "b", [Metric("luts", 2.0, ""), Metric("status", 5.0, "")])
+        self.store.add_metrics("k1", "a", [Metric("luts", 1.0, "")])
+        row = self.store.rows()[0]
+        self.assertEqual(row["luts"], 2.0)
+        self.assertEqual(row["status"], "running")
+        self.assertEqual(row["metric.status"], 5.0)
+
+    def test_finish_validates(self) -> None:
+        self.store.begin("k1", self.spec, self.root / "r")
+        with self.assertRaises(ValueError):
+            self.store.finish("k1", "bogus")
+        with self.assertRaises(KeyError):
+            self.store.finish("nope", "ok")
+        self.store.finish("k1", "cancelled")
+        self.assertEqual(self.store.status("k1"), "cancelled")
 
 
 if __name__ == "__main__":
