@@ -1,0 +1,72 @@
+#!/usr/bin/env python3
+"""Write samples/expected/<arch>.json by running odin3-flow directly on each sample.
+
+Uses the same argv as the wyrd `odin3-flow` step and the same flattening (seconds.* left out).
+Needs `odin3-flow` and `odin3` on PATH (or in machine settings) and VTR_ROOT.
+A design whose odin3-flow run fails is recorded as status "fail" (no metrics).
+Checks that `dsp` maps a multiplier and a memory hard block on every arch.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent))
+
+from wyrd import settings
+from wyrd.project import load_project
+from wyrd.steps import get_step, tool_versions
+
+
+def check_dsp(metrics: dict[str, object], arch: str) -> None:
+    blocks = {k.split(".", 1)[1]: v for k, v in metrics.items() if k.startswith("hard_blocks.")}
+    if not any(k.startswith("mult") and float(str(v)) >= 1 for k, v in blocks.items()):
+        raise SystemExit(f"dsp on {arch}: no multiplier hard block (hard_blocks: {blocks})")
+    if not any(k.startswith(("memory", "ram")) and float(str(v)) >= 1 for k, v in blocks.items()):
+        raise SystemExit(f"dsp on {arch}: no memory hard block (hard_blocks: {blocks})")
+
+
+def main() -> int:
+    s = settings.load(None, {})
+    project = load_project(HERE / "wyrd.toml")
+    version = tool_versions(s, ["odin3"])["odin3"].splitlines()[0]
+    if version == "unknown":
+        raise SystemExit("odin3 --version failed")
+    results: dict[str, dict[str, object]] = {}
+    for run in project.runs:
+        step = get_step(run.recipe.steps[0])
+        with tempfile.TemporaryDirectory() as tmp:
+            argv, env = step.command(run, Path(tmp), s)
+            print(f"{run.design.name} on {run.arch}", flush=True)
+            proc = subprocess.run(argv, env={**os.environ, **env}, check=False)
+            ok = proc.returncode == 0
+            metrics: dict[str, object] = {"status": "ok" if ok else "fail"}
+            if ok:
+                metrics.update(
+                    {
+                        m.name: m.value
+                        for m in step.collect(Path(tmp))
+                        if not m.name.startswith("seconds.")
+                    }
+                )
+        if run.design.name == "dsp":
+            if metrics["status"] != "ok":
+                raise SystemExit(f"dsp on {run.arch}: odin3-flow failed")
+            check_dsp(metrics, run.arch)
+        results.setdefault(run.arch, {"odin3_version": version})[run.design.name] = metrics
+    out = HERE / "expected"
+    out.mkdir(exist_ok=True)
+    for arch, data in results.items():
+        (out / f"{arch}.json").write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+        print(f"wrote {out / (arch + '.json')}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

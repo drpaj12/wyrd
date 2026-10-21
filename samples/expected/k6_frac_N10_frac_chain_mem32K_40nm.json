@@ -1,0 +1,19 @@
+{
+  "dsp": {
+    "clbs": 6.0,
+    "crit_path_ns": 5.50798,
+    "hard_blocks.memory": 1.0,
+    "hard_blocks.mult_36": 1.0,
+    "luts": 56.0,
+    "min_chan_width": 32.0,
+    "status": "ok",
+    "wirelength": 1405.0
+  },
+  "multi": {
+    "status": "fail"
+  },
+  "odin3_version": "odin3 1.0.0 (ABI 4)",
+  "single": {
+    "status": "fail"
+  }
+}
