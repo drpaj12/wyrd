@@ -39,14 +39,28 @@ def _machine_file(path: Path, vtr_root: str, env: dict[str, str]) -> None:
         "vtr_root": vtr_root,
     }
     lines = []
+    seen: set[str] = set()
+    tools_at: int | None = None
     for line in path.read_text(encoding="utf-8").splitlines():
         key = line.split("=", 1)[0].strip()
-        lines.append(f'{key} = "{wanted[key]}"' if key in wanted else line)
+        if key in wanted:
+            seen.add(key)
+            line = f'{key} = "{wanted[key]}"'
+        lines.append(line)
+        if line.strip() == "[tools]":
+            tools_at = len(lines)
+    missing = [f'{key} = "{value}"' for key, value in wanted.items() if key not in seen]
+    if tools_at is None:  # no [tools] table at all
+        lines += ["[tools]", *missing]
+    else:  # keys config init left out (e.g. vtr_root without VTR_ROOT)
+        lines[tools_at:tools_at] = missing
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _odin3_version() -> str:
-    proc = subprocess.run(["odin3", "--version"], capture_output=True, text=True, check=False)
+    """The version of the odin3 the machine file names (the one on PATH)."""
+    proc = subprocess.run([str(shutil.which("odin3")), "--version"], capture_output=True, text=True,
+                          check=False)
     return proc.stdout.splitlines()[0] if proc.stdout else "unknown"
 
 
