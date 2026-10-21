@@ -106,6 +106,68 @@ class StepsTest(unittest.TestCase):
         (self.dir / "metrics.json").write_text('{"a": 1, "b": "x"}', encoding="utf-8")
         self.assertEqual([(m.name, m.value) for m in step.collect(self.dir)], [("a", 1.0)])
 
+    def test_generic_step_needs_own_argv(self) -> None:
+        recipe = Recipe("r", (StepSpec("vpr", {"argv": ["vpr"]}), StepSpec("vpr")))
+        with self.assertRaisesRegex(ValueError, "vpr"):
+            get_step(recipe.steps[1])
+        with self.assertRaisesRegex(ValueError, "shell"):
+            get_step(StepSpec("shell", {"argv": [1]}))
+
+    def _cmd(
+        self, argv: list[str], s: settings.Settings | None = None, top: str | None = "t"
+    ) -> list[str]:
+        run = RunSpec(Design("d", (Path("/a.v"),), top), "k6", Recipe("r", ()))
+        step = get_step(StepSpec("shell", {"argv": argv}))
+        return step.command(run, self.dir, s or _settings())[0]
+
+    def test_vtr_root_unset(self) -> None:
+        s = settings.Settings(**{**_settings().__dict__, "vtr_root": None})
+        with self.assertRaisesRegex(ValueError, "vtr_root"):
+            self._cmd(["echo", "{vtr_root}"], s)
+        with self.assertRaisesRegex(ValueError, "vtr_root"):
+            get_step(StepSpec("odin3-flow")).command(_run(), self.dir, s)
+
+    def test_top_missing(self) -> None:
+        with self.assertRaisesRegex(ValueError, "shell"):
+            self._cmd(["echo", "{top}"], top=None)
+
+    def test_single_pass_expansion(self) -> None:
+        run = RunSpec(Design("d", (Path("/a.v"),), "{step_dir}"), "k6", Recipe("r", ()))
+        got, _ = get_step(StepSpec("shell", {"argv": ["echo", "{top}"]})).command(
+            run, self.dir, _settings()
+        )
+        self.assertEqual(got, ["echo", "{step_dir}"])
+
+    def test_files_inside_word(self) -> None:
+        with self.assertRaisesRegex(ValueError, "whole argv word"):
+            self._cmd(["echo", "-I{files}"])
+
+    def test_collect_bad_values(self) -> None:
+        step = get_step(StepSpec("shell", {"argv": ["true"]}))
+        (self.dir / "metrics.json").write_text(
+            '{"a": 1, "n": NaN, "i": Infinity, "big": 1e999, "huge": %s, "t": true}' % ("9" * 400),
+            encoding="utf-8",
+        )
+        self.assertEqual([m.name for m in step.collect(self.dir)], ["a"])
+        (self.dir / "metrics.json").write_text("{bad", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "metrics.json"):
+            step.collect(self.dir)
+
+    def test_flow_collect_bad_values(self) -> None:
+        self.assertEqual(get_step(StepSpec("odin3-flow")).collect(self.dir), [])
+        self._write_summary({"luts": 1, "x": float("nan"), "y": True, "z": {"w": float("inf")}})
+        self.assertEqual(
+            [m.name for m in get_step(StepSpec("odin3-flow")).collect(self.dir)], ["luts"]
+        )
+        (self.dir / "out" / "summary.json").write_text("[oops", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "summary.json"):
+            get_step(StepSpec("odin3-flow")).collect(self.dir)
+
+    def test_flow_vpr_must_be_bool(self) -> None:
+        for bad in ("no", 0, None):
+            with self.assertRaisesRegex(ValueError, "vpr"):
+                get_step(StepSpec("odin3-flow", {"vpr": bad}))
+
     def test_get_step_unknown(self) -> None:
         with self.assertRaises(KeyError):
             get_step(StepSpec("nope"))
