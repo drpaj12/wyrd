@@ -57,8 +57,11 @@ def run_key(
     tool_versions: dict[str, str],
     resolved_argv: list[list[str]],
 ) -> str:
-    """SHA-256 over the resolved argv, input file hashes, arch hash, tool versions and params."""
+    """SHA-256 over names, resolved argv, input file hashes, arch hash, tool versions, params."""
     payload = {
+        "design_name": spec.design.name,
+        "arch_name": spec.arch,
+        "recipe_name": spec.recipe.name,
         "argv": resolved_argv,
         "files": {str(path): _sha256_file(path) for path in spec.design.files},
         "arch": _sha256_file(arch_xml) if arch_xml is not None else None,
