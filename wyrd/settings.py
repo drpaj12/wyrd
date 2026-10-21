@@ -98,6 +98,12 @@ def _merge_tools(base: dict[str, str], value: object) -> dict[str, str]:
     return merged
 
 
+def _tools_of(values: dict[str, object]) -> dict[str, str]:
+    tools = values["tools"]
+    assert isinstance(tools, dict)
+    return {str(k): str(v) for k, v in tools.items()}
+
+
 def _flat_tools(layer: dict[str, object]) -> dict[str, object]:
     """Split tool names out of a flattened machine layer."""
     tools = {k: v for k, v in layer.items() if k not in _all_keys()}
@@ -159,7 +165,7 @@ def load(project_run: dict[str, object] | None, cli: dict[str, object]) -> Setti
         for k, v in layer.items():
             if k not in values:
                 raise ValueError(f"{source}: unknown setting {k!r}")
-            values[k] = _merge_tools(values[k], v) if k == "tools" else v  # type: ignore[arg-type]
+            values[k] = _merge_tools(_tools_of(values), v) if k == "tools" else v
             sources[k] = source
     return _build(values, sources, total)
 
