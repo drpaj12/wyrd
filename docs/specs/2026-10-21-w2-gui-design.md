@@ -362,9 +362,13 @@ Per-module resource use (W2.1), schematic viewer, waveform or simulation views (
 Verilog Town (W4), editing Verilog, editing recipes other than as text, multi-project windows,
 Windows-native builds, running steps without `wyrd run`, any change to Odin III or VPR.
 
-## 16. Open questions (with recommendation)
+## 16. Decisions on the open questions (Peter, 2026-10-21: all good)
 
-1. Citation detail for `verilog-town`, `theryx`, `gate-breaker`, and a check of the others:
-   recommend Peter supplies title, year, URL, role in one message; W2 ships them blank until then.
-2. `PySide6-Essentials` instead of the full `PySide6` wheel: recommend yes (same import, smaller).
-3. Keep the floorplan re-run fallback until Odin III can keep the VPR result files: recommend yes.
+1. Citations: filled in the plan (Task 3), including verilogTown (Jamieson, Grace, Mizuno, Zhang, ASEE
+   2017), Gate-Breaker (IPCCC 2025), Odin (FPL 2005) and theryx. The theryx author name is the GitHub
+   owner's; Peter may correct any entry later in `wyrd/data/citations.toml`.
+2. `PySide6-Essentials` instead of the full `PySide6` wheel.
+3. Floorplan re-run fallback kept until Odin III can keep the VPR result files (a later
+   `odin3-flow --keep-vpr-files` option).
+4. If `mypy --strict` rejects PySide6 usage that correct typing cannot fix, stop and ask Peter (no
+   suppressions).
