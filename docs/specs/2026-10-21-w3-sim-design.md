@@ -6,7 +6,7 @@ those decisions left open (Section 15 lists what Peter may still change). Plan:
 the game's sensors and lights are this session's inputs and outputs. Builds on W1
 (`docs/specs/2026-10-21-w1-runner-design.md`) and W2 (`docs/specs/2026-10-21-w2-gui-design.md`), and on
 Odin III's S1 simulation API (`docs/specs/2026-10-21-s1-sim-api-design.md` in the Odin III repository, shipped in
-Odin III v1.2).
+Odin III v1.0.3).
 
 ## 1. Goal
 
@@ -64,9 +64,9 @@ The exception is contained:
 - `wyrd.bifrost` imports nothing from Qt or pygame, and `wyrd` imports `wyrd.bifrost` only from `wyrd/gui/`,
   `wyrd/guimodel/` (types only), `wyrd/town/` and `wyrd/cli.py` (the `sim` command, imported inside the
   command function). `import wyrd` and `wyrd run` work with no `odin3` installed.
-- The dependency is declared only as the extra `sim = ["odin3>=1.2"]`. `[project] dependencies` stays `[]`.
+- The dependency is declared only as the extra `sim = ["odin3>=1.0.3"]`. `[project] dependencies` stays `[]`.
 - Without the extra, `Odin3Backend` raises `SimUnavailable` with the text
-  `odin3 with the simulation API is not installed; run: pip install "wyrd[sim]" (needs Odin III 1.2 or later)`.
+  `odin3 with the simulation API is not installed; run: pip install "wyrd[sim]" (needs Odin III 1.0.3 or later)`.
 
 The plan updates `CLAUDE.md` ("Standard library only at runtime") and adds a dated note under W1 decision 2
 that points here. W1's text is not rewritten.
@@ -130,7 +130,7 @@ Exceptions, all subclasses of `SimError(Exception)`:
 
 | Class | Raised when |
 |---|---|
-| `SimUnavailable` | `odin3` cannot be imported, or its binding has no `Simulation` (Section 3 text; an old binding says `needs Odin III 1.2 or later`) |
+| `SimUnavailable` | `odin3` cannot be imported, or its binding has no `Simulation` (Section 3 text; an old binding says `needs Odin III 1.0.3 or later`) |
 | `CompileError` | the compile step fails; attribute `diagnostics: tuple[Diagnostic, ...]` (errors and warnings, in log order); `str()` is the first error as `file:line:col: message`, else the first error message |
 | `NoSuchSignal` | a name is not in the simulated netlist; attribute `name`; `str()` is the S1 SP-3 text `NAME: not in the simulated netlist (a pass may have removed it: mark it (* keep *) in the HDL, or see BifrostSession.signals())` |
 | `SignalKindError` | `set` on a signal that is not an `input`; the text names the kind, for a clock `clock 'clk' is stepped, not set` |
@@ -432,13 +432,13 @@ No threads, no analysis beyond what `wyrd.bifrost` returns.
 
 ## 12. Packaging and CI
 
-- `pyproject.toml`: `[project.optional-dependencies] sim = ["odin3>=1.2"]` (beside `gui`); `dependencies`
+- `pyproject.toml`: `[project.optional-dependencies] sim = ["odin3>=1.0.3"]` (beside `gui`); `dependencies`
   stays `[]`.
 - CI: the `test` job runs the whole suite without `odin3` (the real-backend tests skip, the fake-backend tests
   run). The `gui` job (W2) also runs `tests.test_gui_sim`. A new job `sim` (Python 3.12) installs `.` and
-  `odin3>=1.2` and runs `python -m unittest tests.test_sim_odin3 -v`; it is `continue-on-error: true` until
-  Odin III 1.2 is on the package index (remove that line then; open question 1).
-- Local real run (before 1.2 is published): `PYTHONPATH=<odin3 worktree>/plugins/python
+  `odin3>=1.0.3` and runs `python -m unittest tests.test_sim_odin3 -v`; it is `continue-on-error: true` until
+  Odin III 1.0.3 has a GitHub release wheel (odin3 is not on PyPI; install the release wheel URL as loki L0 does) (remove that line then; open question 1).
+- Local real run (before 1.0.3 is released): `PYTHONPATH=<odin3 worktree>/plugins/python
   ODIN3_LIB=<build>/libodin3.so`; `odin3_available()` then finds the module `odin3` (a single file) and the
   library.
 
@@ -461,7 +461,7 @@ VCD import, multi-design co-simulation, running the simulator in a thread or pro
 
 ## 15. Questions for Peter, with recommendations
 
-1. When Odin III 1.2 is published, remove `continue-on-error` from the `sim` job. Recommend: yes, one-line change.
+1. When Odin III 1.0.3 is published, remove `continue-on-error` from the `sim` job. Recommend: yes, one-line change.
 2. The Wyrd random run does not match `odin3 sim N SEED`'s numbers (different PRNG). Recommend: keep, and say so
    in the panel's tooltip; "Save vectors" makes a run repeatable in both tools.
 3. The vector format cannot express a port mixing clock and data bits. Recommend: leave (no consumer; the rare

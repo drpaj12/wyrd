@@ -506,7 +506,7 @@ missing` or `port 'sensor_light' must be an input of width 8, found input of wid
 failing intersection gets the `stop_compiled_failed` marker on its entries. If any file fails, the level stays in
 EDIT. A `SimError` while running (it should not happen) pauses the level and shows `runtime error in
 Traffic_signal_set_I.v: message`. `SimUnavailable` (no `odin3`) is shown once as one line:
-`needs Odin III 1.2: pip install "wyrd[sim]"` and the game still lets the player place sensors and look.
+`needs Odin III 1.0.3: pip install "wyrd[sim]"` and the game still lets the player place sensors and look.
 
 ## 8. Editing, file watch, reload
 
@@ -620,7 +620,7 @@ licence text of the original Java headers (the text between `/*` and `*/` at the
 
 ## 12. Packaging, CI, tests
 
-- `pyproject.toml`: `[project.optional-dependencies] midgard = ["pygame-ce>=2.5,<3", "odin3>=1.2"]`;
+- `pyproject.toml`: `[project.optional-dependencies] midgard = ["pygame-ce>=2.5,<3", "odin3>=1.0.3"]`;
   `[project.gui-scripts] midgard = "wyrd.midgard.app:main"`; `[tool.setuptools.package-data] wyrd = ["data/*.toml",
   "midgard/assets/**/*"]`. Every pygame-ce name used in the plan was checked on 2026-10-21 against pygame-ce
   2.5.8 (SDL 2.32.10) with `SDL_VIDEODRIVER=dummy`; `pygame-ce` ships `py.typed`, and `mypy --strict` accepted a probe
@@ -633,7 +633,7 @@ licence text of the original Java headers (the text between `/*` and `*/` at the
 - CI: the `test` job runs all Qt-free and pygame-free tests (the UI tests skip without pygame); the new job
   `midgard` (3.12) runs `pip install . "pygame-ce>=2.5,<3"` and the UI tests with `SDL_VIDEODRIVER=dummy
   SDL_AUDIODRIVER=dummy`; the `lint` job also installs `pygame-ce>=2.5,<3`. (The extra `midgard` also needs
-  `odin3>=1.2`, which is not on the index yet, so CI installs pygame-ce directly; W3 has the same arrangement.)
+  `odin3>=1.0.3`, which has no release yet (odin3 is not on PyPI; CI installs the GitHub release wheel URL), so CI installs pygame-ce directly; W3 has the same arrangement.)
 - Tests (`tests/test_midgard_*.py`): `grid`, `levelxml` (all 13 levels), `townmap`, `traffic_sensors`, `car_logic`,
   `level` (scripted controllers), `controllers` (fake Bifrost III backend), `scores`, `userdata_watch`, `assets`
   (manifest), `ui` (dummy driver: every level loads and draws; a click-through; a scripted level run), and
@@ -682,5 +682,5 @@ runtime was used): the numbers of cars that pass on each level. The plan therefo
    John-Rhys Garcia). Recommend: Peter, as an author, confirms the images are MIT; the NOTICE already credits the artist.
 4. The starter file deviates from the original by the `debug_port` header fix. Recommend: keep; the original files do
    not compile under Odin III.
-5. The `midgard` CI job installs pygame-ce directly until Odin III 1.2 is on the index. Recommend: switch to
+5. The `midgard` CI job installs pygame-ce directly until Odin III 1.0.3 has a GitHub release wheel. Recommend: switch to
    `pip install ".[midgard]"` then.
