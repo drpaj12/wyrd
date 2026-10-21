@@ -12,13 +12,13 @@ Odin III v1.2).
 
 Two things:
 
-1. Bifrost, the simulation bridge (`wyrd.bifrost`): a Python session layer over Odin III's per-cycle simulator. A caller opens a set of Verilog
+1. Bifrost III, the simulation bridge (`wyrd.bifrost`): a Python session layer over Odin III's per-cycle simulator. A caller opens a set of Verilog
    files, gets named inputs and outputs, sets inputs, steps clocks, reads outputs, resets, records the values
    and writes a VCD file. Compile errors come back as structured diagnostics with `file:line`.
 2. A simulation panel in the W2 GUI (vector-file editor, random-input run, a small built-in waveform view, an
    "Open in GTKWave" button).
 
-The panel and Midgard (Verilog Town, W4) are both clients of Bifrost. (Wyrd-I and Midgard belong to the Yggdrasil software suite with Odin III and Loki.) Functional simulation only (2-state, no
+The panel and Midgard III (Verilog Town, W4) are both clients of Bifrost III. (Wyrd III and Midgard III belong to the Yggdrasil software suite with Odin III and Loki III.) Functional simulation only (2-state, no
 timing).
 
 ## 2. Decisions
@@ -27,7 +27,7 @@ Approved by Peter (2026-10-21), encoded verbatim:
 
 | # | Decision | Choice |
 |---|---|---|
-| 1 | What W3 builds | Bifrost, the simulation bridge (`wyrd.bifrost`), a session over S1: named inputs and outputs, step, reset, VCD |
+| 1 | What W3 builds | Bifrost III, the simulation bridge (`wyrd.bifrost`), a session over S1: named inputs and outputs, step, reset, VCD |
 | 2 | Clients | The GUI sim panel (vector-file editor, random-input run, small built-in waveform view, Open in GTKWave button) and W4 are both clients of `wyrd.bifrost` |
 | 3 | Fidelity | Functional simulation only |
 | 4 | Exception to W1 | Sim is the one exception to W1's "public commands only" (Section 3), because per-cycle interaction cannot be done through `odin3` or `odin3-flow` as processes |
@@ -44,7 +44,7 @@ Decided here (author):
 | 10 | Values | Unsigned Python ints, bit i of the int is bit i of the signal, any width. `BifrostSession.set` checks the range before the backend call |
 | 11 | VCD | Wyrd writes its own VCD from the recording (S1 decision D-6: no VCD through the ABI). Format in Section 7.2 |
 | 12 | Vector files | The `odin3-sim-vectors` text format of S1 (section 5 of the S1 spec), so a file made here replays with `odin3 -p "...; sim --vectors-in F"` and the other way round. Random runs use Python's `random.Random(seed)`, not Odin III's PRNG; a saved vector file is the way to repeat a run |
-| 13 | Where in the GUI | A `Simulate` tab in the centre tab widget (after `wyrd.toml`), opened from a new `Tools` menu (`Simulate`, Ctrl+T). The new `Tools` menu also holds `Midgard (Verilog Town)` (W4) |
+| 13 | Where in the GUI | A `Simulate` tab in the centre tab widget (after `wyrd.toml`), opened from a new `Tools` menu (`Simulate`, Ctrl+T). The new `Tools` menu also holds `Midgard III (Verilog Town)` (W4) |
 | 14 | CLI | A small `wyrd sim` command (Section 10) so the layer is usable and testable without a GUI |
 
 ## 3. How this squares with W1 ("public commands only")
@@ -379,7 +379,7 @@ wyrd sim FILE... [--top NAME] (--vectors FILE | --random N [--seed S]) [--vcd OU
 ## 11. The GUI simulation panel (`wyrd/gui/simpanel.py`, `waveformview.py`)
 
 Added to the W2 window (`wyrd/gui/mainwindow.py`): tab `Simulate` after `wyrd.toml`; menu `Tools` with
-`Simulate` (Ctrl+T, selects the tab) and (W4) `Midgard (Verilog Town)`. The tab is built even without the
+`Simulate` (Ctrl+T, selects the tab) and (W4) `Midgard III (Verilog Town)`. The tab is built even without the
 extra; its controls are disabled with the `SimUnavailable` text in the status label.
 
 Layout:
