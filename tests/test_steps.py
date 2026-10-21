@@ -187,6 +187,20 @@ class StepsTest(unittest.TestCase):
             run.side_effect = FileNotFoundError("x")
             self.assertEqual(tool_versions(s, ["odin3"]), {"odin3": "unknown"})
 
+    def test_tool_versions_relative_path_from_root(self) -> None:
+        base = _settings()
+        s = settings.Settings(**{**base.__dict__, "tools": {"odin3": "bin/odin3"}})
+        root = Path("/proj")
+        with mock.patch("wyrd.steps.subprocess.run") as run:
+            run.return_value = subprocess.CompletedProcess([], 0, stdout="v1\n")
+            tool_versions(s, ["odin3"], root)
+            self.assertEqual(run.call_args.args[0][0], "/proj/bin/odin3")
+            tool_versions(s, ["odin3"])
+            self.assertEqual(run.call_args.args[0][0], "bin/odin3")
+            s2 = settings.Settings(**{**base.__dict__, "tools": {"odin3": "odin3"}})
+            tool_versions(s2, ["odin3"], root)
+            self.assertEqual(run.call_args.args[0][0], "odin3")
+
     def test_fake_flow_end_to_end(self) -> None:
         run = _run()
         base = _settings()

@@ -59,7 +59,8 @@ def _tools_of(steps: list[tuple[Step, list[str], dict[str, str]]]) -> set[str]:
 
 def _build_plans(project: Project, settings: Settings) -> list[_Plan]:
     planned = [(run, plan_run(run, settings)) for run in project.runs]
-    versions = tool_versions(settings, sorted({t for _, p in planned for t in _tools_of(p)}))
+    names = sorted({t for _, p in planned for t in _tools_of(p)})
+    versions = tool_versions(settings, names, project.root)
     plans: dict[str, _Plan] = {}
     for run, plan in planned:
         argvs = [argv for _, argv, _ in plan]
