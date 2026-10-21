@@ -1,0 +1,22 @@
+[project]
+name = "tiny"
+
+[[design]]
+name = "one"
+files = ["src/b.v", "src/a.v"]
+top = "a"
+
+[[design]]
+name = "two"
+files = ["src/*.v"]
+
+[recipe.vtr]
+steps = [{ use = "odin3-flow", target = "vtr", vpr = true }]
+
+[sweep]
+recipe = ["vtr"]
+design = ["one", "two"]
+arch = ["k6", "EArch"]
+
+[run]
+step_timeout = 100
