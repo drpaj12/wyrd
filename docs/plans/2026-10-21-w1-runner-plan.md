@@ -101,9 +101,8 @@ Task 7 last; it needs `odin3-flow` 1.0 and `VTR_ROOT` (local only).
 - Produces:
   - `class ConfigError(Exception)` with `path: Path`, `line: int | None`; `str()` is
     `"<path>:<line>: <msg>"` or `"<path>: <msg>"`.
-  - `Design(name: str, files: tuple[Path, ...], top: str | None)`;
-    `StepSpec(use: str, args: dict[str, object])`; `Recipe(name: str, steps: tuple[StepSpec, ...])`;
-    `RunSpec(design: Design, arch: str, recipe: Recipe, params: dict[str, object])`;
+  - `Design`, `StepSpec`, `Recipe`, `RunSpec` are in `wyrd/model.py` (on main before Tasks 2-4;
+    import them, do not redefine);
     `Project(root: Path, name: str, designs: dict[str, Design], recipes: dict[str, Recipe],
     run: dict[str, object], runs: tuple[RunSpec, ...])` (all frozen dataclasses).
   - `load_project(path: Path) -> Project`.
@@ -143,7 +142,7 @@ Task 7 last; it needs `odin3-flow` 1.0 and `VTR_ROOT` (local only).
     peak_mem_bytes) -> None`, `add_metrics(key, step, metrics: list[Metric]) -> None`,
     `status(key) -> str | None`, `peak_mem(design, arch, step) -> int | None` (max over rows),
     `rows() -> list[dict[str, object]]` (one per run with its metrics).
-  - `Metric(name: str, value: float, unit: str)` lives here.
+  - `Metric(name: str, value: float, unit: str)` is in `wyrd/model.py` (import it).
 - Schema exactly as spec §4 (tables `runs`, `steps`, `metrics`), plus `PRAGMA user_version = 1`.
 
 - [ ] **Step 1: Failing tests:** `test_key_stable` (same inputs, same key);
