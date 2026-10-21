@@ -459,7 +459,7 @@ No threads, no analysis beyond what `wyrd.bifrost` returns.
 internal nets, memory contents, schematic or RTL views (W5), assertions, testbench languages, a debugger,
 VCD import, multi-design co-simulation, running the simulator in a thread or process, Windows-native builds.
 
-## 15. Questions for Peter, with recommendations
+## 15. Questions for Peter, with recommendations (Peter accepted all, 2026-10-21)
 
 1. When Odin III 1.0.3 is published, remove `continue-on-error` from the `sim` job. Recommend: yes, one-line change.
 2. The Wyrd random run does not match `odin3 sim N SEED`'s numbers (different PRNG). Recommend: keep, and say so

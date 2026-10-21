@@ -674,7 +674,7 @@ ending counters, compile and reset), `ScoreScreen.java` (high scores), `MainMenu
 the two passes, the output ports), `VERILOG_SUPPORTED.txt`. Not verified against a running original (no Java
 runtime was used): the numbers of cars that pass on each level. The plan therefore tests invariants, not scores.
 
-## 17. Questions for Peter, with recommendations
+## 17. Questions for Peter, with recommendations (Peter accepted all, 2026-10-21; the artwork is MIT)
 
 1. Tick rate default 30 (decision 10). Recommend: keep; `[` and `]` change it in game.
 2. The Tutorial (level 0) is a menu button (decision 18). Recommend: keep.
