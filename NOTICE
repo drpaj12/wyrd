@@ -1,0 +1,16 @@
+wyrd samples: files copied from Odin III (https://github.com/drpaj12/odin3, MIT License,
+Copyright (c) 2026 drpaj12)
+
+- samples/designs/single/bm_DL_2_4_encoder.v
+  from tests/micro/verilog/micro/bm_DL_2_4_encoder.v, unchanged.
+- samples/designs/multi/src/{arith/adder.v, ctrl/pick.v, top.v}
+  from tests/golden/projects/multi_dir/src/. Changed: module `adder` is renamed `add_w` (in
+  arith/adder.v and top.v) because Odin III 1.0 with the VTR technology library rejects a module
+  named like the hard cell `adder`.
+
+samples/designs/dsp/ is new for wyrd (MIT, see LICENSE).
+
+MIT License terms for the copied files: permission is granted, free of charge, to use, copy,
+modify, merge, publish, distribute, sublicense and sell copies, provided the copyright notice and
+this permission notice are included in all copies or substantial portions. The software is
+provided "as is", without warranty of any kind.
