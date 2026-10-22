@@ -19,8 +19,10 @@ from wyrd.bifrost.errors import (
     ValueRangeError,
     VectorError,
 )
+from wyrd.bifrost.record import Recording
 from wyrd.bifrost.session import BifrostSession
 from wyrd.bifrost.types import Diagnostic, Kind, Signal
+from wyrd.bifrost.vcd import vcd_text, write_vcd
 
 __all__ = [
     "BifrostSession",
@@ -35,6 +37,7 @@ __all__ = [
     "Kind",
     "NoSuchSignal",
     "SessionClosed",
+    "Recording",
     "Signal",
     "SignalKindError",
     "SimError",
@@ -42,4 +45,6 @@ __all__ = [
     "ValueRangeError",
     "VectorError",
     "parse_log",
+    "vcd_text",
+    "write_vcd",
 ]

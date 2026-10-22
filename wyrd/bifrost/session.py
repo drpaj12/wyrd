@@ -14,6 +14,7 @@ from wyrd.bifrost.errors import (
     SignalKindError,
     ValueRangeError,
 )
+from wyrd.bifrost.record import Recorder, Recording
 from wyrd.bifrost.types import Diagnostic, Signal
 
 
@@ -42,6 +43,7 @@ class BifrostSession:
         self._closed = False
         self._signals = tuple(handle.signals())
         self._cache: dict[str, Signal] = {s.name: s for s in self._signals}
+        self._recorder: Recorder | None = None
 
     @classmethod
     def from_verilog(
@@ -166,8 +168,22 @@ class BifrostSession:
         self._check_open()
         if cycles < 0:
             raise ValueError("cycles must be >= 0")
-        if cycles:
-            self._handle.step(cycles)
+        if self._recorder is None:
+            if cycles:
+                self._handle.step(cycles)
+            return
+        self._step_recording(self._recorder, cycles)
+
+    def _step_recording(self, rec: Recorder, cycles: int) -> None:
+        for done in range(cycles):
+            if rec.full:
+                self._handle.step(cycles - done)
+                return
+            self._handle.step(1)
+            self._sample(rec)
+
+    def _sample(self, rec: Recorder) -> None:
+        rec.add(self._handle.cycle, [self._handle.get(n) for n in rec.names])
 
     def settle(self) -> None:
         self._check_open()
@@ -176,6 +192,46 @@ class BifrostSession:
     def reset(self) -> None:
         self._check_open()
         self._handle.reset()
+        old = self._recorder
+        if old is not None:
+            self._recorder = Recorder(
+                old.names, old.widths, old.clocks, old.max_samples, old.inputs
+            )
+            self._sample(self._recorder)
+
+    def start_recording(
+        self, names: Sequence[str] | None = None, max_samples: int = 1_000_000
+    ) -> Recording:
+        self._check_open()
+        if max_samples < 1:
+            raise ValueError("max_samples must be >= 1")
+        if names is None:
+            chosen = [s for s in self._signals if s.kind in ("input", "output")]
+        else:
+            chosen = [self.signal(n) for n in names]
+        rec = Recorder(
+            [s.name for s in chosen],
+            [s.width for s in chosen],
+            [s.name for s in self.clocks],
+            max_samples,
+            [s.name for s in chosen if s.kind == "input"],
+        )
+        self._sample(rec)
+        self._recorder = rec
+        return rec.snapshot()
+
+    def stop_recording(self) -> Recording | None:
+        self._check_open()
+        rec, self._recorder = self._recorder, None
+        return None if rec is None else rec.snapshot()
+
+    @property
+    def recording(self) -> Recording | None:
+        return None if self._recorder is None else self._recorder.snapshot()
+
+    @property
+    def recording_full(self) -> bool:
+        return self._recorder is not None and self._recorder.full
 
     def close(self) -> None:
         if self._closed:
