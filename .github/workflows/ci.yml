@@ -19,3 +19,18 @@ jobs:
       - run: ruff check .
       - run: mypy --strict wyrd tests
       - run: python -m unittest discover -s tests -t . -v
+
+  sim:
+    # Real Odin III tests. odin3 is not on PyPI: set the repository variable ODIN3_WHEEL_URL to the
+    # Odin III v1.0.3 release wheel. Without it the tests skip. Not required to pass yet.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install .
+      - if: vars.ODIN3_WHEEL_URL != ''
+        run: pip install "${{ vars.ODIN3_WHEEL_URL }}"
+      - run: python -m unittest tests.test_sim_odin3 -v
