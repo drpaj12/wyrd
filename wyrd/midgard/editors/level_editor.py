@@ -7,7 +7,9 @@ imports no pygame. `midgard-editor` starts `main`.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,8 +34,10 @@ from PySide6.QtWidgets import (
 )
 
 from wyrd.midgard.model import ASSETS
+from wyrd.midgard.model.atomicio import replace_file, write_text_atomic
 from wyrd.midgard.model.leveldoc import GROUP_TYPES, MIN_SIZE, LevelDoc, MapDrag
 from wyrd.midgard.model.levelxml import CarSpec, LevelFormatError, write_level_xml
+from wyrd.midgard.model.userdata import default_data_dir
 
 LEDIT = ASSETS / "editors" / "ledit"
 DEFAULT_SIZE = 20
@@ -79,14 +83,27 @@ def export_level(doc: LevelDoc, xml_path: Path) -> list[str]:
     text = doc.source_text if doc.source_text is not None and doc.matches_source() else None
     try:
         xml_path.parent.mkdir(parents=True, exist_ok=True)
-        with xml_path.open("w", encoding="utf-8", newline="") as handle:
-            handle.write(text if text is not None else write_level_xml(data))
+        write_text_atomic(xml_path, text if text is not None else write_level_xml(data), "")
     except OSError:
         return [XML_ERROR]
-    image = xml_path.parent / f"lv{doc.number:02d}.png"
-    if not render_map_image(doc).save(str(image)):
+    try:
+        replace_file(image_path(doc, xml_path), _image_writer(render_map_image(doc)))
+    except OSError:
         return [IMAGE_ERROR]
     return [DONE_MESSAGE]
+
+
+def image_path(doc: LevelDoc, xml_path: Path) -> Path:
+    """`lvNN.png` beside the level XML."""
+    return xml_path.parent / f"lv{doc.number:02d}.png"
+
+
+def _image_writer(image: QImage) -> Callable[[Path], None]:
+    def write(tmp: Path) -> None:
+        if not image.save(str(tmp)):
+            raise OSError(f"cannot write {tmp}")
+
+    return write
 
 
 def auto_cell_size(doc: LevelDoc) -> int:
@@ -513,6 +530,7 @@ class MapWindow(QMainWindow):
             ("Clear Map", self.clear_map),
             ("Edit Cars", self.edit_cars),
             ("Export", self.export),
+            ("Export As...", self.export_as),
             ("Cancel", self.close),
         )
         for label, slot in actions:
@@ -536,14 +554,29 @@ class MapWindow(QMainWindow):
     def export(self) -> None:
         for message in export_level(self.doc, self.xml_path):
             if message == DONE_MESSAGE:
-                QMessageBox.information(self, "Done", message)
+                where = f"{self.xml_path}\n{image_path(self.doc, self.xml_path)}"
+                QMessageBox.information(self, "Done", f"{message}\n{where}")
             else:
                 QMessageBox.critical(self, "Error", message)
 
+    def export_as(self) -> None:
+        """Choose another level file, then export there (an extra; the Java had a fixed path)."""
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export level", str(self.xml_path), "XML Files (*.xml)"
+        )
+        if path:
+            self.xml_path = Path(path)
+            self.export()
 
-def default_xml_path(number: int) -> Path:
-    """Where `Create` writes: the layout of the original tool, under the current directory."""
-    return Path.cwd() / "Levels" / f"Lv{number}" / "map" / f"lv{number:02d}.xml"
+
+def default_xml_path(number: int, data_dir: Path | None = None) -> Path:
+    """Where `Create` writes: `<data>/levels/Lv<N>/map/lvNN.xml` in the Midgard user-data dir.
+
+    The Java wrote under its install root; `<data>` is `$MIDGARD_HOME`, else
+    `$XDG_DATA_HOME/midgard`, else `~/.local/share/midgard`.
+    """
+    root = data_dir if data_dir is not None else default_data_dir(os.environ, Path.home())
+    return root / "levels" / f"Lv{number}" / "map" / f"lv{number:02d}.xml"
 
 
 def _parser() -> argparse.ArgumentParser:

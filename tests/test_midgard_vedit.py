@@ -1,6 +1,9 @@
+import os
+import stat
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from tests.fakes_midgard import FakeLightBackend
 from wyrd.midgard.model.vedit import (
@@ -44,13 +47,16 @@ class VeditTest(VeditBase):
     def test_save_and_dirty(self) -> None:
         s, path = self.session(None)
         self.assertEqual(s.text, load_template("combinational"))
-        self.assertFalse(s.dirty)
+        self.assertTrue(s.dirty)  # no file yet: the text differs from the file content
         s.set_text("abc")
         self.assertTrue(s.dirty)
         self.assertTrue(s.should_prompt_on_exit())
         self.assertEqual(s.save(), SAVE_OK)
         self.assertEqual(SAVE_OK, "Saving complete.")
         self.assertEqual(path.read_text(encoding="utf-8"), "abc\n")
+        umask = os.umask(0)
+        os.umask(umask)
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o666 & ~umask)
         self.assertFalse(s.dirty)
         self.assertFalse(s.should_prompt_on_exit())
 
@@ -60,6 +66,29 @@ class VeditTest(VeditBase):
         self.addCleanup(s.close)
         self.assertIn("nodir", s.save())
         self.assertTrue(s.text)
+
+    def test_dirty_is_text_against_file(self) -> None:
+        s, path = self.session(GOOD + "\n")
+        self.assertFalse(s.dirty)
+        s.set_text("abc")
+        self.assertTrue(s.dirty)
+        s.set_text(GOOD)
+        self.assertFalse(s.dirty)
+        path.write_text("changed elsewhere\n", encoding="utf-8")
+        self.assertTrue(s.dirty)
+
+    def test_failed_save_keeps_the_old_file(self) -> None:
+        s, path = self.session(GOOD + "\n")
+        os.chmod(path, 0o640)
+        s.set_text("new text")
+        with mock.patch("wyrd.midgard.model.atomicio.os.replace", side_effect=OSError("disk full")):
+            self.assertEqual(s.save(), "disk full")
+        self.assertEqual(path.read_text(encoding="utf-8"), GOOD + "\n")
+        self.assertEqual([p.name for p in self.tmp.iterdir()], ["a.v"])
+        self.assertTrue(s.dirty)
+        self.assertEqual(s.save(), SAVE_OK)
+        self.assertEqual(path.read_text(encoding="utf-8"), "new text\n")
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o640)
 
     def test_verify_ok_and_error(self) -> None:
         s, path = self.session()

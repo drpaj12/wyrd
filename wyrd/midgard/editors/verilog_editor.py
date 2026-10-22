@@ -51,6 +51,7 @@ from PySide6.QtWidgets import (
 from wyrd.midgard.model import ASSETS
 from wyrd.midgard.model.vedit import (
     EditorSession,
+    VerifyResult,
     animation_image_names,
     load_template,
 )
@@ -399,7 +400,7 @@ class VerilogEditorWindow(QMainWindow):
         layout = (
             ("File", ("verify", "-", "save", "-", "exit")),
             ("Edit", ("undo", "redo", "search")),
-            ("Simulate", ("simulate", "reset")),
+            ("Simulation", ("simulate", "reset")),
             ("Template", ("combinational", "sequential")),
         )
         for title, keys in layout:
@@ -471,10 +472,16 @@ class VerilogEditorWindow(QMainWindow):
     def use_sequential(self) -> None:
         self.use_template("sequential")
 
+    def _exit_check(self, prompt: bool) -> VerifyResult:
+        """The compile shown on exit; any failure becomes a message, so the window still closes."""
+        try:
+            return self.session.check_unsaved() if prompt else self.session.verify()
+        except Exception as exc:  # a backend or file error must not keep the window open
+            return VerifyResult(False, (f"Error: {exc}",))
+
     def closeEvent(self, event: QCloseEvent) -> None:
         prompt = self.session.should_prompt_on_exit()
-        check = self.session.check_unsaved() if prompt else self.session.verify()
-        self.show_messages(*check.messages)
+        self.show_messages(*self._exit_check(prompt).messages)
         if not prompt:
             event.accept()
             return

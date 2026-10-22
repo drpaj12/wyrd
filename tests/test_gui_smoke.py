@@ -32,7 +32,6 @@ if HAVE_QT:
         SignalInstance,
     )
     from PySide6.QtWidgets import (
-        QApplication,
         QComboBox,
         QDialog,
         QFileDialog,
@@ -43,6 +42,7 @@ if HAVE_QT:
         QTreeWidgetItem,
     )
 
+    from tests.qt_helpers import qapp
     from wyrd.gui.about import AboutDialog
     from wyrd.gui.adddesign import AddDesignDialog
     from wyrd.gui.flowpanel import FlowPanel
@@ -57,11 +57,8 @@ if HAVE_QT:
     from wyrd.model import Design, Recipe, RunSpec, StepSpec
     from wyrd.store import Store
 
-    _APP: QCoreApplication | None = None
-
     def setUpModule() -> None:
-        global _APP
-        _APP = QApplication.instance() or QApplication([])
+        qapp()
 
 
 def child_count(item: "QTreeWidgetItem", i: int) -> int:

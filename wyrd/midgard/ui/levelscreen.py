@@ -159,10 +159,16 @@ class LevelScreen(Screen):
     def open_editor(self, index: int) -> None:
         path = self.paths[index]
         self.last_editor_open = self.game.now()
-        if self.game.editor and importlib.util.find_spec("PySide6") is not None:
+        if self._use_editor_window():
             self._open_window(index, path)
         else:
             self._open_external(path)
+
+    def _use_editor_window(self) -> bool:
+        """The PySide6 window, unless the editor is off or MIDGARD_EDITOR names one (it wins)."""
+        if not self.game.editor or os.environ.get("MIDGARD_EDITOR", "").strip():
+            return False
+        return importlib.util.find_spec("PySide6") is not None
 
     def _open_window(self, index: int, path: Path) -> None:
         running = self.launched.get(index)

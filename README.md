@@ -89,9 +89,11 @@ A file that does not compile or lacks a port keeps the level in the edit phase a
 
 The **Verilog editor window** (PySide6) saves, verifies (compiles with Odin III), simulates one clock cycle at a
 time from the sensor fields and shows the four lights; it offers the combinational and sequential templates.
-Set `MIDGARD_EDITOR` to use an external editor instead, or start the game with `--no-editor`.
+A set `MIDGARD_EDITOR` (a command, split like a shell line, plus the file path) wins over the window: the game
+opens your editor instead. Start the game with `--no-editor` to open neither (the status line shows the path).
 `midgard-editor [LEVEL.xml]` is the **level editor**: create a level (even map sizes) or update a level file,
-edit cars, export the XML and the map image. Without a file it writes to `Levels/Lv<N>/map/` under the current directory.
+edit cars, export the XML and the map image. `Create` writes to `$MIDGARD_HOME/levels/Lv<N>/map/lvNN.xml` (the
+original wrote under its install folder); `Export As...` picks another file, and the done message shows the paths.
 
 Credit: the game, levels and artwork come from verilogTown (Jamieson, Grace, Mizuno, Zhang, ASEE 2017; MIT
 License), see `NOTICE` and `docs/CITATIONS.md`. The font is Creepster (Font Diner, SIL OFL 1.1).

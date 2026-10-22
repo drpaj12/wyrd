@@ -19,17 +19,15 @@ REAL_FIND_SPEC = importlib.util.find_spec
 NAME = "Midgard III (Verilog Town)"
 
 if HAVE_QT:
-    from PySide6.QtCore import QCoreApplication, QSettings
+    from PySide6.QtCore import QSettings
     from PySide6.QtGui import QAction
-    from PySide6.QtWidgets import QApplication, QMenu
+    from PySide6.QtWidgets import QMenu
 
+    from tests.qt_helpers import dispose, qapp
     from wyrd.gui.mainwindow import MainWindow, _start_detached
 
-    _APP: QCoreApplication | None = None
-
     def setUpModule() -> None:
-        global _APP
-        _APP = QApplication.instance() or QApplication([])
+        qapp()
 
 
 def fake_find_spec(pygame_spec: object | None) -> Callable[..., Any]:
@@ -52,7 +50,7 @@ class MidgardMenuTest(unittest.TestCase):
         settings = QSettings(str(self.tmp / "s.ini"), QSettings.Format.IniFormat)
         with mock.patch("importlib.util.find_spec", fake_find_spec(pygame_spec)):
             w = MainWindow(settings, silent=True)
-        self.addCleanup(w.close)
+        self.addCleanup(dispose, w)
         return w
 
     def tools_action(self, w: "MainWindow", name: str) -> "QAction":

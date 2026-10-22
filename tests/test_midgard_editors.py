@@ -4,10 +4,13 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import gc
 import importlib.util
 import shutil
 import tempfile
 import unittest
+import weakref
+from collections.abc import Callable
 from pathlib import Path
 from unittest import mock
 
@@ -25,19 +28,24 @@ HAVE_QT = importlib.util.find_spec("PySide6") is not None
 GOOD = "module light1;"
 
 if HAVE_QT:
-    from PySide6.QtCore import QCoreApplication, QPoint, Qt
+    from PySide6.QtCore import QPoint, Qt
     from PySide6.QtGui import QImage
     from PySide6.QtTest import QTest
-    from PySide6.QtWidgets import QApplication, QMessageBox
+    from PySide6.QtWidgets import QMessageBox, QWidget
 
+    from tests.qt_helpers import dispose, qapp
     from wyrd.midgard.editors import level_editor as le
     from wyrd.midgard.editors import verilog_editor as ve
 
-    _APP: QCoreApplication | None = None
-
     def setUpModule() -> None:
-        global _APP
-        _APP = QApplication.instance() or QApplication([])
+        qapp()
+
+
+def assert_freed(case: unittest.TestCase, make: "Callable[[], QWidget]") -> None:
+    """A dropped window is deleted at once; a lambda holding it in a connection would leak it."""
+    ref = weakref.ref(make())
+    gc.collect()
+    case.assertIsNone(ref())
 
 
 class LaunchArgvTest(unittest.TestCase):
@@ -76,9 +84,8 @@ class VerilogWindowTest(unittest.TestCase):
 
     @staticmethod
     def _quiet_close(win: "ve.VerilogEditorWindow") -> None:
-        win.session.dirty = False
-        win.close()
-        win.deleteLater()
+        with mock.patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No):
+            dispose(win)
 
     def test_window_wiring(self) -> None:
         w = self.window()
@@ -120,7 +127,7 @@ class VerilogWindowTest(unittest.TestCase):
         bar = w.menuBar()
         assert bar is not None
         self.assertEqual(
-            [a.text() for a in bar.actions()], ["File", "Edit", "Simulate", "Template"]
+            [a.text() for a in bar.actions()], ["File", "Edit", "Simulation", "Template"]
         )
 
     def test_sensor_checkboxes_follow_field(self) -> None:
@@ -185,6 +192,36 @@ class VerilogWindowTest(unittest.TestCase):
             self.assertTrue(w2.close())
         self.assertIn("Compiling", w2.messages.toPlainText())
 
+    def test_close_survives_unexpected_errors(self) -> None:
+        w = self.window()
+        with mock.patch.object(w.session, "verify", side_effect=RuntimeError("backend died")):
+            self.assertTrue(w.close())
+        self.assertIn("Error: backend died", w.messages.toPlainText())
+        w2 = self.window()
+        w2.code.setPlainText("changed")
+        with (
+            mock.patch.object(w2.session, "check_unsaved", side_effect=OSError("disk")),
+            mock.patch.object(
+                QMessageBox, "question", return_value=QMessageBox.StandardButton.No
+            ) as q,
+        ):
+            self.assertTrue(w2.close())
+        q.assert_called_once()
+        self.assertIn("Error: disk", w2.messages.toPlainText())
+
+    def test_dirty_follows_the_file(self) -> None:
+        w = self.window()
+        w.code.setPlainText("x")
+        self.assertTrue(w.session.dirty)
+        w.code.setPlainText(GOOD)
+        self.assertFalse(w.session.dirty)
+
+    def test_windows_are_freed(self) -> None:
+        session = EditorSession(self.path, self.backend)
+        self.addCleanup(session.close)
+        assert_freed(self, lambda: ve.VerilogEditorWindow(session))
+        assert_freed(self, lambda: ve.SearchReplaceDialog(None, ve.CodeEditor()))
+
     def test_main_args(self) -> None:
         with self.assertRaises(SystemExit) as cm:
             ve.main(["--help"])
@@ -200,7 +237,7 @@ class StartDialogTest(unittest.TestCase):
 
     def dialog(self) -> "le.StartDialog":
         dlg = le.StartDialog()
-        self.addCleanup(dlg.deleteLater)
+        self.addCleanup(dispose, dlg)
         return dlg
 
     def run_result(self, dlg: "le.StartDialog") -> tuple[object, list[str]]:
@@ -271,7 +308,7 @@ class MapWindowTest(unittest.TestCase):
         win = le.MapWindow(
             doc, path or self.tmp / "Lv5" / "map" / "lv05.xml", doc.read_from_xml, cell_size=60
         )
-        self.addCleanup(win.deleteLater)
+        self.addCleanup(dispose, win)
         return win
 
     def cell(self, win: "le.MapWindow", gx: int, gy: int) -> "le.GroupWidget":
@@ -280,7 +317,9 @@ class MapWindowTest(unittest.TestCase):
     def test_window_basics(self) -> None:
         win = self.window()
         self.assertEqual(win.windowTitle(), "Edit Level 5")
-        self.assertEqual(set(win.buttons), {"Clear Map", "Edit Cars", "Export", "Cancel"})
+        self.assertEqual(
+            set(win.buttons), {"Clear Map", "Edit Cars", "Export", "Export As...", "Cancel"}
+        )
         self.assertEqual(len(win.panel.cells), 10)
         self.assertEqual(win.cell_size, 60)
 
@@ -346,7 +385,7 @@ class MapWindowTest(unittest.TestCase):
         doc.set_type(4, 9, "STRAIGHT_NS")
         self.assertTrue(doc.populate_starts_ends())
         dlg = le.CarEditor(doc)
-        self.addCleanup(dlg.deleteLater)
+        self.addCleanup(dispose, dlg)
         dlg.add_car()
         self.assertEqual(len(dlg.rows), 1)
         with mock.patch.object(QMessageBox, "critical") as critical:
@@ -368,7 +407,7 @@ class MapWindowTest(unittest.TestCase):
         doc = LevelDoc.from_xml_file(level_path(1))
         before = list(doc.cars)
         dlg = le.CarEditor(doc)
-        self.addCleanup(dlg.deleteLater)
+        self.addCleanup(dispose, dlg)
         self.assertEqual(len(dlg.rows), len(before))
         dlg.rows[0].remove()
         dlg.add_car()
@@ -376,7 +415,7 @@ class MapWindowTest(unittest.TestCase):
         dlg.cancel()
         self.assertEqual(doc.cars, before)
         dlg = le.CarEditor(doc)
-        self.addCleanup(dlg.deleteLater)
+        self.addCleanup(dispose, dlg)
         dlg.add_car()
         dlg.add_car()
         for row in dlg.rows[-2:]:
@@ -395,7 +434,9 @@ class MapWindowTest(unittest.TestCase):
         with mock.patch.object(QMessageBox, "information") as info:
             win.export()
         info.assert_called_once()
-        self.assertEqual(info.call_args.args[2], "Finished exporting")
+        self.assertEqual(
+            info.call_args.args[2], f"Finished exporting\n{target}\n{target.with_suffix('.png')}"
+        )
         self.assertEqual(target.read_bytes(), shipped.read_bytes())
         image = QImage(str(target.with_suffix(".png")))
         self.assertEqual(image.size(), le.render_map_image(doc).size())
@@ -405,6 +446,59 @@ class MapWindowTest(unittest.TestCase):
             win.export()
         self.assertEqual(parse_level_file(target), doc.to_level_data())
         self.assertNotEqual(target.read_bytes(), shipped.read_bytes())
+
+    def test_failed_export_keeps_the_old_files(self) -> None:
+        target = self.tmp / "Lv1" / "map" / "lv01.xml"
+        target.parent.mkdir(parents=True)
+        shutil.copy(level_path(1), target)
+        image = target.with_suffix(".png")
+        image.write_bytes(b"old image")
+        old = target.read_bytes()
+        doc = LevelDoc.from_xml_file(target)
+        doc.set_type(5, 5, "NON_ROAD" if doc.groups[5][5] != "NON_ROAD" else "STRAIGHT_EW")
+        with mock.patch(
+            "wyrd.midgard.model.atomicio.os.replace", side_effect=OSError("disk full")
+        ):
+            self.assertEqual(le.export_level(doc, target), ["Error when exporting XML file"])
+        self.assertEqual(target.read_bytes(), old)
+        with mock.patch.object(QImage, "save", return_value=False):
+            self.assertEqual(le.export_level(doc, target), ["Error when exporting map image"])
+        self.assertEqual(image.read_bytes(), b"old image")
+        self.assertEqual(sorted(p.name for p in target.parent.iterdir()), ["lv01.png", "lv01.xml"])
+
+    def test_create_defaults_to_the_data_dir(self) -> None:
+        home = self.tmp / "home"
+        with mock.patch.dict(os.environ, {"MIDGARD_HOME": str(home)}):
+            self.assertEqual(le.default_xml_path(7), home / "levels" / "Lv7" / "map" / "lv07.xml")
+            win = le._open_window(le.StartResult(False, 7, 8, 8, None))
+        assert win is not None
+        self.addCleanup(dispose, win)
+        self.assertEqual(win.xml_path, home / "levels" / "Lv7" / "map" / "lv07.xml")
+        self.assertEqual(le.default_xml_path(3, self.tmp), self.tmp / "levels/Lv3/map/lv03.xml")
+
+    def test_export_as_chooses_the_path(self) -> None:
+        win = self.window()
+        other = self.tmp / "elsewhere" / "mine.xml"
+        dialog = "wyrd.midgard.editors.level_editor.QFileDialog.getSaveFileName"
+        with (
+            mock.patch(dialog, return_value=("", "")),
+            mock.patch.object(QMessageBox, "information") as info,
+        ):
+            win.buttons["Export As..."].click()
+        info.assert_not_called()
+        with (
+            mock.patch(dialog, return_value=(str(other), "")),
+            mock.patch.object(QMessageBox, "information") as info,
+        ):
+            win.buttons["Export As..."].click()
+        self.assertEqual(win.xml_path, other)
+        self.assertTrue(other.is_file())
+        self.assertIn(str(other), info.call_args.args[2])
+
+    def test_dialogs_and_window_are_freed(self) -> None:
+        assert_freed(self, lambda: le.MapWindow(LevelDoc(1, 8, 8), self.tmp / "x.xml", False, 20))
+        assert_freed(self, le.StartDialog)
+        assert_freed(self, lambda: le.CarEditor(LevelDoc(1, 8, 8)))
 
     def test_export_reports_write_errors(self) -> None:
         doc = LevelDoc(5, 20, 20)

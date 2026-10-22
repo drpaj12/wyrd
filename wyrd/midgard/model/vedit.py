@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from wyrd.midgard.model import ASSETS
+from wyrd.midgard.model.atomicio import write_text_atomic
 from wyrd.midgard.model.controllers import (
     Backend,
     ControllerError,
@@ -76,29 +77,32 @@ class EditorSession:
     def __init__(self, path: Path, backend: Backend | None = None) -> None:
         self.path = path
         self.backend = backend
-        self.dirty = False
         self.cycle = 0
         self._controller: LightController | None = None
-        self.text = self._read()
+        on_disk = self._file_text()
+        self.text = on_disk if on_disk is not None else load_template("combinational")
 
-    def _read(self) -> str:
+    def _file_text(self) -> str | None:
+        """The file as the editor shows it (one final newline dropped); None if unreadable."""
         try:
             raw = self.path.read_text(encoding="utf-8")
         except OSError:
-            return load_template("combinational")
+            return None
         return raw[:-1] if raw.endswith("\n") else raw
 
+    @property
+    def dirty(self) -> bool:
+        """True when the text differs from the file content (a missing file counts as different)."""
+        return self.text != self._file_text()
+
     def set_text(self, text: str) -> None:
-        if text != self.text:
-            self.dirty = True
         self.text = text
 
     def save(self) -> str:
         try:
-            self.path.write_text(self.text + "\n", encoding="utf-8")
+            write_text_atomic(self.path, self.text + "\n")
         except OSError as exc:
             return str(exc)
-        self.dirty = False
         return SAVE_OK
 
     def _drop_controller(self) -> None:

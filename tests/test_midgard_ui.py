@@ -357,6 +357,10 @@ class EditorLaunchTest(UiBase):
         )
         game.tick_clock.max_backlog = 100000
         self.addCleanup(game.close)
+        env = patch.dict(os.environ)
+        env.start()
+        self.addCleanup(env.stop)
+        os.environ.pop("MIDGARD_EDITOR", None)
         return game, argvs, procs
 
     def click_control(self, game: Game, index: int) -> None:
@@ -398,6 +402,26 @@ class EditorLaunchTest(UiBase):
         game.frame(0.7, [])
         self.click_control(game, 0)
         self.assertEqual(argvs, [])
+
+    def test_midgard_editor_wins_over_the_window(self) -> None:
+        game, argvs, _ = self.make()
+        game.open_level(1)
+        game.frame(0.7, [])
+        screen = self.level_screen(game)
+        path = self.tmp / "Lv1" / "VerilogFiles" / "Traffic_signal_set_0.v"
+        with (
+            patch.dict(os.environ, {"MIDGARD_EDITOR": "myed --wait"}),
+            patch.object(game, "spawn") as spawn,
+        ):
+            screen.open_editor(0)
+        self.assertEqual(argvs, [])
+        spawn.assert_called_once_with(["myed", "--wait", str(path)])
+        with (
+            patch.dict(os.environ, {"MIDGARD_EDITOR": "  "}),
+            patch("importlib.util.find_spec", return_value=object()),
+        ):
+            screen.open_editor(0)
+        self.assertEqual(len(argvs), 1)
 
     def test_no_pyside_uses_external_editor(self) -> None:
         game, argvs, _ = self.make()
