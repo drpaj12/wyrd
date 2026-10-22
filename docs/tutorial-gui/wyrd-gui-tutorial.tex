@@ -7,7 +7,7 @@
 \usepackage{courier}
 \usepackage[letterpaper,margin=1.1in,top=1.0in,bottom=1.0in]{geometry}
 \usepackage{graphicx,xcolor,fancyhdr,titlesec,caption,enumitem,fancyvrb,listings,float,url}
-\usepackage[colorlinks=true,linkcolor=blue!60!black,urlcolor=blue!60!black]{hyperref}
+\usepackage[colorlinks=true,linkcolor=blue!60!black,urlcolor=blue!60!black,citecolor=blue!60!black,bookmarksopen=true,bookmarksnumbered=true,pdfborder={0 0 0}]{hyperref}
 
 \definecolor{banner}{HTML}{1F5FBF}
 \definecolor{codebg}{HTML}{F4F4F4}
@@ -66,6 +66,12 @@
 \end{center}
 \vspace{2pt}
 \noindent\colorbox{banner}{\parbox{\dimexpr\linewidth-2\fboxsep}{\color{white}\sffamily\itshape\small For Wyrd III 0.1\quad(Yggdrasil III suite)\hfill October 2026}}
+
+\begingroup\hypersetup{linkcolor=blue!60!black}
+\renewcommand{\contentsname}{Contents}
+\tableofcontents
+\endgroup
+\clearpage
 
 \section{Introduction}
 
