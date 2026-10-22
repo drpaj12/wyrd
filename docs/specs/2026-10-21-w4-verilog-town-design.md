@@ -223,7 +223,9 @@ Placement (the original `LevelScreen`), before the simulation starts: the unused
 at the bottom-left tile; a left-click release on the pile picks the highest-numbered unused sensor; the sensor
 then follows the mouse; a release on a valid tile places it (and the file is saved); a left-click release on a
 placed sensor picks it up to move it; a right-click release cancels a pick or, on a placed sensor, removes it;
-key `C` removes all. Valid tile: not `NON_ROAD`, `control is None` (not an entry or internal tile), and no
+a press on the pile or a placed sensor and a release on another tile picks the sensor up and drops it there
+(drag and drop; a bad tile leaves it in hand, and the camera does not pan during such a drag); the EDIT status line
+says how many sensors are left and how to place them; key `C` removes all. Valid tile: not `NON_ROAD`, `control is None` (not an entry or internal tile), and no
 sensor already there (the Java allowed stacking and lost one; Midgard III refuses). The mouse tile is
 `(floor(map_x / 64) + 1, floor(map_y / 64) + 1)` for map pixel `(map_x, map_y)` (y up from the map bottom).
 

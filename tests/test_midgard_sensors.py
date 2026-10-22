@@ -172,6 +172,40 @@ class SensorTest(unittest.TestCase):
         self.assertFalse(ss.sensors[5].placed)
         self.assertIs(ed.placing, ss.sensors[5])
 
+    def test_drag_from_pile_places(self) -> None:
+        ss = SensorSet()
+        ed = SensorEditor(ss, self.g)
+        self.assertTrue(ed.can_drag_from(1, 1))
+        ed.drag_release((1, 1), (5, 15))
+        self.assertEqual((ss.sensors[6].x, ss.sensors[6].y), (5, 15))
+        self.assertIsNone(ed.placing)
+        self.assertTrue(ed.dirty)
+
+    def test_drag_moves_placed_sensor(self) -> None:
+        ss = SensorSet()
+        ed = SensorEditor(ss, self.g)
+        ed.drag_release((1, 1), (5, 15))
+        self.assertTrue(ed.can_drag_from(5, 15))
+        ed.drag_release((5, 15), (5, 16))
+        self.assertIsNone(self.g[5][15].sensor)
+        self.assertIs(self.g[5][16].sensor, ss.sensors[6])
+
+    def test_drag_onto_bad_tile_keeps_sensor_in_hand(self) -> None:
+        ss = SensorSet()
+        ed = SensorEditor(ss, self.g)
+        ed.drag_release((1, 1), (1, 2))
+        self.assertIs(ed.placing, ss.sensors[6])
+        self.assertFalse(ss.sensors[6].placed)
+        self.assertFalse(ed.dirty)
+
+    def test_drag_from_empty_tile_does_nothing(self) -> None:
+        ss = SensorSet()
+        ed = SensorEditor(ss, self.g)
+        self.assertFalse(ed.can_drag_from(5, 15))
+        ed.drag_release((5, 15), (5, 16))
+        self.assertIsNone(ed.placing)
+        self.assertFalse(any(s.placed for s in ss.sensors))
+
     def test_pile_empty(self) -> None:
         g = self.g
         ss = SensorSet()
