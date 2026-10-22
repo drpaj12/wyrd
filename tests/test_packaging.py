@@ -16,12 +16,18 @@ class PackagingTest(unittest.TestCase):
             for init in (ROOT / "wyrd").rglob("__init__.py")
         }
         self.assertIn("wyrd.steps", found)
+        self.assertIn("wyrd.bifrost", found)
         if isinstance(explicit, list):
             covered = set(explicit)
         else:
             patterns = setuptools["packages"]["find"]["include"]
             covered = {n for n in found if any(fnmatch.fnmatchcase(n, p) for p in patterns)}
         self.assertEqual(found - covered, set())
+
+    def test_sim_extra(self) -> None:
+        project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+        self.assertEqual(project["optional-dependencies"]["sim"], ["odin3>=1.0.3"])
+        self.assertEqual(project["dependencies"], [])
 
 
 if __name__ == "__main__":
