@@ -125,6 +125,11 @@ def main(root: Path) -> int:
     os.environ["WYRD_CONFIG"] = str(cfg)
     subprocess.run([sys.executable, "-m", "wyrd.cli", "config", "init"], check=True,
                    capture_output=True)
+    vpr_gui = os.environ.get("VPR_GUI")  # a VPR built with graphics, for the floorplan step
+    if vpr_gui:
+        text = cfg.read_text(encoding="utf-8")
+        cfg.write_text(text.replace("\n[resources]", f'vpr_gui = "{vpr_gui}"\n\n[resources]', 1),
+                       encoding="utf-8")
     # Shell housekeeping shown in the tutorial: the folder and the Verilog sources.
     demo = root / "demo"
     shutil.copytree(CLI_PROJECT / "src", demo / "src")
@@ -148,7 +153,21 @@ def main(root: Path) -> int:
     menu_shot(app, win, "Tools", "gt-menu-tools")
     win.close()
     del other
+    midgard(root)
     return 0
+
+
+def midgard(root: Path) -> None:
+    """Midgard III pictures: pygame surfaces and the Qt editors, by the existing scripts."""
+    data, out = root / "midgard", root / "mg-out"
+    out.mkdir()
+    shots = TUT.parent / "tutorial" / "shots"
+    env = dict(os.environ, SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy")
+    for script, folder in ((shots / "midgard_shots.py", data), (HERE / "mg_gui_shots.py", root / "mgh"),
+                           (shots / "editor_shots.py", data)):
+        subprocess.run([sys.executable, str(script), str(folder), str(out)], check=True, env=env)
+    for png in out.glob("*.png"):
+        shutil.copy(png, IMAGES / f"gt-{png.name}")
 
 
 def design(app: QApplication, win: MainWindow) -> None:
@@ -168,7 +187,8 @@ def design(app: QApplication, win: MainWindow) -> None:
     # Edit the placeholder design out and set the project name and architectures, as typing would.
     text = win.editor.text.toPlainText()
     text = text.replace('name = "myproject"', 'name = "counteradd"')
-    text = text.replace('[[design]]\nname = "mydesign"\nfiles = ["CHANGE_ME.v"]\n# top = "top"\n\n',
+    text = text.replace('# One [[design]] per design. Replace the placeholder path with your Verilog files.\n'
+                        '[[design]]\nname = "mydesign"\nfiles = ["CHANGE_ME.v"]\n# top = "top"\n\n',
                         "")
     text = text.replace('design = ["mydesign", "counteradd"]', 'design = ["counteradd"]')
     text = text.replace('arch = ["k6_frac_N10_frac_chain_mem32K_40nm"]',
@@ -219,6 +239,7 @@ def run_demo(app: QApplication, win: MainWindow, demo: Path) -> None:
     show_dock(win, "Messages")
     grab(win, "gt-log")
     print("messages", win.messages.count())
+    win.messages.table.setColumnWidth(2, 640)
     win.messages.filter.setCurrentText("Warnings")
     pump(app, 0.5)
     grab(win, "gt-messages-warnings")
@@ -233,7 +254,7 @@ def run_demo(app: QApplication, win: MainWindow, demo: Path) -> None:
 def compare_demo(app: QApplication, win: MainWindow, root: Path, demo: Path) -> Path:
     # Shell housekeeping: a copy of the project whose top.v has a registered output.
     other = root / "demo2"
-    shutil.copytree(demo, other, ignore=shutil.ignore_patterns("runs", "*.vcd"))
+    shutil.copytree(demo, other, ignore=shutil.ignore_patterns("runs", "wyrd.db*", "*.vcd"))
     shutil.copy(CLI_PROJECT / "variants" / "top_registered.v", other / "src" / "top.v")
     win.open_project(other)
     wait(app, lambda: win.project is not None and win.project_dir == other)
