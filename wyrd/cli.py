@@ -94,6 +94,10 @@ def _quiet(line: str) -> None:
     """The CLI prints its own per-run lines; the scheduler's progress log is dropped."""
 
 
+def _stdout_line(line: str) -> None:
+    print(line, flush=True)
+
+
 def _run(args: argparse.Namespace) -> int:
     root = Path(args.project)
     try:
@@ -111,12 +115,14 @@ def _run(args: argparse.Namespace) -> int:
     except OSError as e:
         return _err(f"cannot lock {project.root}: {e}")
     try:
-        return _run_locked(project, s, args.force)
+        return _run_locked(project, s, args.force, args.progress)
     finally:
         os.close(fd)
 
 
-def _run_locked(project: Project, s: settings.Settings, force: bool) -> int:
+def _run_locked(
+    project: Project, s: settings.Settings, force: bool, progress: bool = False
+) -> int:
     problems = preflight(project, s)
     if problems:
         for problem in problems:
@@ -126,7 +132,7 @@ def _run_locked(project: Project, s: settings.Settings, force: bool) -> int:
         return _err("no runs in the sweep")
     try:
         store = Store(project.root / "wyrd.db")
-        results = run_all(project, s, store, force, log=_quiet)
+        results = run_all(project, s, store, force, log=_stdout_line if progress else _quiet)
         by_key = {str(r["key"]): r for r in store.rows()}
     except (OSError, sqlite3.Error) as e:
         return _err(f"run failed: {e}")
@@ -242,6 +248,9 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--force", action="store_true", help="re-run runs that are already ok")
     run.add_argument("--jobs", type=int, help="parallel runs")
     run.add_argument("--mem-budget", help='memory budget, e.g. "24G" or "60%"')
+    run.add_argument(
+        "--progress", action="store_true", help="print one line per finished run to stdout"
+    )
     _with_project(sub.add_parser("status", help="count runs per status"))
     table = _with_project(sub.add_parser("table", help="one row per design and arch"))
     _with_format(table)

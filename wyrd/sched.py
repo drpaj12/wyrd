@@ -246,6 +246,7 @@ def run_all(
             sched.results[plan.key] = "ok"
         else:
             todo.append(plan)
+    sched.log(f"plan: {len(todo)} to run, {len(sched.results)} reused")
     previous: Any = _UNSET
     on_main = threading.current_thread() is threading.main_thread()
     if on_main:

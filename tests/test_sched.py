@@ -219,6 +219,13 @@ class RunAllTest(SchedBase):
         self.assertEqual(second.count, 0)
         self.assertEqual(set(got.values()), {"ok"})
 
+    def test_plan_line(self) -> None:
+        self.go({"a": 1}, [sleepy(0)])
+        self.assertEqual(self.lines[0], "plan: 1 to run, 0 reused")
+        self.lines.clear()
+        self.go({"a": 1}, [sleepy(0)])
+        self.assertEqual(self.lines[0], "plan: 0 to run, 1 reused")
+
     def test_force_reruns(self) -> None:
         self.go({"a": 1}, [sleepy()])
         again = CountingLauncher()

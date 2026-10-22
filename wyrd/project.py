@@ -203,14 +203,23 @@ def _expand(
     return tuple(runs)
 
 
-def load_project(path: Path) -> Project:
-    """Read ``path`` and return the validated project; raise ConfigError on any problem."""
+def _read_text(path: Path) -> str:
     try:
-        text = path.read_text(encoding="utf-8")
+        return path.read_text(encoding="utf-8")
     except UnicodeDecodeError as e:
         raise ConfigError(path, None, f"project file is not valid UTF-8: {e.reason}") from e
     except OSError as e:
         raise ConfigError(path, None, f"cannot read project file: {e.strerror}") from e
+
+
+def load_project(path: Path, text: str | None = None) -> Project:
+    """Validate the project at ``path``; raise ConfigError on any problem.
+
+    ``text`` replaces the file content when given (an editor buffer); ``path`` still
+    anchors relative file patterns and error messages.
+    """
+    if text is None:
+        text = _read_text(path)
     ctx = _Ctx(path, text)
     try:
         data = tomllib.loads(text)
