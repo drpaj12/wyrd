@@ -27,6 +27,36 @@ The Floorplan button re-runs VPR with its graphics enabled for the selected run,
 built with Qt6 graphics; when VPR exits early the Flow log says so. Credits for the tools and
 papers Wyrd builds on are in `docs/CITATIONS.md` and the About dialog.
 
+## Simulation (`wyrd[sim]`)
+
+    pip install -e ".[sim]"      # Odin III 1.0.3 or later; odin3 is not on PyPI, install its release wheel
+
+`wyrd.bifrost` (Bifrost III) wraps Odin III's per-cycle simulator: it compiles Verilog with
+`read_verilog; proc; opt; lower`, then exposes named inputs and outputs, step, reset, recording and VCD output.
+
+    from wyrd.bifrost import BifrostSession
+
+    with BifrostSession.from_verilog(["traffic.v"]) as sim:
+        sim.set("rst", 1)
+        sim.step()
+        sim.set("rst", 0)
+        sim.step(4)
+        print(sim.get("light_ns"), sim.get("light_ew"))
+
+The command line runs vector files or random inputs:
+
+    wyrd sim traffic.v --random 100 --seed 3 --vcd traffic.vcd
+    wyrd sim traffic.v --vectors in.txt --save-vectors out.txt
+
+A vector line is `CYCLE INPUTS [OUTPUTS]` with ports written MSB first. The GUI has a Simulate tab
+(Tools menu, Ctrl+T): compile a project design, edit inputs, step or run, run random inputs or a vector
+file, view the built-in waveform and open the recording in GTKWave (`WYRD_GTKWAVE` or `gtkwave` on PATH).
+
+Limits of the S1 simulator: clocks must be top-level inputs (a clock is stepped, not set), a signal that
+passes remove must be marked `(* keep *)` in the HDL to stay visible, and a port that mixes clock and data
+use is not supported. The VCD is written by Wyrd from the recording: one cycle is 10 time units (timescale 1ns) and values are
+sampled once per step, so a combinational output shows as changing at the rising edge, not at the input change.
+
 ## Samples
 
 `samples/` holds three projects (`single`, `multi`, `dsp`) swept over two architectures. They need

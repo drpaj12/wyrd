@@ -16,6 +16,7 @@ class PackagingTest(unittest.TestCase):
             for init in (ROOT / "wyrd").rglob("__init__.py")
         }
         self.assertIn("wyrd.steps", found)
+        self.assertIn("wyrd.bifrost", found)
         self.assertIn("wyrd.guimodel", found)
         self.assertIn("wyrd.gui", found)
         if isinstance(explicit, list):
@@ -32,6 +33,11 @@ class PackagingTest(unittest.TestCase):
         self.assertEqual(project["optional-dependencies"]["gui"], ["PySide6-Essentials>=6.6,<7"])
         self.assertEqual(project["gui-scripts"]["wyrd-gui"], "wyrd.gui.app:main")
         self.assertEqual(cfg["tool"]["setuptools"]["package-data"]["wyrd"], ["data/*.toml"])
+
+    def test_sim_extra(self) -> None:
+        project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+        self.assertEqual(project["optional-dependencies"]["sim"], ["odin3>=1.0.3"])
+        self.assertEqual(project["dependencies"], [])
 
 
 if __name__ == "__main__":

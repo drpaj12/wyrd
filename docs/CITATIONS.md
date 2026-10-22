@@ -12,6 +12,7 @@
 | slang | software | SystemVerilog front end | M. Popoloski. | https://github.com/MikePopoloski/slang |
 | PySide6 / Qt | software | The GUI toolkit |  | https://doc.qt.io/qtforpython-6/ |
 | pygame-ce | software | Planned for Verilog Town (W4) |  | https://pyga.me |
+| GTKWave | software | External waveform viewer opened from the Simulate tab |  | https://gtkwave.sourceforge.net |
 | verilogTown | paper | The Verilog teaching game ported in W4 | P. Jamieson, L. Grace, N. Mizuno, B. Zhang (2017). verilogTown - Improving Students Learning Hardware Description Language Design - Verilog - with a Video Game. ASEE Annual Conference and Exposition. |  |
 | GraphCrunch | paper | Graph analysis background | T. Milenkovic, J. Lai, N. Przulj (2008). GraphCrunch: a tool for large network analyses. BMC Bioinformatics 9:70. |  |
 | theryx | software | Verilog RTL schematic and LSP VS Code extension (opened from the GUI) | L. C. Filho. | https://github.com/luigicfilho/theryx |

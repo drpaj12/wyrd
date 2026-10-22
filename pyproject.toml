@@ -12,6 +12,7 @@ dependencies = []
 
 [project.optional-dependencies]
 gui = ["PySide6-Essentials>=6.6,<7"]
+sim = ["odin3>=1.0.3"]
 
 [project.scripts]
 wyrd = "wyrd.cli:main"

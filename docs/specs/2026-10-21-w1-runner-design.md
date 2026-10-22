@@ -26,6 +26,8 @@ VPR, give `wyrd table` rows equal to `odin3-flow` run directly on the same files
 | 5 | Machine differences | Per-machine settings file, separate from the project |
 | 6 | Acceptance | Three small samples (single file; multi-file; multi-file with multipliers, memories, flip-flops) |
 
+Note (2026-10-21): W3 makes one exception for per-cycle simulation; see docs/specs/2026-10-21-w3-sim-design.md section 3.
+
 ## 3. Components
 
 Python 3.11 or later (stdlib `tomllib`, `sqlite3`); no runtime dependencies.
