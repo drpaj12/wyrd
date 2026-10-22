@@ -20,8 +20,11 @@ from PySide6.QtWidgets import (
 from wyrd import cli
 from wyrd.gui.messages import MessagesPane
 from wyrd.gui.projecttree import ProjectTree
+from wyrd.gui.reportview import ReportView
 from wyrd.gui.sourceview import SourceView
+from wyrd.guimodel.logparse import Message, step_messages
 from wyrd.guimodel.projmodel import project_tree
+from wyrd.guimodel.runs import RunInfo, step_dirs
 from wyrd.project import ConfigError, Project, load_project
 
 MAX_RECENT = 8
@@ -39,6 +42,7 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.source_view = SourceView()
         self.messages = MessagesPane()
+        self.report_view = ReportView()
         self.docks: dict[str, QDockWidget] = {}
         self.recent_menu = QMenu("Recent", self)
         self._build()
@@ -51,12 +55,16 @@ class MainWindow(QMainWindow):
         left.setWidget(self.project_tree)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, left)
         for name in TAB_NAMES:
-            self.tabs.addTab(self.source_view if name == "Source" else QWidget(), name)
+            self.tabs.addTab(self._tab_widget(name), name)
         self.setCentralWidget(self.tabs)
         self._build_docks()
         self._build_menus()
         self.project_tree.file_activated.connect(self.show_source)
         self.messages.location_activated.connect(self.show_source)
+        self.report_view.run_selected.connect(self._on_run_selected)
+
+    def _tab_widget(self, name: str) -> QWidget:
+        return {"Source": self.source_view, "Report": self.report_view}.get(name, QWidget())
 
     def show_source(self, path: Path, line: int | None = None) -> None:
         self.source_view.open_file(path, line)
@@ -159,7 +167,20 @@ class MainWindow(QMainWindow):
         return True
 
     def refresh_results(self) -> None:
-        """Reload result views; later tasks attach the report view here."""
+        self.report_view.set_project_dir(self.project_dir)
+
+    def _on_run_selected(self, run: RunInfo | None) -> None:
+        if run is None or self.project_dir is None:
+            self.messages.clear()
+            return
+        steps = step_dirs(run.run_dir)
+        messages: list[Message] = []
+        search: list[Path] = [self.project_dir]
+        for step in steps:
+            messages.extend(step_messages(step.path))
+            search += [step.path, step.path / "out"]
+        files = [f for d in self.project.designs.values() for f in d.files] if self.project else []
+        self.messages.set_messages(messages, search, files)
 
     def _open_dialog(self) -> None:
         chosen = QFileDialog.getExistingDirectory(self, "Open Project")

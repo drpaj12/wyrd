@@ -5,9 +5,12 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import importlib.util
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
+
+from tests.helpers_results import make_results
 
 HAVE_QT = importlib.util.find_spec("PySide6") is not None
 ROOT = Path(__file__).parent.parent
@@ -16,12 +19,15 @@ LOGS = ROOT / "tests" / "data" / "logs"
 
 if HAVE_QT:
     from PySide6.QtCore import QCoreApplication, QSettings
-    from PySide6.QtWidgets import QApplication, QTreeWidgetItem
+    from PySide6.QtWidgets import QApplication, QTableWidget, QTreeWidgetItem
 
     from wyrd.gui.mainwindow import MainWindow
     from wyrd.gui.messages import MessagesPane
     from wyrd.gui.sourceview import SourceView
+    from wyrd.guimodel.floorplan import plan_floorplan
     from wyrd.guimodel.logparse import parse_log
+    from wyrd.model import Design, Recipe, RunSpec, StepSpec
+    from wyrd.store import Store
 
     _APP: QCoreApplication | None = None
 
@@ -141,6 +147,123 @@ class ViewerTest(unittest.TestCase):
         pane.location_activated.connect(lambda p, n: got.append((p, n)))
         pane.table.cellDoubleClicked.emit(0, 0)
         self.assertEqual(got, [(msgs[0].log, 3)])
+
+
+def project_with_results(tmp: Path) -> Path:
+    root = tmp / "proj"
+    shutil.copytree(SAMPLES / "designs", root / "designs")
+    shutil.copy(SAMPLES / "wyrd.toml", root / "wyrd.toml")
+    make_results(root)
+    return root
+
+
+def find_child(item: "QTreeWidgetItem", text: str) -> "QTreeWidgetItem":
+    for i in range(item.childCount()):
+        child = item.child(i)
+        if child is not None and child.text(0) == text:
+            return child
+    raise AssertionError(f"no child {text!r}")
+
+
+def child_texts(item: "QTreeWidgetItem") -> list[str]:
+    out: list[str] = []
+    for i in range(item.childCount()):
+        child = item.child(i)
+        assert child is not None
+        out.append(child.text(0))
+    return out
+
+
+def table_cells(table: "QTableWidget") -> list[list[str]]:
+    out: list[list[str]] = []
+    for r in range(table.rowCount()):
+        row: list[str] = []
+        for c in range(table.columnCount()):
+            cell = table.item(r, c)
+            row.append(cell.text() if cell else "")
+        out.append(row)
+    return out
+
+
+@unittest.skipUnless(HAVE_QT, "PySide6 not installed")
+class ReportTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_report_tree_and_summary(self) -> None:
+        root = project_with_results(self.tmp)
+        w = window(self.tmp)
+        self.assertTrue(w.open_project(root))
+        tree = w.report_view.tree
+        self.assertEqual(tree.topLevelItemCount(), 3)
+        run = tree.topLevelItem(1)
+        assert run is not None
+        self.assertEqual(run.text(0), "single / EArch")
+        self.assertEqual(child_texts(run), ["Summary", "Step 0: odin3-flow"])
+        tree.setCurrentItem(find_child(run, "Summary"))
+        page = w.report_view.pages.currentWidget()
+        assert isinstance(page, QTableWidget)
+        cells = table_cells(page)
+        self.assertIn(["Fmax (MHz)", "181.8"], cells)
+
+    def test_run_selection_fills_messages(self) -> None:
+        root = project_with_results(self.tmp)
+        w = window(self.tmp)
+        w.open_project(root)
+        run = w.report_view.tree.topLevelItem(1)
+        assert run is not None
+        w.report_view.tree.setCurrentItem(run)
+        self.assertEqual(w.messages.count(), 8)
+        button = w.report_view.floorplan_button
+        self.assertFalse(button.isEnabled())
+        run_info = w.report_view.current_run()
+        assert run_info is not None
+        self.assertEqual(button.toolTip(), plan_floorplan(run_info.run_dir))
+
+    def test_compare(self) -> None:
+        root = project_with_results(self.tmp)
+        other = self.tmp / "other"
+        other.mkdir()
+        make_results(other)
+        w = window(self.tmp)
+        w.open_project(root)
+        w.report_view.compare_with(other)
+        header = table_cells(w.report_view.compare_table)[0]
+        self.assertEqual(w.report_view.compare_table.columnCount(), len(header))
+        self.assertGreater(w.report_view.compare_table.rowCount(), 0)
+
+    def test_no_results(self) -> None:
+        w = window(self.tmp)
+        w.open_project(SAMPLES)
+        tree = w.report_view.tree
+        self.assertEqual(tree.topLevelItemCount(), 1)
+        top = tree.topLevelItem(0)
+        assert top is not None
+        self.assertTrue(top.text(0).startswith("No results yet"))
+
+    def test_missing_metrics_show_na(self) -> None:
+        root = project_with_results(self.tmp)
+        store = Store(root / "wyrd.db")
+        recipe = Recipe("vtr", (StepSpec("odin3-flow"),))
+        spec = RunSpec(Design("dsp", (root / "a.v",), None), "EArch", recipe)
+        store.begin("b" * 64, spec, root / "runs" / "dsp")
+        store.finish("b" * 64, "ok")
+        w = window(self.tmp)
+        w.open_project(root)
+        tree = w.report_view.tree
+        run = tree.topLevelItem(1)
+        assert run is not None
+        self.assertEqual(run.text(0), "dsp / EArch")
+        tree.setCurrentItem(find_child(run, "Summary"))
+        page = w.report_view.pages.currentWidget()
+        assert isinstance(page, QTableWidget)
+        cells = dict((r[0], r[1]) for r in table_cells(page))
+        self.assertEqual(cells["Fmax (MHz)"], "n/a")
+        self.assertEqual(cells["LUTs"], "n/a")
 
 
 if __name__ == "__main__":
