@@ -1,8 +1,8 @@
 # W1: the Wyrd experiment runner (design)
 
 Status: approved in brainstorming with Peter, 2026-10-21; this file is for his review.
-Wyrd-I is the GUI wrapper around Odin III; W1 is its command-line core. The GUI (W2), simulation
-(W3) and Verilog Town (W4) come later and use W1. The RTL schematic viewer (W5) is not a goal.
+Wyrd III is the GUI wrapper around Odin III; W1 is its command-line core. The GUI (W2), simulation
+(W3) and Midgard III (Verilog Town, W4) come later and use W1. The RTL schematic viewer (W5) is not a goal.
 
 ## 1. Goal
 

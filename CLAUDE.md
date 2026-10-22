@@ -1,6 +1,6 @@
 # wyrd
 
-W1 experiment runner, part of Wyrd-I. Expands a TOML project into runs, executes them under a
+W1 experiment runner, part of Wyrd III. Expands a TOML project into runs, executes them under a
 memory budget, stores results (run directories plus `wyrd.db`), prints tables. Depends on Odin III
 only as programs (`odin3`, `odin3-flow`, `vpr`, `abc`); never imports its Python.
 

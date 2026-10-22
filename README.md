@@ -1,6 +1,11 @@
 # wyrd
 
-Experiment runner for Odin III flows (W1 of Wyrd-I). Python 3.11+, no runtime dependencies.
+Experiment runner for Odin III flows (W1 of Wyrd III). Python 3.11+, no runtime dependencies.
+
+Wyrd III is part of **Yggdrasil III** (the project / world tree), the suite of Odin III
+(<https://github.com/drpaj12/odin3>), Wyrd III, Loki III (<https://github.com/drpaj12/loki>) and Midgard III. Midgard III,
+also known as Verilog Town, is the game Wyrd III will host (W4), after the original verilogTown (Jamieson, Grace,
+Mizuno, Zhang, ASEE 2017).
 
     pip install -e .
     wyrd config init     # write ~/.config/wyrd/machine.toml with detected values
