@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.machinery
 import importlib.util
 import os
 import tempfile
@@ -361,6 +362,16 @@ class EditorLaunchTest(UiBase):
         env.start()
         self.addCleanup(env.stop)
         os.environ.pop("MIDGARD_EDITOR", None)
+        real_find_spec = importlib.util.find_spec
+
+        def find_spec(name: str, package: str | None = None) -> object | None:
+            if name == "PySide6":
+                return importlib.machinery.ModuleSpec("PySide6", None)
+            return real_find_spec(name, package)
+
+        spec = patch("importlib.util.find_spec", find_spec)
+        spec.start()
+        self.addCleanup(spec.stop)
         return game, argvs, procs
 
     def click_control(self, game: Game, index: int) -> None:
