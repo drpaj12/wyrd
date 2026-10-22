@@ -23,14 +23,16 @@ LOGS = ROOT / "tests" / "data" / "logs"
 
 if HAVE_QT:
     from PySide6.QtCore import QCoreApplication, QEventLoop, QSettings, QTimer, SignalInstance
-    from PySide6.QtWidgets import QApplication, QTableWidget, QTreeWidgetItem
+    from PySide6.QtWidgets import QApplication, QDialog, QTableWidget, QTreeWidgetItem
 
+    from wyrd.gui.adddesign import AddDesignDialog
     from wyrd.gui.flowpanel import FlowPanel
     from wyrd.gui.mainwindow import MainWindow
     from wyrd.gui.messages import MessagesPane
     from wyrd.gui.sourceview import SourceView
     from wyrd.guimodel.floorplan import FloorplanPlan, plan_floorplan
     from wyrd.guimodel.logparse import parse_log
+    from wyrd.guimodel.tomledit import validate_text
     from wyrd.model import Design, Recipe, RunSpec, StepSpec
     from wyrd.store import Store
 
@@ -368,6 +370,88 @@ class FlowTest(unittest.TestCase):
         pump_until(lambda: "VPR exited early" in panel.log.toPlainText(), 3000)
         self.assertTrue(cwd.is_dir())
         self.assertIn("VPR exited early", panel.log.toPlainText())
+
+
+def copy_project(tmp: Path) -> Path:
+    root = tmp / "edit"
+    shutil.copytree(SAMPLES / "designs", root / "designs")
+    shutil.copy(SAMPLES / "wyrd.toml", root / "wyrd.toml")
+    return root
+
+
+@unittest.skipUnless(HAVE_QT, "PySide6 not installed")
+class EditorTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_editor_valid(self) -> None:
+        w = window(self.tmp)
+        w.open_project(SAMPLES)
+        self.assertTrue(w.editor.validate_now().ok)
+        self.assertEqual(w.editor.status.text(), "Valid: 6 runs")
+
+    def test_editor_error_line(self) -> None:
+        w = window(self.tmp)
+        w.open_project(SAMPLES)
+        text = (SAMPLES / "wyrd.toml").read_text(encoding="utf-8").replace(
+            'name = "samples"', "name = 1"
+        )
+        w.editor.text.setPlainText(text)
+        result = w.editor.validate_now()
+        expected = validate_text(SAMPLES / "wyrd.toml", text)
+        assert result.diagnostic is not None and expected.diagnostic is not None
+        self.assertEqual(result.diagnostic.line, expected.diagnostic.line)
+        self.assertTrue(w.editor.status.text().startswith("line "))
+        self.assertEqual(len(w.editor.text.extraSelections()), 1)
+
+    def test_save_roundtrip(self) -> None:
+        root = copy_project(self.tmp)
+        w = window(self.tmp)
+        w.open_project(root)
+        saved: list[bool] = []
+        w.editor.saved.connect(lambda: saved.append(True))
+        text = w.editor.text.toPlainText().replace("step_timeout = 3600", "step_timeout = 7200")
+        w.editor.text.setPlainText(text)
+        self.assertTrue(w.editor.is_modified())
+        self.assertTrue(w.editor.save())
+        self.assertEqual((root / "wyrd.toml").read_text(encoding="utf-8"), text)
+        self.assertEqual(saved, [True])
+        self.assertFalse(w.editor.is_modified())
+        w.editor.text.setPlainText("[project]\nname = 1\n")
+        self.assertTrue(w.editor.save())
+        self.assertEqual((root / "wyrd.toml").read_text(encoding="utf-8"), "[project]\nname = 1\n")
+
+    def test_add_design_dialog(self) -> None:
+        root = copy_project(self.tmp)
+        dlg = AddDesignDialog(root, {"single"})
+        dlg.name_edit.setText("single")
+        dlg.files_list.addItem("x.v")
+        dlg.accept()
+        self.assertNotEqual(dlg.result(), QDialog.DialogCode.Accepted)
+        self.assertNotEqual(dlg.error_label.text(), "")
+        dlg.name_edit.setText("newd")
+        dlg.accept()
+        self.assertEqual(dlg.result(), QDialog.DialogCode.Accepted)
+        self.assertEqual(dlg.result_values(), ("newd", ["x.v"], None, True))
+        w = window(self.tmp)
+        w.open_project(root)
+        before = w.editor.text.toPlainText()
+        w.apply_design(*dlg.result_values())
+        self.assertNotEqual(w.editor.text.toPlainText(), before)
+        self.assertIn('name = "newd"', w.editor.text.toPlainText())
+        self.assertTrue(w.editor.is_modified())
+        self.assertIs(w.tabs.currentWidget(), w.editor)
+
+    def test_unsaved_edits_do_not_block_open(self) -> None:
+        w = window(self.tmp)
+        w.open_project(copy_project(self.tmp))
+        w.editor.text.setPlainText("x = 1\n")
+        self.assertTrue(w.open_project(SAMPLES))
+        self.assertFalse(w.editor.is_modified())
 
 
 if __name__ == "__main__":

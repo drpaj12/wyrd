@@ -18,6 +18,8 @@ from PySide6.QtWidgets import (
 )
 
 from wyrd import cli
+from wyrd.gui.adddesign import AddDesignDialog
+from wyrd.gui.editor import TomlEditor
 from wyrd.gui.flowpanel import FlowPanel
 from wyrd.gui.messages import MessagesPane
 from wyrd.gui.projecttree import ProjectTree
@@ -27,6 +29,7 @@ from wyrd.guimodel.floorplan import FloorplanPlan
 from wyrd.guimodel.logparse import Message, step_messages
 from wyrd.guimodel.projmodel import project_tree
 from wyrd.guimodel.runs import RunInfo, step_dirs
+from wyrd.guimodel.tomledit import AddDesignError, add_design
 from wyrd.project import ConfigError, Project, load_project
 
 MAX_RECENT = 8
@@ -46,6 +49,7 @@ class MainWindow(QMainWindow):
         self.messages = MessagesPane()
         self.report_view = ReportView()
         self.flow = FlowPanel()
+        self.editor = TomlEditor(silent)
         self.docks: dict[str, QDockWidget] = {}
         self.recent_menu = QMenu("Recent", self)
         self._build()
@@ -68,6 +72,29 @@ class MainWindow(QMainWindow):
         self.report_view.floorplan_requested.connect(self._on_floorplan)
         self.flow.run_requested.connect(self._run_flow)
         self.flow.finished.connect(lambda _code: self.refresh_results())
+        self.editor.saved.connect(self._on_saved)
+
+    def _on_saved(self) -> None:
+        if self.project_dir is not None:
+            self._load(self.project_dir)
+
+    def _add_design_dialog(self) -> None:
+        if self.project_dir is None:
+            return
+        existing = set(self.project.designs) if self.project else set()
+        dlg = AddDesignDialog(self.project_dir, existing, self)
+        if dlg.exec() == AddDesignDialog.DialogCode.Accepted:
+            self.apply_design(*dlg.result_values())
+
+    def apply_design(self, name: str, files: list[str], top: str | None, sweep: bool) -> None:
+        text = self.editor.text.toPlainText()
+        try:
+            new = add_design(text, name, files, top, sweep)
+        except AddDesignError as e:
+            self.statusBar().showMessage(str(e))
+            new = e.text
+        self.editor.set_text(new)
+        self.tabs.setCurrentWidget(self.editor)
 
     def _run_flow(self) -> None:
         if self.project_dir is not None and self.project is not None:
@@ -81,7 +108,12 @@ class MainWindow(QMainWindow):
         self.flow.start_floorplan(plan)
 
     def _tab_widget(self, name: str) -> QWidget:
-        return {"Source": self.source_view, "Report": self.report_view}.get(name, QWidget())
+        pages: dict[str, QWidget] = {
+            "Source": self.source_view,
+            "Report": self.report_view,
+            "wyrd.toml": self.editor,
+        }
+        return pages[name]
 
     def show_source(self, path: Path, line: int | None = None) -> None:
         self.source_view.open_file(path, line)
@@ -117,6 +149,7 @@ class MainWindow(QMainWindow):
         self._action(file_menu, "Open Project...", self._open_dialog, "Ctrl+O")
         file_menu.addMenu(self.recent_menu)
         file_menu.addSeparator()
+        self._action(file_menu, "Save wyrd.toml", self.editor.save, "Ctrl+S")
         self._action(file_menu, "Quit", self.close, "Ctrl+Q")
         project_menu = bar.addMenu("Project")
         assert project_menu is not None
@@ -124,6 +157,7 @@ class MainWindow(QMainWindow):
         self._action(project_menu, "Run flow", self._run_flow, "Ctrl+R")
         self._action(project_menu, "Cancel", self.flow.cancel, "Ctrl+.")
         self._action(project_menu, "Refresh results", self.refresh_results, "F5")
+        self._action(project_menu, "Add design...", self._add_design_dialog)
         view_menu = bar.addMenu("View")
         assert view_menu is not None
         for dock in self.docks.values():
@@ -170,9 +204,24 @@ class MainWindow(QMainWindow):
         if not toml.is_file():
             self._warn("Open Project", f"No wyrd.toml in {path}")
             return False
+        if not self._confirm_discard():
+            return False
+        self._load(path)
+        return True
+
+    def _confirm_discard(self) -> bool:
+        if self.silent or not self.editor.is_modified():
+            return True
+        answer = QMessageBox.question(
+            self, "Unsaved changes", "wyrd.toml has unsaved changes. Discard them?"
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
+    def _load(self, path: Path) -> None:
         self.project_dir = path
+        self.editor.load(path / "wyrd.toml")
         try:
-            self.project = load_project(toml)
+            self.project = load_project(path / "wyrd.toml")
         except ConfigError as e:
             self.project = None
             self.project_tree.set_nodes(())
@@ -183,8 +232,15 @@ class MainWindow(QMainWindow):
             self.statusBar().clearMessage()
             self.setWindowTitle(f"Wyrd III - {self.project.name}")
         self._remember(path)
+        self._enable_tabs()
         self.refresh_results()
-        return True
+
+    def _enable_tabs(self) -> None:
+        ok = self.project is not None
+        for i, name in enumerate(TAB_NAMES):
+            self.tabs.setTabEnabled(i, ok or name == "wyrd.toml")
+        if not ok:
+            self.tabs.setCurrentWidget(self.editor)
 
     def refresh_results(self) -> None:
         self.flow.set_can_run(self.project is not None)
@@ -232,7 +288,7 @@ class MainWindow(QMainWindow):
         return True
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        if not self._confirm_stop_flow():
+        if not self._confirm_stop_flow() or not self._confirm_discard():
             event.ignore()
             return
         self.settings.setValue("geometry", self.saveGeometry())
