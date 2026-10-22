@@ -130,7 +130,14 @@ class RealOdin3Test(unittest.TestCase):
             files.append(f)
         level, _ = self.run_level1(files, 3000)
         self.assertIs(level.phase, Phase.RUN)
-        self.assertEqual(level.result().passed, 0)
+        # constant (Left_only, Go, Stop, Right_only) lets some cars through but never finishes
+        ref = make_level(1)
+        ref.start(scripted(ref, lambda _light, _general: (2, 4, 0, 3)))
+        for _ in range(3000):
+            if ref.tick():
+                break
+        self.assertIs(ref.phase, Phase.RUN)
+        self.assertEqual(level.result(), ref.result())
 
     def test_templates_compile(self) -> None:
         files = sorted((ASSETS / "templates").glob("*.v"))
