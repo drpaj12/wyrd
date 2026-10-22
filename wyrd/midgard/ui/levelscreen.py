@@ -556,7 +556,8 @@ class LevelScreen(Screen):
 
     def _sensor_hint(self) -> str:
         left = sum(1 for s in self.level.sensors.sensors if not s.placed)
+        noun = "sensor" if left == 1 else "sensors"
         return (
-            f"{left} sensors left: click or drag the pile (bottom-left) onto a road tile; "
+            f"{left} {noun} left: click or drag the pile (bottom-left) onto a road tile; "
             "right-click removes"
         )
