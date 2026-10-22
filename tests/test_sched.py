@@ -295,8 +295,11 @@ class SigintTest(SchedBase):
     def test_previous_handler_none_restored_as_default(self) -> None:
         with mock.patch("wyrd.sched.signal.signal", return_value=None) as sig:
             self.go({"a": 1}, [sleepy()])
-        self.assertEqual(sig.call_args_list[-1].args, (signal.SIGINT, signal.SIG_DFL))
-        self.assertEqual(len(sig.call_args_list), 2)
+        restored = [c.args for c in sig.call_args_list[2:]]
+        self.assertEqual(
+            restored, [(signal.SIGINT, signal.SIG_DFL), (signal.SIGTERM, signal.SIG_DFL)]
+        )
+        self.assertEqual(len(sig.call_args_list), 4)
 
     def test_wait_failure_marks_fail_and_kills(self) -> None:
         with mock.patch("wyrd.launch.threading.Timer", FakeTimer):
@@ -305,6 +308,53 @@ class SigintTest(SchedBase):
             got = self.go({"a": 1}, [sleepy(seconds=30)])
         self.assertEqual(list(got.values()), ["fail"])
         self.assertTrue(any("RuntimeError: boom" in line for line in self.lines))
+
+
+DRIVER = (
+    "import sys, tempfile\n"
+    "from pathlib import Path\n"
+    "from tests.helpers import make_project, make_settings, shell\n"
+    "from wyrd.sched import run_all\n"
+    "from wyrd.store import Store\n"
+    "root = Path(sys.argv[1])\n"
+    "step = shell('sh', '-c', 'sleep 60 & echo $! > ' + sys.argv[2] + '; wait')\n"
+    "project = make_project(root, {'a': 1}, [step])\n"
+    "got = run_all(project, make_settings(), Store(root / 'wyrd.db'), False, log=lambda _l: None)\n"
+    "sys.exit(0 if list(got.values()) == ['ok'] else 1)\n"
+)
+
+
+def _alive(pid: int) -> bool:
+    try:
+        text = Path(f"/proc/{pid}/status").read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return "State:\tZ" not in text
+
+
+class SigtermTest(unittest.TestCase):
+    def test_sigterm_leaves_no_grandchild(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        pidfile = Path(tmp.name) / "grandchild.pid"
+        proc = subprocess.Popen(
+            [sys.executable, "-c", DRIVER, tmp.name, str(pidfile)],
+            cwd=Path(__file__).parent.parent,
+        )
+        self.addCleanup(proc.kill)
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            if pidfile.is_file() and pidfile.read_text(encoding="utf-8").strip():
+                break
+            time.sleep(0.05)
+        grandchild = int(pidfile.read_text(encoding="utf-8").strip())
+        self.addCleanup(lambda: _alive(grandchild) and os.kill(grandchild, signal.SIGKILL))
+        proc.send_signal(signal.SIGTERM)
+        self.assertEqual(proc.wait(timeout=20), 1)
+        end = time.monotonic() + 5
+        while _alive(grandchild) and time.monotonic() < end:
+            time.sleep(0.05)
+        self.assertFalse(_alive(grandchild))
 
 
 class EstimateTest(SchedBase):
