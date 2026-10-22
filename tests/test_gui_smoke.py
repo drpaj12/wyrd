@@ -47,7 +47,7 @@ if HAVE_QT:
     from tests.qt_helpers import qapp
     from wyrd.gui.about import AboutDialog
     from wyrd.gui.adddesign import AddDesignDialog
-    from wyrd.gui.flowpanel import FlowPanel
+    from wyrd.gui.flowpanel import EARLY_EXIT_TEXT, FlowPanel
     from wyrd.gui.mainwindow import MainWindow
     from wyrd.gui.messages import MessagesPane
     from wyrd.gui.settingsdialog import SettingsDialog
@@ -707,6 +707,11 @@ class FlowTest(unittest.TestCase):
         pump_until(lambda: "VPR exited early" in panel.log.toPlainText(), 3000)
         self.assertTrue(cwd.is_dir())
         self.assertIn("VPR exited early", panel.log.toPlainText())
+        self.assertIn(EARLY_EXIT_TEXT, panel.log.toPlainText())
+
+    def test_early_exit_text_names_setting(self) -> None:
+        self.assertIn("tools.vpr_gui", EARLY_EXIT_TEXT)
+        self.assertIn("Floorplan viewer", EARLY_EXIT_TEXT)
 
 
 def copy_project(tmp: Path) -> Path:

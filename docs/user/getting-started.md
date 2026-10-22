@@ -48,6 +48,7 @@ The file has three tables. Every key is optional; an unknown key or table is an 
 | `[tools]` | `odin3` | `"odin3"` | the Odin III binary |
 | | `odin3_flow` | `"odin3-flow"` | the flow script |
 | | `vtr_root` | `$VTR_ROOT` | the VTR checkout (`vpr` and the architecture files) |
+| | `vpr_gui` | unset | a VPR built with graphics, used only by the GUI Floorplan button (see below); must be an executable file |
 | `[resources]` | `mem_budget` | `"60%"` | memory all running steps may use together; a size or a percentage of RAM |
 | | `jobs` | CPUs / 2 | runs in parallel (at least 1) |
 | | `launcher` | `"systemd"` | `"systemd"` caps each step with `systemd-run --user --scope -p MemoryMax=`; anything else runs steps plainly |
@@ -64,3 +65,46 @@ tools by key. A project may override only `step_timeout` (in its `[run]` table);
 flags `--jobs` and `--mem-budget` override the machine file for one run.
 
 The GUI edits the same file in Project > Settings.
+
+## Floorplan viewer (VPR graphics)
+
+The GUI Floorplan button runs VPR with `--disp on`. The VPR in a normal VTR build is compiled
+without graphics (`-DNO_GRAPHICS`), so the viewer exits at once. To use the button, build a second
+VPR with graphics (Qt6) and tell Wyrd III where it is. Batch runs and goldens keep using the
+reference VPR from `vtr_root`; only the viewer uses the graphics one.
+
+These steps were written from the VTR build options and have not been run on this machine.
+
+1. Install the Qt6 development packages:
+
+   ```bash
+   sudo apt install -y qt6-base-dev qt6-base-private-dev qt6-svg-dev qt6-tools-dev
+   ```
+
+2. Configure and build only VPR, out of tree, from the same VTR source (the source tree is not
+   modified). `<dir>` is any build directory you choose:
+
+   ```bash
+   cmake -S $VTR_ROOT -B <dir> -DCMAKE_BUILD_TYPE=Release -DVPR_USE_EZGL=on
+   cmake --build <dir> --target vpr -j6
+   ```
+
+   The binary is `<dir>/vpr/vpr`.
+
+3. Check that graphics are in. This prints `0` when `NO_GRAPHICS` is not defined:
+
+   ```bash
+   grep -c NO_GRAPHICS <dir>/vpr/CMakeFiles/vpr.dir/flags.make
+   ```
+
+4. Set the binary in `~/.config/wyrd/machine.toml` (or Project > Settings, `tools.vpr_gui`):
+
+   ```toml
+   [tools]
+   vpr_gui = "<dir>/vpr/vpr"
+   ```
+
+   `wyrd config show` then lists `vpr_gui`. A path that is not an executable file is an error.
+
+On WSL, WSLg shows the VPR window; no X server is needed on Windows 11. If `vpr_gui` is unset the
+button uses the VPR named in the run's `vpr_stdout.log`.
