@@ -16,8 +16,9 @@ exclude_patterns = ["_build"]
 myst_enable_extensions = ["colon_fence"]
 myst_heading_anchors = 3
 html_theme = "alabaster"
-# The PDF tutorials are copied to the site root (https://drpaj12.github.io/wyrd/wyrd-tutorial.pdf and
-# https://drpaj12.github.io/wyrd/wyrd-gui-tutorial.pdf).
+# The PDF tutorials are copied to the site root:
+# https://drpaj12.github.io/wyrd/wyrd-tutorial.pdf and
+# https://drpaj12.github.io/wyrd/wyrd-gui-tutorial.pdf.
 html_extra_path = ["../tutorial/wyrd-tutorial.pdf", "../tutorial-gui/wyrd-gui-tutorial.pdf"]
 
 # Shared Yggdrasil III look: the "Manuals" block (hub link on top, links to every manual) leads
