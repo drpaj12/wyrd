@@ -17,8 +17,12 @@ Wyrd calls Odin III only as programs (`odin3`, `odin3-flow`, `vpr`, `abc`). The 
 Bifrost III, which uses the `odin3` Python package for simulation.
 
 This manual follows the layout of the Odin III manual: a getting-started page, then one page per part.
-A step-by-step PDF tutorial that builds one project from scratch is in `docs/tutorial/`
-(`wyrd-tutorial.pdf`).
+A step-by-step PDF tutorial that builds one project from scratch is published with this manual:
+[wyrd-tutorial.pdf](https://drpaj12.github.io/wyrd/wyrd-tutorial.pdf) (source in `docs/tutorial/`).
+
+The other Yggdrasil III manuals are linked in the sidebar: the
+[hub](https://drpaj12.github.io/YggdrasilIII/), [Odin III](https://drpaj12.github.io/odin3/) and
+[Loki III](https://drpaj12.github.io/loki/).
 
 ```{toctree}
 :maxdepth: 2
