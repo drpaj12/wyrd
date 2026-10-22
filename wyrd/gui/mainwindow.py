@@ -18,12 +18,14 @@ from PySide6.QtWidgets import (
 )
 
 from wyrd import cli
+from wyrd.gui.about import AboutDialog
 from wyrd.gui.adddesign import AddDesignDialog
 from wyrd.gui.editor import TomlEditor
 from wyrd.gui.flowpanel import FlowPanel
 from wyrd.gui.messages import MessagesPane
 from wyrd.gui.projecttree import ProjectTree
 from wyrd.gui.reportview import ReportView
+from wyrd.gui.settingsdialog import SettingsDialog
 from wyrd.gui.sourceview import SourceView
 from wyrd.guimodel.floorplan import FloorplanPlan
 from wyrd.guimodel.logparse import Message, step_messages
@@ -31,6 +33,7 @@ from wyrd.guimodel.projmodel import project_tree
 from wyrd.guimodel.runs import RunInfo, step_dirs
 from wyrd.guimodel.tomledit import AddDesignError, add_design
 from wyrd.project import ConfigError, Project, load_project
+from wyrd.settings import machine_path
 
 MAX_RECENT = 8
 TAB_NAMES = ("Source", "Report", "wyrd.toml")
@@ -77,6 +80,12 @@ class MainWindow(QMainWindow):
     def _on_saved(self) -> None:
         if self.project_dir is not None:
             self._load(self.project_dir)
+
+    def _settings_dialog(self) -> None:
+        SettingsDialog(machine_path(), self).exec()
+
+    def _about_dialog(self) -> None:
+        AboutDialog(self).exec()
 
     def _add_design_dialog(self) -> None:
         if self.project_dir is None:
@@ -158,11 +167,14 @@ class MainWindow(QMainWindow):
         self._action(project_menu, "Cancel", self.flow.cancel, "Ctrl+.")
         self._action(project_menu, "Refresh results", self.refresh_results, "F5")
         self._action(project_menu, "Add design...", self._add_design_dialog)
+        self._action(project_menu, "Settings...", self._settings_dialog)
         view_menu = bar.addMenu("View")
         assert view_menu is not None
         for dock in self.docks.values():
             view_menu.addAction(dock.toggleViewAction())
-        self.help_menu = bar.addMenu("Help")
+        help_menu = bar.addMenu("Help")
+        assert help_menu is not None
+        self._action(help_menu, "About", self._about_dialog)
         self._rebuild_recent()
 
     def _restore(self) -> None:

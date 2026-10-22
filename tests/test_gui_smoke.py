@@ -9,6 +9,7 @@ import shutil
 import sys
 import tempfile
 import time
+import tomllib
 import unittest
 from collections.abc import Callable
 from pathlib import Path
@@ -23,12 +24,22 @@ LOGS = ROOT / "tests" / "data" / "logs"
 
 if HAVE_QT:
     from PySide6.QtCore import QCoreApplication, QEventLoop, QSettings, QTimer, SignalInstance
-    from PySide6.QtWidgets import QApplication, QDialog, QTableWidget, QTreeWidgetItem
+    from PySide6.QtWidgets import (
+        QApplication,
+        QComboBox,
+        QDialog,
+        QLineEdit,
+        QSpinBox,
+        QTableWidget,
+        QTreeWidgetItem,
+    )
 
+    from wyrd.gui.about import AboutDialog
     from wyrd.gui.adddesign import AddDesignDialog
     from wyrd.gui.flowpanel import FlowPanel
     from wyrd.gui.mainwindow import MainWindow
     from wyrd.gui.messages import MessagesPane
+    from wyrd.gui.settingsdialog import SettingsDialog
     from wyrd.gui.sourceview import SourceView
     from wyrd.guimodel.floorplan import FloorplanPlan, plan_floorplan
     from wyrd.guimodel.logparse import parse_log
@@ -452,6 +463,47 @@ class EditorTest(unittest.TestCase):
         w.editor.text.setPlainText("x = 1\n")
         self.assertTrue(w.open_project(SAMPLES))
         self.assertFalse(w.editor.is_modified())
+
+
+@unittest.skipUnless(HAVE_QT, "PySide6 not installed")
+class DialogsTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_settings_dialog(self) -> None:
+        path = self.tmp / "cfg" / "machine.toml"
+        dlg = SettingsDialog(path)
+        self.assertIsInstance(dlg.editors["resources.jobs"], QSpinBox)
+        combo = dlg.editors["resources.launcher"]
+        assert isinstance(combo, QComboBox)
+        self.assertEqual([combo.itemText(i) for i in range(combo.count())], ["systemd", "plain"])
+        combo.setCurrentText("plain")
+        dlg.accept()
+        self.assertEqual(dlg.result(), QDialog.DialogCode.Accepted)
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(data["resources"]["launcher"], "plain")
+
+    def test_settings_dialog_rejects_bad_value(self) -> None:
+        path = self.tmp / "machine.toml"
+        dlg = SettingsDialog(path)
+        edit = dlg.editors["defaults.history_factor"]
+        assert isinstance(edit, QLineEdit)
+        edit.setText("abc")
+        dlg.accept()
+        self.assertNotEqual(dlg.result(), QDialog.DialogCode.Accepted)
+        self.assertNotEqual(dlg.error_label.text(), "")
+        self.assertFalse(path.exists())
+
+    def test_about(self) -> None:
+        dlg = AboutDialog()
+        self.assertEqual(dlg.table.rowCount(), 14)
+        cell = dlg.table.item(0, 0)
+        assert cell is not None
+        self.assertEqual(cell.text(), "VTR (Verilog-to-Routing)")
 
 
 if __name__ == "__main__":
