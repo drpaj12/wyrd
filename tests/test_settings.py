@@ -8,6 +8,8 @@ from unittest import mock
 from wyrd import cli, settings
 from wyrd.units import parse_bytes
 
+OPTIONAL = {"vtr_root", "vpr_gui"}
+
 
 class SettingsTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -37,13 +39,48 @@ class SettingsTest(unittest.TestCase):
     def test_default_values_and_layout(self) -> None:
         self.assertEqual(settings.default_values()["launcher"], "systemd")
         layout = settings.machine_layout()
-        self.assertEqual(layout["tools"], ("odin3", "odin3_flow", "vtr_root"))
+        self.assertEqual(layout["tools"], ("odin3", "odin3_flow", "vtr_root", "vpr_gui"))
         out = self.dir / "w.toml"
         settings.write_machine_file(out)
         data = tomllib.loads(out.read_text(encoding="utf-8"))
         written = {k for sub in data.values() for k in sub}
         wanted = {k for keys in layout.values() for k in keys}
-        self.assertEqual(wanted - {"vtr_root"}, written - {"vtr_root"})
+        self.assertEqual(wanted - OPTIONAL, written - OPTIONAL)
+
+    def _gui_file(self, mode: int = 0o755) -> Path:
+        gui = self.dir / "gfx" / "vpr"
+        gui.parent.mkdir(exist_ok=True)
+        gui.write_text("#!/bin/sh\n", encoding="utf-8")
+        gui.chmod(mode)
+        return gui
+
+    def test_vpr_gui_default_none(self) -> None:
+        self.assertIsNone(settings.load(None, {}).vpr_gui)
+
+    def test_vpr_gui_set_and_listed(self) -> None:
+        gui = self._gui_file()
+        p = self.dir / "g.toml"
+        p.write_text(f'[tools]\nvpr_gui = "{gui}"\n', encoding="utf-8")
+        s = settings.load(None, {}, machine_file=p)
+        self.assertEqual(s.vpr_gui, gui)
+        self.assertEqual(s.sources["vpr_gui"], "machine")
+        self.assertIn("vpr_gui", settings.field_names())
+        self.assertNotIn("vpr_gui", s.tools)
+
+    def test_vpr_gui_expands_home(self) -> None:
+        gui = self._gui_file()
+        p = self.dir / "g.toml"
+        p.write_text('[tools]\nvpr_gui = "~/gfx/vpr"\n', encoding="utf-8")
+        with mock.patch.dict("os.environ", {"HOME": str(self.dir)}):
+            s = settings.load(None, {}, machine_file=p)
+        self.assertEqual(s.vpr_gui, gui)
+
+    def test_vpr_gui_must_be_executable_file(self) -> None:
+        p = self.dir / "g.toml"
+        for bad in (str(self.dir / "absent"), str(self.dir), str(self._gui_file(0o644))):
+            p.write_text(f'[tools]\nvpr_gui = "{bad}"\n', encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "vpr_gui"):
+                settings.load(None, {}, machine_file=p)
 
     def test_defaults(self) -> None:
         s = settings.load(None, {})

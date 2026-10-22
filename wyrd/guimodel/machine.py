@@ -32,6 +32,7 @@ FIELDS: tuple[Field, ...] = (
     Field("tools", "odin3", "str"),
     Field("tools", "odin3_flow", "str"),
     Field("tools", "vtr_root", "str"),
+    Field("tools", "vpr_gui", "str"),
     Field("resources", "mem_budget", "str"),
     Field("resources", "jobs", "int"),
     Field("resources", "launcher", "choice", ("systemd", "plain")),
@@ -43,6 +44,9 @@ FIELDS: tuple[Field, ...] = (
     Field("defaults", "oom_retry_factor", "float"),
     Field("defaults", "step_timeout", "int"),
 )
+
+
+_OPTIONAL_TOOLS = ("vtr_root", "vpr_gui")
 
 
 @dataclass
@@ -58,7 +62,7 @@ def _default_texts() -> dict[str, str]:
         raise TypeError("settings.default_values()['tools'] is not a table")
     out: dict[str, str] = {}
     for f in FIELDS:
-        if f.table == "tools" and f.key != "vtr_root":
+        if f.table == "tools" and f.key not in _OPTIONAL_TOOLS:
             out[f.name] = str(tools.get(f.key, ""))
         else:
             val = d.get(f.key)
@@ -120,7 +124,7 @@ def _extra_line(key: str, value: str) -> str:
 
 
 def render(v: MachineValues) -> str:
-    """TOML text of the settings; empty ``vtr_root`` is left out.
+    """TOML text of the settings; empty ``vtr_root`` and ``vpr_gui`` are left out.
 
     Raise ValueError for a number field that is empty or not a number, and for any value with a
     newline or a quote, so no value can inject TOML.
@@ -132,7 +136,7 @@ def render(v: MachineValues) -> str:
         lines.append(f"[{table}]")
         for f in (x for x in FIELDS if x.table == table):
             text = v.values.get(f.name, "")
-            if f.name == "tools.vtr_root" and not text:
+            if f.key in _OPTIONAL_TOOLS and f.table == "tools" and not text:
                 continue
             lines.append(_line(f, text))
         if table == "tools":

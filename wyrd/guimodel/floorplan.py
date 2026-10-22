@@ -83,10 +83,11 @@ def _args(arch: str, echo: _Echo, blif: Path, width: str) -> tuple[tuple[str, ..
     return (*head, *limit, *stages, *_VIEW), "rerun"
 
 
-def plan_floorplan(run_dir: Path) -> FloorplanPlan | str:
+def plan_floorplan(run_dir: Path, vpr_gui: Path | None = None) -> FloorplanPlan | str:
     """The VPR command that shows the run's floorplan, or the reason it cannot be built.
 
-    Pure: no directory is created. ``cwd`` is ``run_dir/floorplan``.
+    Pure: no directory is created. ``cwd`` is ``run_dir/floorplan``. ``vpr_gui`` (the
+    ``tools.vpr_gui`` setting), when set, replaces the VPR named in the log.
     """
     step = next((s for s in step_dirs(run_dir) if (s.path / _VPR_LOG).is_file()), None)
     if step is None:
@@ -101,10 +102,14 @@ def plan_floorplan(run_dir: Path) -> FloorplanPlan | str:
     width = _option(echo.opts, "--route_chan_width")
     if width is None:
         return "no --route_chan_width in the VPR command"
-    if not Path(echo.vpr).is_file():
+    if vpr_gui is not None:
+        if not vpr_gui.is_file():
+            return f"graphics VPR (tools.vpr_gui) not found: {vpr_gui}"
+    elif not Path(echo.vpr).is_file():
         return f"VPR binary not found: {echo.vpr}"
+    program = str(vpr_gui) if vpr_gui is not None else echo.vpr
     blif = log.parent / (_option(echo.opts, "--circuit_file") or echo.circuit)
     if not blif.is_file():
         return f"circuit file not found: {blif}"
     args, mode = _args(arch, echo, blif, width)
-    return FloorplanPlan(echo.vpr, args, run_dir / "floorplan", mode)
+    return FloorplanPlan(program, args, run_dir / "floorplan", mode)

@@ -14,7 +14,7 @@ PROJECT_KEYS = {"step_timeout"}
 
 _SIZE_FIELDS = {"mem_budget", "disk_min_free", "vpr_mem", "other_mem"}
 _TABLE_OF = {
-    "tools": ("vtr_root",),
+    "tools": ("vtr_root", "vpr_gui"),
     "resources": ("mem_budget", "jobs", "launcher", "disk_min_free", "disk_check_path"),
     "defaults": ("vpr_mem", "other_mem", "history_factor", "oom_retry_factor", "step_timeout"),
 }
@@ -24,6 +24,7 @@ _TABLE_OF = {
 class Settings:
     tools: dict[str, str]
     vtr_root: Path | None
+    vpr_gui: Path | None
     mem_budget: int
     jobs: int
     launcher: str
@@ -65,6 +66,7 @@ def _defaults() -> dict[str, object]:
     return {
         "tools": {"odin3": "odin3", "odin3_flow": "odin3-flow"},
         "vtr_root": vtr if vtr else None,
+        "vpr_gui": None,
         "mem_budget": "60%",
         "jobs": max(1, (os.cpu_count() or 2) // 2),
         "launcher": "systemd",
@@ -125,8 +127,8 @@ def _read_machine(path: Path) -> dict[str, object]:
 def _read_tools(sub: dict[str, object], out: dict[str, object]) -> None:
     tools: dict[str, object] = {}
     for k, v in sub.items():
-        if k == "vtr_root":
-            out["vtr_root"] = v
+        if k in ("vtr_root", "vpr_gui"):
+            out[k] = v
         elif isinstance(v, str):
             tools[k] = v
         else:
@@ -196,9 +198,9 @@ def default_values() -> dict[str, object]:
 
 
 def machine_layout() -> dict[str, tuple[str, ...]]:
-    """Keys of each machine.toml table; ``tools`` lists the tool entries including vtr_root."""
+    """Keys of each machine.toml table; ``tools`` includes vtr_root and vpr_gui."""
     return {
-        "tools": ("odin3", "odin3_flow", "vtr_root"),
+        "tools": ("odin3", "odin3_flow", "vtr_root", "vpr_gui"),
         "resources": _TABLE_OF["resources"],
         "defaults": _TABLE_OF["defaults"],
     }
@@ -238,6 +240,7 @@ def _build(values: dict[str, object], sources: dict[str, str], total: int) -> Se
     return Settings(
         tools=dict(tools),
         vtr_root=Path(str(vtr)) if vtr else None,
+        vpr_gui=_vpr_gui(values["vpr_gui"]),
         mem_budget=_size("mem_budget", values["mem_budget"], total),
         jobs=_jobs(values["jobs"]),
         launcher=str(values["launcher"]),
@@ -250,6 +253,15 @@ def _build(values: dict[str, object], sources: dict[str, str], total: int) -> Se
         step_timeout=_timeout(values["step_timeout"]),
         sources=sources,
     )
+
+
+def _vpr_gui(value: object) -> Path | None:
+    if not value:
+        return None
+    path = Path(str(value)).expanduser()
+    if not path.is_file() or not os.access(path, os.X_OK):
+        raise ValueError(f"vpr_gui: not an executable file: {path}")
+    return path
 
 
 def _toml_value(v: object) -> str:
@@ -267,6 +279,7 @@ def write_machine_file(path: Path) -> None:
     lines += [f"{k} = {_toml_value(v)}" for k, v in tools.items()]
     if d["vtr_root"]:
         lines.append(f"vtr_root = {_toml_value(d['vtr_root'])}")
+    # vpr_gui has no detected default: left out (set it to a VPR built with graphics).
     for table in ("resources", "defaults"):
         lines += ["", f"[{table}]"]
         lines += [f"{k} = {_toml_value(d[k])}" for k in _TABLE_OF[table]]
