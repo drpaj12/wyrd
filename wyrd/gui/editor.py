@@ -37,6 +37,7 @@ class TomlEditor(QWidget):
         self.silent = silent
         self.path: Path | None = None
         self._saved_text = ""
+        self._loaded = False
         self._error_line: int | None = None
         self.text = QPlainTextEdit()
         self.text.setFont(QFont("monospace"))
@@ -61,6 +62,7 @@ class TomlEditor(QWidget):
             note = ""
         except (OSError, UnicodeDecodeError) as e:
             content, note = "", f"Cannot read {path}: {e}"
+        self._loaded = not note
         self._saved_text = content
         self.text.setPlainText(content)
         self._timer.stop()
@@ -118,6 +120,9 @@ class TomlEditor(QWidget):
 
     def save(self) -> bool:
         if self.path is None:
+            return False
+        if not self._loaded:
+            self.status.setText(f"{self.path} was not loaded; reload it before saving")
             return False
         if not self.validate_now().ok and not self.silent:
             answer = QMessageBox.question(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import stat
 from pathlib import Path
 
 from PySide6.QtGui import QColor, QTextCursor, QTextFormat
@@ -10,15 +11,24 @@ from PySide6.QtWidgets import QLabel, QPlainTextEdit, QTextEdit, QVBoxLayout, QW
 from wyrd.gui.highlighter import VerilogHighlighter
 
 MAX_BYTES = 2_000_000
+BINARY_PROBE = 8192
 VERILOG_SUFFIXES = frozenset({".v", ".sv", ".vh", ".svh"})
 
 
 def read_limited(path: Path) -> str:
     """Decoded text of ``path``; raise OSError or ValueError when it cannot be shown."""
-    size = path.stat().st_size
-    if size > MAX_BYTES:
-        raise ValueError(f"file is {size} bytes, over the {MAX_BYTES} byte limit")
-    return path.read_bytes().decode("utf-8", errors="replace")
+    info = path.stat()
+    if not stat.S_ISREG(info.st_mode):
+        raise ValueError("not a regular file")
+    if info.st_size > MAX_BYTES:
+        raise ValueError(f"file is {info.st_size} bytes, over the {MAX_BYTES} byte limit")
+    with path.open("rb") as handle:
+        data = handle.read(MAX_BYTES + 1)
+    if len(data) > MAX_BYTES:
+        raise ValueError(f"file is over the {MAX_BYTES} byte limit")
+    if b"\0" in data[:BINARY_PROBE]:
+        raise ValueError("binary file")
+    return data.decode("utf-8", errors="replace")
 
 
 class SourceView(QWidget):

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, Qt
+from PySide6.QtCore import QProcess, QSettings, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (
     QDockWidget,
@@ -17,7 +18,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from wyrd import cli
 from wyrd.gui.about import AboutDialog
 from wyrd.gui.adddesign import AddDesignDialog
 from wyrd.gui.editor import TomlEditor
@@ -27,10 +27,11 @@ from wyrd.gui.projecttree import ProjectTree
 from wyrd.gui.reportview import ReportView
 from wyrd.gui.settingsdialog import SettingsDialog
 from wyrd.gui.sourceview import SourceView
+from wyrd.gui.stepload import LoadSignals, LoadTask
 from wyrd.guimodel.floorplan import FloorplanPlan
-from wyrd.guimodel.logparse import Message, step_messages
+from wyrd.guimodel.logparse import Message
 from wyrd.guimodel.projmodel import project_tree
-from wyrd.guimodel.runs import RunInfo, step_dirs
+from wyrd.guimodel.runs import RunInfo
 from wyrd.guimodel.tomledit import AddDesignError, add_design
 from wyrd.project import ConfigError, Project, load_project
 from wyrd.settings import machine_path
@@ -40,6 +41,8 @@ TAB_NAMES = ("Source", "Report", "wyrd.toml")
 
 
 class MainWindow(QMainWindow):
+    init_finished = Signal(int)
+
     def __init__(self, settings: QSettings, silent: bool = False) -> None:
         super().__init__()
         self.settings = settings
@@ -55,6 +58,12 @@ class MainWindow(QMainWindow):
         self.editor = TomlEditor(silent)
         self.docks: dict[str, QDockWidget] = {}
         self.recent_menu = QMenu("Recent", self)
+        self.pool = QThreadPool(self)
+        self._load_signals = LoadSignals(self)
+        self._load_generation = 0
+        self._init_proc: QProcess | None = None
+        self._closing = False
+        self._flow_error = ""
         self._build()
         self._restore()
 
@@ -74,12 +83,33 @@ class MainWindow(QMainWindow):
         self.report_view.run_selected.connect(self._on_run_selected)
         self.report_view.floorplan_requested.connect(self._on_floorplan)
         self.flow.run_requested.connect(self._run_flow)
-        self.flow.finished.connect(lambda _code: self.refresh_results())
+        self.flow.finished.connect(self._on_flow_finished)
+        self.flow.error.connect(self._on_flow_error)
+        self.flow.floorplan_error.connect(self._show_error)
         self.editor.saved.connect(self._on_saved)
+        self._load_signals.done.connect(self._on_messages_loaded)
 
     def _on_saved(self) -> None:
         if self.project_dir is not None:
-            self._load(self.project_dir)
+            self._load_model(self.project_dir)
+            self.refresh_results()
+
+    def _on_flow_finished(self, _code: int) -> None:
+        self.refresh_results()
+        if self._flow_error:
+            self._show_error(self._flow_error)
+            self._flow_error = ""
+        if self._closing:
+            QTimer.singleShot(0, self.close)
+
+    def _on_flow_error(self, text: str) -> None:
+        self._flow_error = text
+        self._show_error(text)
+
+    def _show_error(self, text: str) -> None:
+        self.statusBar().showMessage(text)
+        msg = Message("error", "wyrd", text, None, None, None, Path(), 0)
+        self.messages.set_messages([msg], [], [])
 
     def _settings_dialog(self) -> None:
         SettingsDialog(machine_path(), self).exec()
@@ -109,6 +139,7 @@ class MainWindow(QMainWindow):
         if self.project_dir is not None and self.project is not None:
             self.docks["Flow"].show()
             self.docks["Flow"].raise_()
+            self._flow_error = ""
             self.flow.start(self.project_dir)
 
     def _on_floorplan(self, plan: FloorplanPlan) -> None:
@@ -216,8 +247,11 @@ class MainWindow(QMainWindow):
         if not toml.is_file():
             self._warn("Open Project", f"No wyrd.toml in {path}")
             return False
+        if not self._confirm_stop_flow("Open another project"):
+            return False
         if not self._confirm_discard():
             return False
+        self.flow.cancel()
         self._load(path)
         return True
 
@@ -232,6 +266,11 @@ class MainWindow(QMainWindow):
     def _load(self, path: Path) -> None:
         self.project_dir = path
         self.editor.load(path / "wyrd.toml")
+        self._load_model(path)
+        self._remember(path)
+        self.refresh_results()
+
+    def _load_model(self, path: Path) -> None:
         try:
             self.project = load_project(path / "wyrd.toml")
         except ConfigError as e:
@@ -243,9 +282,7 @@ class MainWindow(QMainWindow):
             self.project_tree.set_nodes(project_tree(self.project))
             self.statusBar().clearMessage()
             self.setWindowTitle(f"Wyrd III - {self.project.name}")
-        self._remember(path)
         self._enable_tabs()
-        self.refresh_results()
 
     def _enable_tabs(self) -> None:
         ok = self.project is not None
@@ -259,15 +296,19 @@ class MainWindow(QMainWindow):
         self.report_view.set_project_dir(self.project_dir)
 
     def _on_run_selected(self, run: RunInfo | None) -> None:
+        self._load_generation += 1
         if run is None or self.project_dir is None:
             self.messages.clear()
             return
-        steps = step_dirs(run.run_dir)
-        messages: list[Message] = []
-        search: list[Path] = [self.project_dir]
-        for step in steps:
-            messages.extend(step_messages(step.path))
-            search += [step.path, step.path / "out"]
+        task = LoadTask(self._load_generation, run.run_dir, self._load_signals)
+        self.pool.start(task)
+
+    def _on_messages_loaded(
+        self, generation: int, messages: list[Message], step_search: list[Path]
+    ) -> None:
+        if generation != self._load_generation or self.project_dir is None:
+            return
+        search = [self.project_dir, *step_search]
         files = [f for d in self.project.designs.values() for f in d.files] if self.project else []
         self.messages.set_messages(messages, search, files)
 
@@ -278,31 +319,55 @@ class MainWindow(QMainWindow):
 
     def _new_project(self) -> None:
         chosen = QFileDialog.getExistingDirectory(self, "New Project directory")
-        if not chosen:
-            return
-        if cli.main(["init", chosen]) == 0:
-            self.open_project(Path(chosen))
-        else:
-            self._warn("New Project", f"Cannot create wyrd.toml in {chosen}")
+        if chosen:
+            self.new_project(Path(chosen))
 
-    def _confirm_stop_flow(self) -> bool:
-        if not self.flow.is_running():
+    def new_project(self, directory: Path) -> None:
+        if self._init_proc is not None:
+            return
+        proc = QProcess(self)
+        proc.setProgram(sys.executable)
+        proc.setArguments(["-m", "wyrd.cli", "init", str(directory)])
+        proc.finished.connect(lambda code, _st: self._on_init_done(directory, code))
+        proc.errorOccurred.connect(lambda err: self._on_init_error(directory, err))
+        self._init_proc = proc
+        proc.start()
+
+    def _on_init_error(self, directory: Path, err: QProcess.ProcessError) -> None:
+        if err == QProcess.ProcessError.FailedToStart:
+            self._on_init_done(directory, -1)
+
+    def _on_init_done(self, directory: Path, code: int) -> None:
+        if self._init_proc is None:
+            return
+        self._init_proc.deleteLater()
+        self._init_proc = None
+        if code == 0:
+            self.open_project(directory)
+        else:
+            self._warn("New Project", f"Cannot create wyrd.toml in {directory}")
+        self.init_finished.emit(code)
+
+    def _confirm_stop_flow(self, what: str = "Quit") -> bool:
+        """Ask whether a running flow may be cancelled; True when none runs or the user agrees."""
+        if not self.flow.is_running() or self.silent:
             return True
-        if not self.silent:
-            answer = QMessageBox.question(
-                self, "Flow running", "A flow is running. Cancel it and quit?"
-            )
-            if answer != QMessageBox.StandardButton.Yes:
-                return False
-        self.flow.cancel()
-        if self.flow.process is not None:
-            self.flow.process.waitForFinished(60000)
-        return True
+        answer = QMessageBox.question(
+            self, "Flow running", f"A flow is running. Cancel it? ({what})"
+        )
+        return answer == QMessageBox.StandardButton.Yes
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        if not self._confirm_stop_flow() or not self._confirm_discard():
+        if not self._closing:
+            if not self._confirm_stop_flow() or not self._confirm_discard():
+                event.ignore()
+                return
+            self._closing = True
+        if self.flow.is_running():
+            self.flow.shutdown()
             event.ignore()
             return
+        self.flow.stop_floorplan()
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("windowState", self.saveState())
         self.settings.sync()

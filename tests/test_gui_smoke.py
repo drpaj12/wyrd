@@ -23,12 +23,21 @@ SAMPLES = ROOT / "samples"
 LOGS = ROOT / "tests" / "data" / "logs"
 
 if HAVE_QT:
-    from PySide6.QtCore import QCoreApplication, QEventLoop, QSettings, QTimer, SignalInstance
+    from PySide6.QtCore import (
+        QCoreApplication,
+        QEventLoop,
+        QProcess,
+        QSettings,
+        QTimer,
+        SignalInstance,
+    )
     from PySide6.QtWidgets import (
         QApplication,
         QComboBox,
         QDialog,
+        QFileDialog,
         QLineEdit,
+        QMessageBox,
         QSpinBox,
         QTableWidget,
         QTreeWidgetItem,
@@ -41,6 +50,7 @@ if HAVE_QT:
     from wyrd.gui.messages import MessagesPane
     from wyrd.gui.settingsdialog import SettingsDialog
     from wyrd.gui.sourceview import SourceView
+    from wyrd.gui.stepload import load_messages, read_log_limited
     from wyrd.guimodel.floorplan import FloorplanPlan, plan_floorplan
     from wyrd.guimodel.logparse import parse_log
     from wyrd.guimodel.tomledit import validate_text
@@ -63,6 +73,12 @@ def child_count(item: "QTreeWidgetItem", i: int) -> int:
 def window(tmp: Path) -> "MainWindow":
     settings = QSettings(str(tmp / "s.ini"), QSettings.Format.IniFormat)
     return MainWindow(settings, silent=True)
+
+
+def live_window(tmp: Path) -> "MainWindow":
+    """A window that asks (QMessageBox patched by the test) instead of staying silent."""
+    settings = QSettings(str(tmp / "s.ini"), QSettings.Format.IniFormat)
+    return MainWindow(settings, silent=False)
 
 
 @unittest.skipUnless(HAVE_QT, "PySide6 not installed")
@@ -108,6 +124,85 @@ class ShellTest(unittest.TestCase):
         self.assertTrue(w.open_project(d))
         self.assertIsNone(w.project)
         self.assertIn("wyrd.toml:", w.statusBar().currentMessage())
+        self.assertTrue(w.tabs.isTabEnabled(2))
+        self.assertIs(w.tabs.currentWidget(), w.editor)
+        diag = validate_text(d / "wyrd.toml", w.editor.text.toPlainText()).diagnostic
+        assert diag is not None and diag.line is not None
+        self.assertTrue(w.editor.status.text().startswith(f"line {diag.line}: "))
+
+    def test_open_while_flow_runs_asks(self) -> None:
+        w = live_window(self.tmp)
+        w.open_project(SAMPLES)
+        other = copy_project(self.tmp)
+        with (
+            mock.patch.object(w.flow, "is_running", return_value=True),
+            mock.patch.object(w.flow, "cancel") as cancel,
+            mock.patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No),
+        ):
+            self.assertFalse(w.open_project(other))
+            self.assertEqual(w.project_dir, SAMPLES)
+            cancel.assert_not_called()
+        with (
+            mock.patch.object(w.flow, "is_running", return_value=True),
+            mock.patch.object(w.flow, "cancel") as cancel,
+            mock.patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes),
+        ):
+            self.assertTrue(w.open_project(other))
+            self.assertEqual(w.project_dir, other)
+            cancel.assert_called_once()
+
+    def test_close_with_dirty_editor_asks(self) -> None:
+        w = live_window(self.tmp)
+        w.open_project(copy_project(self.tmp))
+        w.editor.text.setPlainText("x = 1\n")
+        with mock.patch.object(
+            QMessageBox, "question", return_value=QMessageBox.StandardButton.No
+        ) as ask:
+            self.assertFalse(w.close())
+            ask.assert_called_once()
+        self.assertIsNone(w.settings.value("geometry"))
+        with mock.patch.object(
+            QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes
+        ):
+            self.assertTrue(w.close())
+        self.assertIsNotNone(w.settings.value("geometry"))
+
+    def test_open_discard_prompt(self) -> None:
+        w = live_window(self.tmp)
+        w.open_project(copy_project(self.tmp))
+        w.editor.text.setPlainText("x = 1\n")
+        with mock.patch.object(
+            QMessageBox, "question", return_value=QMessageBox.StandardButton.No
+        ):
+            self.assertFalse(w.open_project(SAMPLES))
+        self.assertTrue(w.editor.is_modified())
+
+    def test_close_waits_for_stubborn_flow(self) -> None:
+        w = window(self.tmp)
+        w.open_project(SAMPLES)
+        w.flow.close_term_ms = 200
+        w.flow.kill_ms = 200
+        argv = [sys.executable, "-c", STUBBORN]
+        with mock.patch("wyrd.gui.flowpanel.run_argv", return_value=argv):
+            w.flow.start(self.tmp)
+        pump_until(lambda: "ready" in w.flow.log.toPlainText())
+        self.assertFalse(w.close())
+        self.assertIsNone(w.settings.value("geometry"))
+        self.assertTrue(pump_until(lambda: w.settings.value("geometry") is not None, 8000))
+        self.assertFalse(w.flow.is_running())
+
+    def test_new_project_runs_init_off_thread(self) -> None:
+        w = window(self.tmp)
+        target = self.tmp / "fresh"
+        target.mkdir()
+        codes: list[int] = []
+        w.init_finished.connect(codes.append)
+        with mock.patch.object(QFileDialog, "getExistingDirectory", return_value=str(target)):
+            w._new_project()
+        self.assertTrue(pump_until(lambda: bool(codes), 8000))
+        self.assertEqual(codes, [0])
+        self.assertTrue((target / "wyrd.toml").is_file())
+        self.assertEqual(w.project_dir, target)
 
     def test_missing_toml(self) -> None:
         d = self.tmp / "empty"
@@ -134,6 +229,15 @@ class ViewerTest(unittest.TestCase):
         big.write_bytes(b"a" * 2_000_001)
         self.assertFalse(view.open_file(big))
         self.assertTrue(view.text.toPlainText().startswith("Cannot show"))
+        binary = self.tmp / "blob.v"
+        binary.write_bytes(b"abc\0def")
+        self.assertFalse(view.open_file(binary))
+        self.assertIn("binary", view.text.toPlainText())
+        self.assertFalse(view.open_file(self.tmp))
+        fifo = self.tmp / "pipe.v"
+        os.mkfifo(fifo)
+        self.assertFalse(view.open_file(fifo))
+        self.assertIn("not a regular file", view.text.toPlainText())
         odd = self.tmp / "odd.v"
         odd.write_bytes(b"\xff\xfe module")
         self.assertTrue(view.open_file(odd))
@@ -235,12 +339,26 @@ class ReportTest(unittest.TestCase):
         run = w.report_view.tree.topLevelItem(1)
         assert run is not None
         w.report_view.tree.setCurrentItem(run)
+        self.assertTrue(pump_until(lambda: w.messages.count() == 8))
         self.assertEqual(w.messages.count(), 8)
         button = w.report_view.floorplan_button
         self.assertFalse(button.isEnabled())
         run_info = w.report_view.current_run()
         assert run_info is not None
         self.assertEqual(button.toolTip(), plan_floorplan(run_info.run_dir))
+
+    def test_big_step_log_is_bounded(self) -> None:
+        run = self.tmp / "run"
+        step = run / "0-odin3-flow"
+        step.mkdir(parents=True)
+        log = step / "odin3.log"
+        line = b"odin3: warning: a.v:1: thing\n"
+        log.write_bytes(line * (3_000_000 // len(line) + 1))
+        self.assertLessEqual(len(read_log_limited(log)), 2_000_000)
+        messages, search = load_messages(run)
+        self.assertGreater(len(messages), 0)
+        self.assertIn(step, search)
+        self.assertEqual(read_log_limited(self.tmp), "")
 
     def test_compare(self) -> None:
         root = project_with_results(self.tmp)
@@ -323,6 +441,13 @@ STUB = (
     "print('single/EArch [aaaaaaaaaaaa] ok', flush=True)\n"
     "sys.exit(1)\n"
 )
+STUBBORN = (
+    "import signal, time\n"
+    "signal.signal(signal.SIGINT, signal.SIG_IGN)\n"
+    "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+    "print('ready', flush=True)\n"
+    "time.sleep(60)\n"
+)
 SLEEPER = "import time\nprint('started', flush=True)\ntime.sleep(30)\n"
 
 
@@ -372,6 +497,75 @@ class FlowTest(unittest.TestCase):
         self.assertTrue(wait_for(panel.finished, 5000) or not panel.is_running())
         self.assertFalse(panel.is_running())
         self.assertLess(time.monotonic() - started, 5)
+
+    def test_cancel_guard_when_starting(self) -> None:
+        panel = FlowPanel()
+        fake = mock.MagicMock()
+        fake.state.return_value = QProcess.ProcessState.Starting
+        fake.processId.return_value = 0
+        panel.process = fake
+        with mock.patch("wyrd.gui.flowpanel.os.kill") as kill:
+            panel.cancel()
+            kill.assert_not_called()
+        fake.state.return_value = QProcess.ProcessState.Running
+        with mock.patch("wyrd.gui.flowpanel.os.kill") as kill:
+            panel.cancel()
+            kill.assert_not_called()
+        fake.processId.return_value = 4321
+        with mock.patch("wyrd.gui.flowpanel.os.kill", side_effect=ProcessLookupError) as kill:
+            panel.cancel()
+            kill.assert_called_once()
+        self.assertNotEqual(panel.status_label.text(), "cancelling")
+
+    def test_failed_to_start(self) -> None:
+        panel = FlowPanel()
+        panel.set_can_run(True)
+        codes: list[int] = []
+        errors: list[str] = []
+        panel.finished.connect(codes.append)
+        panel.error.connect(errors.append)
+        argv = [str(self.tmp / "no-such-program")]
+        with mock.patch("wyrd.gui.flowpanel.run_argv", return_value=argv):
+            panel.start(self.tmp)
+        self.assertTrue(pump_until(lambda: bool(codes)))
+        self.assertEqual(codes, [-1])
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(panel.status_label.text(), "failed to start")
+        self.assertEqual(panel.progress.maximum(), 1000)
+        self.assertTrue(panel.run_button.isEnabled())
+        self.assertFalse(panel.cancel_button.isEnabled())
+        self.assertIn("failed to start", panel.log.toPlainText())
+
+    def test_failed_to_start_shows_in_messages(self) -> None:
+        w = window(self.tmp)
+        w.open_project(SAMPLES)
+        argv = [str(self.tmp / "no-such-program")]
+        with mock.patch("wyrd.gui.flowpanel.run_argv", return_value=argv):
+            w.flow.start(self.tmp)
+        self.assertTrue(pump_until(lambda: w.messages.count() == 1))
+        self.assertEqual(w.messages.count(), 1)
+        self.assertIn("failed to start", w.statusBar().currentMessage())
+
+    def test_floorplan_missing_program(self) -> None:
+        panel = FlowPanel()
+        errors: list[str] = []
+        panel.floorplan_error.connect(errors.append)
+        plan = FloorplanPlan(str(self.tmp / "no-vpr"), (), self.tmp / "fp", "rerun")
+        panel.start_floorplan(plan)
+        self.assertTrue(pump_until(lambda: bool(errors)))
+        self.assertIn("Cannot start the floorplan viewer", errors[0])
+
+    def test_floorplan_single_instance_and_stop(self) -> None:
+        panel = FlowPanel()
+        plan = FloorplanPlan(sys.executable, ("-c", SLEEPER), self.tmp / "fp", "rerun")
+        panel.start_floorplan(plan)
+        first = panel.floorplan_process
+        self.assertTrue(pump_until(panel.floorplan_running))
+        panel.start_floorplan(plan)
+        self.assertIs(panel.floorplan_process, first)
+        self.assertIn("already running", panel.log.toPlainText())
+        panel.stop_floorplan()
+        self.assertTrue(pump_until(lambda: not panel.floorplan_running()))
 
     def test_floorplan_early_exit(self) -> None:
         panel = FlowPanel()
@@ -456,6 +650,35 @@ class EditorTest(unittest.TestCase):
         self.assertIn('name = "newd"', w.editor.text.toPlainText())
         self.assertTrue(w.editor.is_modified())
         self.assertIs(w.tabs.currentWidget(), w.editor)
+
+    def test_save_keeps_editor_state(self) -> None:
+        root = copy_project(self.tmp)
+        w = window(self.tmp)
+        w.open_project(root)
+        text = w.editor.text.toPlainText().replace("step_timeout = 3600", "step_timeout = 7200")
+        w.editor.text.setPlainText(text)
+        cursor = w.editor.text.textCursor()
+        cursor.setPosition(10)
+        cursor.insertText("# note\n")
+        w.editor.text.setTextCursor(cursor)
+        pos = cursor.position()
+        with mock.patch.object(w.editor, "load") as reload:
+            self.assertTrue(w.editor.save())
+            reload.assert_not_called()
+        self.assertEqual(w.editor.text.textCursor().position(), pos)
+        self.assertTrue(w.editor.text.document().isUndoAvailable())
+        self.assertIsNotNone(w.project)
+
+    def test_unreadable_toml_refuses_save(self) -> None:
+        d = self.tmp / "latin"
+        d.mkdir()
+        (d / "wyrd.toml").write_bytes(b"[project]\nname = '\xff'\n")
+        w = window(self.tmp)
+        w.open_project(d)
+        self.assertIn("Cannot read", w.editor.status.text())
+        self.assertFalse(w.editor.save())
+        self.assertEqual((d / "wyrd.toml").read_bytes(), b"[project]\nname = '\xff'\n")
+        self.assertIn("not loaded", w.editor.status.text())
 
     def test_unsaved_edits_do_not_block_open(self) -> None:
         w = window(self.tmp)
