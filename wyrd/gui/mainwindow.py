@@ -31,6 +31,7 @@ from wyrd.gui.settingsdialog import SettingsDialog
 from wyrd.gui.simpanel import SimPanel
 from wyrd.gui.sourceview import SourceView
 from wyrd.gui.stepload import LoadSignals, LoadTask
+from wyrd.gui.weakslot import weak
 from wyrd.guimodel.floorplan import FloorplanPlan
 from wyrd.guimodel.logparse import Message
 from wyrd.guimodel.projmodel import project_tree
@@ -419,8 +420,9 @@ class MainWindow(QMainWindow):
         proc = QProcess(self)
         proc.setProgram(sys.executable)
         proc.setArguments(["-m", "wyrd.cli", "init", str(directory)])
-        proc.finished.connect(lambda code, _st: self._on_init_done(directory, code))
-        proc.errorOccurred.connect(lambda err: self._on_init_error(directory, err))
+        on_done, on_error = weak(self._on_init_done), weak(self._on_init_error)
+        proc.finished.connect(lambda code, _st: on_done(directory, code))
+        proc.errorOccurred.connect(lambda err: on_error(directory, err))
         self._init_proc = proc
         proc.start()
 
