@@ -10,11 +10,20 @@ requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = []
 
+[project.optional-dependencies]
+gui = ["PySide6-Essentials>=6.6,<7"]
+
 [project.scripts]
 wyrd = "wyrd.cli:main"
 
+[project.gui-scripts]
+wyrd-gui = "wyrd.gui.app:main"
+
 [tool.setuptools.packages.find]
 include = ["wyrd*"]
+
+[tool.setuptools.package-data]
+wyrd = ["data/*.toml"]
 
 [tool.ruff]
 line-length = 100
