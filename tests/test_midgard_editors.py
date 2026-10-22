@@ -5,12 +5,19 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import importlib.util
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
 from tests.fakes_midgard import FakeLightBackend
+from tests.test_midgard_level import run_until_done
+from wyrd.midgard.model.level import Level
+from wyrd.midgard.model.leveldoc import LevelDoc
+from wyrd.midgard.model.levelxml import level_path, parse_level_file
+from wyrd.midgard.model.sensors import SensorSet
+from wyrd.midgard.model.townmap import TownMap
 from wyrd.midgard.model.vedit import EditorSession, load_template
 from wyrd.midgard.model.watch import editor_launch_argv
 
@@ -18,9 +25,12 @@ HAVE_QT = importlib.util.find_spec("PySide6") is not None
 GOOD = "module light1;"
 
 if HAVE_QT:
-    from PySide6.QtCore import QCoreApplication
+    from PySide6.QtCore import QCoreApplication, QPoint, Qt
+    from PySide6.QtGui import QImage
+    from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QApplication, QMessageBox
 
+    from wyrd.midgard.editors import level_editor as le
     from wyrd.midgard.editors import verilog_editor as ve
 
     _APP: QCoreApplication | None = None
@@ -178,6 +188,261 @@ class VerilogWindowTest(unittest.TestCase):
     def test_main_args(self) -> None:
         with self.assertRaises(SystemExit) as cm:
             ve.main(["--help"])
+        self.assertEqual(cm.exception.code, 0)
+
+
+@unittest.skipUnless(HAVE_QT, "PySide6 not installed")
+class StartDialogTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = Path(self._tmp.name)
+
+    def dialog(self) -> "le.StartDialog":
+        dlg = le.StartDialog()
+        self.addCleanup(dlg.deleteLater)
+        return dlg
+
+    def run_result(self, dlg: "le.StartDialog") -> tuple[object, list[str]]:
+        titles: list[str] = []
+
+        def critical(_parent: object, title: str, text: str) -> None:
+            titles.append(title)
+
+        with mock.patch.object(QMessageBox, "critical", side_effect=critical):
+            return dlg.check(), titles
+
+    def test_start_dialog_validation(self) -> None:
+        dlg = self.dialog()
+        self.assertEqual(dlg.x_edit.text(), "20")
+        self.assertEqual(dlg.y_edit.text(), "20")
+        result, titles = self.run_result(dlg)
+        self.assertIsNone(result)
+        self.assertEqual(titles, ["Empty text field(s)"])
+        dlg.level_edit.setText("5")
+        dlg.x_edit.setText("21")
+        result, titles = self.run_result(dlg)
+        self.assertIsNone(result)
+        self.assertEqual(titles, ["Invalid map size"])
+        dlg.x_edit.setText("")
+        result, titles = self.run_result(dlg)
+        self.assertEqual(titles, ["Empty text field(s)"])
+        dlg.x_edit.setText("2")
+        result, titles = self.run_result(dlg)
+        self.assertEqual(titles, ["Invalid map size"])
+        dlg.x_edit.setText("20")
+        result, titles = self.run_result(dlg)
+        self.assertEqual(result, le.StartResult(False, 5, 20, 20, None))
+        self.assertEqual(titles, [])
+
+    def test_update_mode(self) -> None:
+        dlg = self.dialog()
+        dlg.update_radio.setChecked(True)
+        dlg.path_edit.setText(str(self.tmp / "missing.xml"))
+        result, titles = self.run_result(dlg)
+        self.assertIsNone(result)
+        self.assertEqual(titles, ["File not found"])
+        real = self.tmp / "a.xml"
+        real.write_text("<level/>", encoding="utf-8")
+        dlg.path_edit.setText(str(real))
+        result, titles = self.run_result(dlg)
+        self.assertEqual(result, le.StartResult(True, 0, 0, 0, real))
+
+    def test_select_button_fills_path_and_switches_mode(self) -> None:
+        dlg = self.dialog()
+        with mock.patch(
+            "wyrd.midgard.editors.level_editor.QFileDialog.getOpenFileName",
+            return_value=("/x/y.xml", ""),
+        ):
+            dlg.select_file()
+        self.assertEqual(dlg.path_edit.text(), "/x/y.xml")
+        self.assertTrue(dlg.update_radio.isChecked())
+
+
+@unittest.skipUnless(HAVE_QT, "PySide6 not installed")
+class MapWindowTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = Path(self._tmp.name)
+
+    def window(self, doc: LevelDoc | None = None, path: Path | None = None) -> "le.MapWindow":
+        doc = doc or LevelDoc(5, 20, 20)
+        win = le.MapWindow(
+            doc, path or self.tmp / "Lv5" / "map" / "lv05.xml", doc.read_from_xml, cell_size=60
+        )
+        self.addCleanup(win.deleteLater)
+        return win
+
+    def cell(self, win: "le.MapWindow", gx: int, gy: int) -> "le.GroupWidget":
+        return win.panel.cells[gx][gy]
+
+    def test_window_basics(self) -> None:
+        win = self.window()
+        self.assertEqual(win.windowTitle(), "Edit Level 5")
+        self.assertEqual(set(win.buttons), {"Clear Map", "Edit Cars", "Export", "Cancel"})
+        self.assertEqual(len(win.panel.cells), 10)
+        self.assertEqual(win.cell_size, 60)
+
+    def test_group_mouse_behaviour(self) -> None:
+        win = self.window()
+        w = self.cell(win, 3, 3)
+        spot = QPoint(30, 30)
+        with mock.patch.object(le.GridTypeSelector, "choose", return_value="FOUR_WAY") as choose:
+            QTest.mouseClick(w, Qt.MouseButton.LeftButton, pos=spot)
+        choose.assert_called_once()
+        self.assertEqual(win.doc.groups[3][3], "FOUR_WAY")
+        QTest.mouseClick(w, Qt.MouseButton.MiddleButton, pos=spot)
+        self.assertEqual(win.doc.groups[3][3], "FOUR_WAY_2")
+        QTest.mouseClick(w, Qt.MouseButton.RightButton, pos=spot)
+        self.assertEqual(win.doc.groups[3][3], "NON_ROAD")
+        for x in range(3):
+            win.doc.set_type(x, 0, "STRAIGHT_EW")
+        w0 = self.cell(win, 0, 0)
+        QTest.mousePress(w0, Qt.MouseButton.RightButton, pos=spot)
+        QTest.mouseMove(w0, QPoint(90, 30))
+        QTest.mouseMove(w0, QPoint(150, 30))
+        QTest.mouseRelease(w0, Qt.MouseButton.RightButton, pos=QPoint(150, 30))
+        self.assertEqual([win.doc.groups[x][0] for x in range(3)], ["NON_ROAD"] * 3)
+
+    def test_left_drag_lays_road(self) -> None:
+        win = self.window()
+        w0 = self.cell(win, 2, 5)
+        QTest.mousePress(w0, Qt.MouseButton.LeftButton, pos=QPoint(30, 30))
+        for gx in (3, 4, 5):
+            QTest.mouseMove(w0, QPoint(30 + 60 * (gx - 2), 30))
+        QTest.mouseRelease(w0, Qt.MouseButton.LeftButton, pos=QPoint(30 + 180, 30))
+        self.assertEqual(
+            [win.doc.groups[x][5] for x in range(2, 6)], ["STRAIGHT_EW"] * 3 + ["NON_ROAD"]
+        )
+
+    def test_edge_intersection_refused(self) -> None:
+        win = self.window()
+        win.doc.set_type(0, 0, "FOUR_WAY")
+        with (
+            mock.patch.object(QMessageBox, "critical") as critical,
+            mock.patch.object(le, "CarEditor") as car_editor,
+        ):
+            win.edit_cars()
+        critical.assert_called_once()
+        self.assertEqual(critical.call_args.args[2], "Can't have intersections on the edge!")
+        car_editor.assert_not_called()
+        with mock.patch.object(QMessageBox, "critical") as critical:
+            win.export()
+        self.assertEqual(
+            critical.call_args.args[2], "Can't have intersections on the edge! Level is not saved."
+        )
+        self.assertFalse((self.tmp / "Lv5").exists())
+
+    def test_clear_map(self) -> None:
+        win = self.window()
+        win.doc.set_type(1, 1, "STRAIGHT_NS")
+        win.clear_map()
+        self.assertEqual(win.doc.groups[1][1], "NON_ROAD")
+
+    def test_car_editor(self) -> None:
+        doc = LevelDoc(5, 20, 20)
+        doc.set_type(4, 0, "STRAIGHT_NS")
+        doc.set_type(4, 9, "STRAIGHT_NS")
+        self.assertTrue(doc.populate_starts_ends())
+        dlg = le.CarEditor(doc)
+        self.addCleanup(dlg.deleteLater)
+        dlg.add_car()
+        self.assertEqual(len(dlg.rows), 1)
+        with mock.patch.object(QMessageBox, "critical") as critical:
+            self.assertFalse(dlg.save())
+        self.assertEqual(critical.call_args.args[2], "Please input delay for all cars")
+        dlg.rows[0].delay_edit.setText("0")
+        with mock.patch.object(QMessageBox, "critical") as critical:
+            self.assertFalse(dlg.save())
+        self.assertEqual(doc.cars, [])
+        dlg.rows[0].delay_edit.setText("30")
+        dlg.rows[0].end_box.setCurrentIndex(1)
+        self.assertTrue(dlg.save())
+        self.assertEqual(len(doc.cars), 1)
+        self.assertEqual(doc.cars[0].delay, 30)
+        self.assertEqual(doc.cars[0].start, doc.starts[0])
+        self.assertEqual(doc.cars[0].end, doc.ends[1])
+
+    def test_car_editor_cancel_and_same_start_and_remove(self) -> None:
+        doc = LevelDoc.from_xml_file(level_path(1))
+        before = list(doc.cars)
+        dlg = le.CarEditor(doc)
+        self.addCleanup(dlg.deleteLater)
+        self.assertEqual(len(dlg.rows), len(before))
+        dlg.rows[0].remove()
+        dlg.add_car()
+        dlg.rows[-1].delay_edit.setText("7")
+        dlg.cancel()
+        self.assertEqual(doc.cars, before)
+        dlg = le.CarEditor(doc)
+        self.addCleanup(dlg.deleteLater)
+        dlg.add_car()
+        dlg.add_car()
+        for row in dlg.rows[-2:]:
+            row.delay_edit.setText("999")
+        with mock.patch.object(QMessageBox, "critical") as critical:
+            self.assertFalse(dlg.save())
+        self.assertIn("start at the same place at the same time", critical.call_args.args[2])
+
+    def test_export_roundtrip_level1(self) -> None:
+        shipped = level_path(1)
+        target = self.tmp / "Lv1" / "map" / "lv01.xml"
+        target.parent.mkdir(parents=True)
+        shutil.copy(shipped, target)
+        doc = LevelDoc.from_xml_file(target)
+        win = self.window(doc, target)
+        with mock.patch.object(QMessageBox, "information") as info:
+            win.export()
+        info.assert_called_once()
+        self.assertEqual(info.call_args.args[2], "Finished exporting")
+        self.assertEqual(target.read_bytes(), shipped.read_bytes())
+        image = QImage(str(target.with_suffix(".png")))
+        self.assertEqual(image.size(), le.render_map_image(doc).size())
+        self.assertEqual((image.width(), image.height()), (1280, 1280))
+        doc.set_type(5, 5, "NON_ROAD" if doc.groups[5][5] != "NON_ROAD" else "STRAIGHT_EW")
+        with mock.patch.object(QMessageBox, "information"):
+            win.export()
+        self.assertEqual(parse_level_file(target), doc.to_level_data())
+        self.assertNotEqual(target.read_bytes(), shipped.read_bytes())
+
+    def test_export_reports_write_errors(self) -> None:
+        doc = LevelDoc(5, 20, 20)
+        blocker = self.tmp / "blocked"
+        blocker.write_text("file", encoding="utf-8")
+        self.assertEqual(
+            le.export_level(doc, blocker / "Lv5" / "map" / "lv05.xml"),
+            ["Error when exporting XML file"],
+        )
+        doc.set_type(0, 0, "FOUR_WAY")
+        self.assertEqual(
+            le.export_level(doc, self.tmp / "x" / "lv05.xml"),
+            ["Can't have intersections on the edge! Level is not saved."],
+        )
+
+    def test_create_new_level_exports_a_playable_level(self) -> None:
+        doc = LevelDoc(5, 20, 20)
+        for gy in range(10):
+            doc.set_type(4, gy, "STRAIGHT_NS")
+        self.assertTrue(doc.populate_starts_ends())
+        doc.add_car(doc.starts[0], doc.ends[1], 20)
+        out = self.tmp / "Levels" / "Lv5" / "map" / "lv05.xml"
+        self.assertEqual(le.export_level(doc, out), ["Finished exporting"])
+        self.assertTrue(out.with_suffix(".png").is_file())
+        data = parse_level_file(out)
+        town = TownMap(data)
+        self.assertEqual(town.controls, [])
+        level = Level(data, SensorSet())
+        level.start([])
+        self.assertGreater(run_until_done(level), 0)
+
+    def test_render_map_image_size(self) -> None:
+        self.assertEqual(le.render_map_image(LevelDoc(1, 20, 20)).width(), 1280)
+        self.assertEqual(le.render_map_image(LevelDoc(1, 8, 12)).height(), 768)
+
+    def test_main_args(self) -> None:
+        with self.assertRaises(SystemExit) as cm:
+            le.main(["--help"])
         self.assertEqual(cm.exception.code, 0)
 
 

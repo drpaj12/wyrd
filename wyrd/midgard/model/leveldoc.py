@@ -7,8 +7,16 @@ Group type names are the Java string values (what the image files and the XML us
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from wyrd.midgard.model.grid import GridType
-from wyrd.midgard.model.levelxml import CarSpec, IntersectionSpec, LevelData
+from wyrd.midgard.model.levelxml import (
+    CarSpec,
+    IntersectionSpec,
+    LevelData,
+    LevelFormatError,
+    parse_level_xml,
+)
 
 # The order of GridTypeSelector.types. The three-way names are the string values of the Java
 # constants (THREE_WAY_NSE holds "THREE_WAY_NSW" and so on), which the images and XML use.
@@ -123,6 +131,9 @@ class LevelDoc:
         self.size_x = size_x
         self.size_y = size_y
         self.read_from_xml = False
+        # The text the document was read from, to leave a hand-formatted file alone if unchanged.
+        self.source_text: str | None = None
+        self.source_data: LevelData | None = None
         self.groups: list[list[str]] = [["NON_ROAD"] * (size_y // 2) for _ in range(size_x // 2)]
         self.cars: list[CarSpec] = []
         self.starts: list[Point] = []
@@ -261,6 +272,28 @@ class LevelDoc:
             inters.append(IntersectionSpec(base_type(name), spots[0][0], spots[0][1]))
 
     @classmethod
+    def from_xml_file(cls, path: Path) -> LevelDoc:
+        """Read a level file; `LevelFormatError` or `ValueError` when it is not editable."""
+        try:
+            with path.open(encoding="utf-8", newline="") as handle:
+                text = handle.read()
+        except OSError as exc:
+            raise LevelFormatError(f"cannot read {path}: {exc}") from exc
+        data = parse_level_xml(text)
+        doc = cls.from_level_data(data)
+        doc.source_text, doc.source_data = text, data
+        return doc
+
+    def matches_source(self) -> bool:
+        """True when the document still describes exactly the file it was read from."""
+        if self.source_data is None:
+            return False
+        try:
+            return self.to_level_data() == self.source_data
+        except ValueError:
+            return False
+
+    @classmethod
     def from_level_data(cls, data: LevelData) -> LevelDoc:
         doc = cls(data.number, data.size_x - 2, data.size_y - 2)
         doc.read_from_xml = True
@@ -284,3 +317,157 @@ def _group_at(data: LevelData, gx: int, gy: int) -> str:
             "that fits no group type"
         )
     return group
+
+
+# Directions of MapGrid; moving from a group in direction D leaves it through its D side.
+NIL, NORTH, SOUTH, EAST, WEST = range(5)
+_OPPOSITE = {NIL: NIL, NORTH: SOUTH, SOUTH: NORTH, EAST: WEST, WEST: EAST}
+_STEP = {NORTH: (0, 1), SOUTH: (0, -1), EAST: (1, 0), WEST: (-1, 0)}
+# The Java editor's own three-way names (open to the letters): their string values are the
+# game names above, so these constants hold the swapped strings (MapGrid.THREE_WAY_*).
+_T_NSE, _T_SEW, _T_NSW, _T_NEW = "THREE_WAY_NSW", "THREE_WAY_NEW", "THREE_WAY_NSE", "THREE_WAY_SEW"
+
+
+def opposite(direction: int) -> int:
+    return _OPPOSITE[direction]
+
+
+def _three_way_drag(type: str, entered: int, exited: int) -> str:
+    closes = {_T_NSE: WEST, _T_SEW: NORTH, _T_NSW: EAST, _T_NEW: SOUTH}[type]
+    return "FOUR_WAY" if closes in (entered, exited) else type
+
+
+def _straight_ns(entered: int, exited: int, is_start: bool, type: str) -> str:
+    if not is_start and entered == EAST:
+        return "FOUR_WAY" if exited == WEST else _T_NSE
+    if not is_start and entered == WEST:
+        return "FOUR_WAY" if exited == EAST else _T_NSW
+    if exited == EAST:
+        return _T_NSE
+    return _T_NSW if exited == WEST else type
+
+
+def _straight_ew(entered: int, exited: int, is_start: bool, type: str) -> str:
+    if not is_start and entered == NORTH:
+        return "FOUR_WAY" if exited == SOUTH else _T_NEW
+    if not is_start and entered == SOUTH:
+        return "FOUR_WAY" if exited == NORTH else _T_SEW
+    if exited == NORTH:
+        return _T_NEW
+    return _T_SEW if exited == SOUTH else type
+
+
+_CORNER_RULES: dict[str, tuple[tuple[int, int, str], tuple[int, str], tuple[int, str]]] = {
+    # (four-way pair, (direction, three-way), (direction, three-way)), pairs ordered low to high
+    "CORNER_NE": ((SOUTH, WEST, "FOUR_WAY"), (SOUTH, _T_NSE), (WEST, _T_NEW)),
+    "CORNER_NW": ((SOUTH, EAST, "FOUR_WAY"), (SOUTH, _T_NSW), (EAST, _T_NEW)),
+    "CORNER_SE": ((NORTH, WEST, "FOUR_WAY"), (NORTH, _T_NSE), (WEST, _T_SEW)),
+    "CORNER_SW": ((NORTH, EAST, "FOUR_WAY"), (NORTH, _T_NSW), (EAST, _T_SEW)),
+}
+
+
+def _corner_drag(type: str, entered: int, exited: int) -> str:
+    low, high = min(entered, exited), max(entered, exited)
+    (a, b, four), (d1, t1), (d2, t2) = _CORNER_RULES[type]
+    if (low, high) == (a, b):
+        return four
+    if d1 in (low, high):
+        return t1
+    return t2 if d2 in (low, high) else type
+
+
+_ROAD_FROM = {
+    (NORTH, SOUTH): "STRAIGHT_NS",
+    (NORTH, EAST): "CORNER_NE",
+    (NORTH, WEST): "CORNER_NW",
+    (SOUTH, NORTH): "STRAIGHT_NS",
+    (SOUTH, EAST): "CORNER_SE",
+    (SOUTH, WEST): "CORNER_SW",
+    (EAST, NORTH): "CORNER_NE",
+    (EAST, SOUTH): "CORNER_SE",
+    (EAST, WEST): "STRAIGHT_EW",
+    (WEST, NORTH): "CORNER_NW",
+    (WEST, SOUTH): "CORNER_SW",
+    (WEST, EAST): "STRAIGHT_EW",
+}
+
+
+def drag_type(type: str, entered: int, exited: int, is_start: bool) -> str:
+    """MapGrid.updateGridType: the type of a group after the cursor crossed it while dragging."""
+    if type.startswith("THREE_WAY"):
+        return _three_way_drag(type, entered, exited)
+    if type.startswith("STRAIGHT_NS"):
+        return _straight_ns(entered, exited, is_start, type)
+    if type.startswith("STRAIGHT_EW"):
+        return _straight_ew(entered, exited, is_start, type)
+    if type.startswith("CORNER"):
+        return _corner_drag(type, entered, exited)
+    if type.startswith("NON_ROAD"):
+        if entered == exited:
+            return type
+        if is_start:
+            entered = opposite(exited)
+        return _ROAD_FROM.get((entered, exited), type)
+    return type
+
+
+class MapDrag:
+    """MapGrid mouse tracking plus StateTracker, without the widgets.
+
+    Coordinates are group coordinates with `gy == 0` at the bottom; cells outside the map are
+    allowed (the cursor left the map: BorderGrid). The right button paints `NON_ROAD`.
+    """
+
+    def __init__(self, doc: LevelDoc) -> None:
+        self.doc = doc
+        self.active = False
+        self.erase = False
+        self.moved = False
+        self.pos: Point = (0, 0)
+        self._start: Point = (0, 0)
+        self._entered = NIL
+        self._is_start = False
+
+    def _inside(self, pos: Point) -> bool:
+        return 0 <= pos[0] < self.doc.size_x // 2 and 0 <= pos[1] < self.doc.size_y // 2
+
+    def press(self, gx: int, gy: int, erase: bool = False) -> None:
+        self.active = True
+        self.erase = erase
+        self.moved = False
+        self.pos = self._start = (gx, gy)
+        self._entered = NIL
+        self._is_start = True
+
+    def release(self) -> None:
+        self.active = False
+        self._is_start = False
+
+    def _apply(self, pos: Point, exited: int) -> None:
+        if not self._inside(pos):
+            return
+        gx, gy = pos
+        if self.erase:
+            self.doc.groups[gx][gy] = "NON_ROAD"
+        else:
+            current = self.doc.groups[gx][gy]
+            self.doc.groups[gx][gy] = drag_type(current, self._entered, exited, self._is_start)
+
+    def _step(self, direction: int) -> None:
+        self._apply(self.pos, direction)
+        dx, dy = _STEP[direction]
+        self.pos = (self.pos[0] + dx, self.pos[1] + dy)
+        self._entered = opposite(direction)
+        self._is_start = False
+        self.moved = True
+        self._apply(self.pos, NIL)
+
+    def move_to(self, gx: int, gy: int) -> None:
+        """Move the cursor to another group, one neighbour at a time (x first, then y)."""
+        if not self.active:
+            return
+        while self.pos != (gx, gy):
+            if self.pos[0] != gx:
+                self._step(EAST if gx > self.pos[0] else WEST)
+            else:
+                self._step(NORTH if gy > self.pos[1] else SOUTH)

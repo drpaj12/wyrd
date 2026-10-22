@@ -2,7 +2,18 @@ import unittest
 from pathlib import Path
 
 from wyrd.midgard.model.grid import GridType
-from wyrd.midgard.model.leveldoc import GROUP_TYPES, ROTATE_CYCLES, LevelDoc
+from wyrd.midgard.model.leveldoc import (
+    EAST,
+    GROUP_TYPES,
+    NIL,
+    NORTH,
+    ROTATE_CYCLES,
+    SOUTH,
+    WEST,
+    LevelDoc,
+    MapDrag,
+    drag_type,
+)
 from wyrd.midgard.model.levelxml import (
     LEVEL_NUMBERS,
     LevelFormatError,
@@ -212,6 +223,97 @@ class DocTest(unittest.TestCase):
         data = doc.to_level_data()
         again = parse_level_xml(write_level_xml(data))
         self.assertEqual(again, data)
+
+
+class SourceTest(unittest.TestCase):
+    def test_from_xml_file_tracks_changes(self) -> None:
+        doc = LevelDoc.from_xml_file(level_path(1))
+        self.assertEqual(doc.source_text, read_text(level_path(1)))
+        self.assertTrue(doc.matches_source())
+        doc.set_type(5, 5, "NON_ROAD" if doc.groups[5][5] != "NON_ROAD" else "STRAIGHT_EW")
+        self.assertFalse(doc.matches_source())
+        self.assertFalse(LevelDoc(1, 20, 20).matches_source())
+
+    def test_from_xml_file_errors(self) -> None:
+        with self.assertRaises(LevelFormatError):
+            LevelDoc.from_xml_file(ROOT / "no_such_level.xml")
+        with self.assertRaises(LevelFormatError):
+            LevelDoc.from_xml_file(FIRST_MAP)
+
+
+class DragTest(unittest.TestCase):
+    def test_drag_type_table(self) -> None:
+        cases = [
+            ("NON_ROAD", NORTH, SOUTH, False, "STRAIGHT_NS"),
+            ("NON_ROAD", EAST, WEST, False, "STRAIGHT_EW"),
+            ("NON_ROAD", NORTH, EAST, False, "CORNER_NE"),
+            ("NON_ROAD", WEST, SOUTH, False, "CORNER_SW"),
+            ("NON_ROAD", NIL, EAST, True, "STRAIGHT_EW"),
+            ("NON_ROAD", NIL, NORTH, True, "STRAIGHT_NS"),
+            ("NON_ROAD", NORTH, NIL, False, "NON_ROAD"),
+            ("STRAIGHT_NS", EAST, WEST, False, "FOUR_WAY"),
+            ("STRAIGHT_NS", EAST, NIL, False, "THREE_WAY_NSW"),
+            ("STRAIGHT_NS", NIL, WEST, True, "THREE_WAY_NSE"),
+            ("STRAIGHT_NS", NORTH, SOUTH, False, "STRAIGHT_NS"),
+            ("STRAIGHT_EW", NORTH, SOUTH, False, "FOUR_WAY"),
+            ("STRAIGHT_EW", NORTH, NIL, False, "THREE_WAY_SEW"),
+            ("STRAIGHT_EW", SOUTH, EAST, False, "THREE_WAY_NEW"),
+            ("CORNER_NE", WEST, SOUTH, False, "FOUR_WAY"),
+            ("CORNER_NE", NIL, SOUTH, False, "THREE_WAY_NSW"),
+            ("CORNER_NW", EAST, NIL, False, "THREE_WAY_SEW"),
+            ("CORNER_SE", NORTH, WEST, False, "FOUR_WAY"),
+            ("CORNER_SW", NORTH, NIL, False, "THREE_WAY_NSE"),
+            ("THREE_WAY_NSW", EAST, NIL, False, "THREE_WAY_NSW"),
+            ("THREE_WAY_NSW", WEST, NIL, False, "FOUR_WAY"),
+            ("THREE_WAY_NEW", NIL, NORTH, False, "FOUR_WAY"),
+            ("FOUR_WAY", NORTH, SOUTH, False, "FOUR_WAY"),
+        ]
+        for type, entered, exited, is_start, want in cases:
+            self.assertEqual(
+                drag_type(type, entered, exited, is_start), want, (type, entered, exited)
+            )
+
+    def test_drag_lays_a_straight_road(self) -> None:
+        doc = LevelDoc(1, 20, 20)
+        drag = MapDrag(doc)
+        drag.press(3, 0)
+        drag.move_to(3, 4)
+        drag.release()
+        # The group the cursor is still in changes only when it leaves, as in the Java.
+        self.assertEqual(
+            [doc.groups[3][y] for y in range(6)], ["STRAIGHT_NS"] * 4 + ["NON_ROAD"] * 2
+        )
+
+    def test_drag_turns_a_corner_and_crosses_a_road(self) -> None:
+        doc = LevelDoc(1, 20, 20)
+        drag = MapDrag(doc)
+        drag.press(2, 2)
+        drag.move_to(5, 2)
+        drag.release()
+        self.assertEqual(
+            [doc.groups[x][2] for x in range(2, 6)], ["STRAIGHT_EW"] * 3 + ["NON_ROAD"]
+        )
+        drag.press(4, 0)
+        drag.move_to(4, 4)
+        drag.release()
+        self.assertEqual(doc.groups[4][2], "FOUR_WAY")
+        self.assertEqual(doc.groups[4][1], "STRAIGHT_NS")
+
+    def test_right_drag_erases_and_outside_moves_are_safe(self) -> None:
+        doc = LevelDoc(1, 20, 20)
+        for x in range(3):
+            doc.set_type(x, 0, "STRAIGHT_EW")
+        drag = MapDrag(doc)
+        drag.press(0, 0, erase=True)
+        drag.move_to(2, 0)
+        drag.release()
+        self.assertEqual([doc.groups[x][0] for x in range(3)], ["NON_ROAD"] * 3)
+        drag.press(0, 0)
+        drag.move_to(-2, -1)
+        drag.move_to(0, 5)
+        drag.release()
+        drag.move_to(1, 1)
+        self.assertEqual(doc.groups[0][0], "FOUR_WAY")
 
 
 if __name__ == "__main__":

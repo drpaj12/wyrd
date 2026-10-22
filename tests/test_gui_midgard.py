@@ -55,6 +55,41 @@ class MidgardMenuTest(unittest.TestCase):
         self.addCleanup(w.close)
         return w
 
+    def tools_action(self, w: "MainWindow", name: str) -> "QAction":
+        bar = w.menuBar()
+        assert bar is not None
+        for top in bar.actions():
+            menu = top.menu()
+            if isinstance(menu, QMenu) and top.text() == "Tools":
+                for act in menu.actions():
+                    if act.text() == name:
+                        return act
+        self.fail(f"no {name} action in the Tools menu")
+
+    def test_level_editor_entry(self) -> None:
+        for pygame_spec in (SimpleNamespace(), None):
+            w = self.window(pygame_spec)
+            calls: list[tuple[str, list[str]]] = []
+
+            def launcher(
+                program: str, args: list[str], sink: list[tuple[str, list[str]]] = calls
+            ) -> bool:
+                sink.append((program, args))
+                return True
+
+            w.midgard_launcher = launcher
+            act = self.tools_action(w, "Midgard III Level Editor")
+            self.assertTrue(act.isEnabled())
+            act.trigger()
+            self.assertEqual(calls, [(sys.executable, ["-m", "wyrd.midgard.editors.level_editor"])])
+            self.assertEqual(w.statusBar().currentMessage(), "Started Midgard III Level Editor")
+
+    def test_level_editor_launch_failure(self) -> None:
+        w = self.window(SimpleNamespace())
+        w.midgard_launcher = lambda program, args: False
+        self.tools_action(w, "Midgard III Level Editor").trigger()
+        self.assertEqual(w.statusBar().currentMessage(), "Cannot start Midgard III Level Editor")
+
     def action(self, w: "MainWindow") -> "QAction":
         bar = w.menuBar()
         assert bar is not None

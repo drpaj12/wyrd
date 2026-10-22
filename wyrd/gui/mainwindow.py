@@ -199,6 +199,12 @@ class MainWindow(QMainWindow):
         else:
             self.statusBar().showMessage("Cannot start Midgard III")
 
+    def _start_level_editor(self) -> None:
+        if self.midgard_launcher(sys.executable, ["-m", "wyrd.midgard.editors.level_editor"]):
+            self.statusBar().showMessage("Started Midgard III Level Editor")
+        else:
+            self.statusBar().showMessage("Cannot start Midgard III Level Editor")
+
     def _show_simulate(self) -> None:
         if self.project is None:
             self.statusBar().showMessage("Open a project to simulate")
@@ -261,6 +267,8 @@ class MainWindow(QMainWindow):
             midgard.setEnabled(False)
             midgard.setToolTip(MIDGARD_NEEDS)
         self.midgard_action = midgard
+        editor = self._action(tools_menu, "Midgard III Level Editor", self._start_level_editor)
+        editor.setToolTip("Create or update a Midgard III level (needs no pygame)")
         view_menu = bar.addMenu("View")
         assert view_menu is not None
         for dock in self.docks.values():
