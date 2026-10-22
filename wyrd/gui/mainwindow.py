@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from wyrd.bifrost import Backend
 from wyrd.gui.about import AboutDialog
 from wyrd.gui.adddesign import AddDesignDialog
 from wyrd.gui.editor import TomlEditor
@@ -26,6 +27,7 @@ from wyrd.gui.messages import MessagesPane
 from wyrd.gui.projecttree import ProjectTree
 from wyrd.gui.reportview import ReportView
 from wyrd.gui.settingsdialog import SettingsDialog
+from wyrd.gui.simpanel import SimPanel
 from wyrd.gui.sourceview import SourceView
 from wyrd.gui.stepload import LoadSignals, LoadTask
 from wyrd.guimodel.floorplan import FloorplanPlan
@@ -38,13 +40,15 @@ from wyrd.settings import machine_path
 
 MAX_RECENT = 8
 LOAD_WAIT_MS = 2000
-TAB_NAMES = ("Source", "Report", "wyrd.toml")
+TAB_NAMES = ("Source", "Report", "wyrd.toml", "Simulate")
 
 
 class MainWindow(QMainWindow):
     init_finished = Signal(int)
 
-    def __init__(self, settings: QSettings, silent: bool = False) -> None:
+    def __init__(
+        self, settings: QSettings, silent: bool = False, sim_backend: Backend | None = None
+    ) -> None:
         super().__init__()
         self.settings = settings
         self.silent = silent
@@ -57,6 +61,7 @@ class MainWindow(QMainWindow):
         self.report_view = ReportView()
         self.flow = FlowPanel()
         self.editor = TomlEditor(silent)
+        self.sim_panel = SimPanel(sim_backend)
         self.docks: dict[str, QDockWidget] = {}
         self.recent_menu = QMenu("Recent", self)
         self.pool = QThreadPool(self)
@@ -84,6 +89,7 @@ class MainWindow(QMainWindow):
         self._build_menus()
         self.project_tree.file_activated.connect(self.show_source)
         self.messages.location_activated.connect(self.show_source)
+        self.sim_panel.location_activated.connect(self.show_source)
         self.report_view.run_selected.connect(self._on_run_selected)
         self.report_view.floorplan_requested.connect(self._on_floorplan)
         self.flow.run_requested.connect(self._run_flow)
@@ -172,8 +178,12 @@ class MainWindow(QMainWindow):
             "Source": self.source_view,
             "Report": self.report_view,
             "wyrd.toml": self.editor,
+            "Simulate": self.sim_panel,
         }
         return pages[name]
+
+    def _show_simulate(self) -> None:
+        self.tabs.setCurrentWidget(self.sim_panel)
 
     def show_source(self, path: Path, line: int | None = None) -> None:
         self.source_view.open_file(path, line)
@@ -223,6 +233,9 @@ class MainWindow(QMainWindow):
         self._action(project_menu, "Refresh results", self.refresh_results, "F5")
         self._action(project_menu, "Add design...", self._add_design_dialog)
         self._action(project_menu, "Settings...", self._settings_dialog)
+        tools_menu = bar.addMenu("Tools")
+        assert tools_menu is not None
+        self._action(tools_menu, "Simulate", self._show_simulate, "Ctrl+T")
         view_menu = bar.addMenu("View")
         assert view_menu is not None
         for dock in self.docks.values():
@@ -312,10 +325,12 @@ class MainWindow(QMainWindow):
         except ConfigError as e:
             self.project = None
             self.project_tree.set_nodes(())
+            self.sim_panel.set_project(None, None)
             self.statusBar().showMessage(str(e))
             self.setWindowTitle("Wyrd III")
         else:
             self.project_tree.set_nodes(project_tree(self.project))
+            self.sim_panel.set_project(self.project, path)
             self.statusBar().clearMessage()
             self.setWindowTitle(f"Wyrd III - {self.project.name}")
         self._enable_tabs()
@@ -415,6 +430,7 @@ class MainWindow(QMainWindow):
             event.ignore()
             return
         self.flow.stop_floorplan()
+        self.sim_panel.close_session()
         self._stop_loads()
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("windowState", self.saveState())
