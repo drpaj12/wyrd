@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -41,6 +42,14 @@ from wyrd.settings import machine_path
 MAX_RECENT = 8
 LOAD_WAIT_MS = 2000
 TAB_NAMES = ("Source", "Report", "wyrd.toml", "Simulate")
+MIDGARD_NEEDS = 'needs: pip install "wyrd[midgard]"'
+
+
+def _start_detached(program: str, args: list[str]) -> bool:
+    process = QProcess()
+    process.setProgram(program)
+    process.setArguments(args)
+    return bool(process.startDetached())
 
 
 class MainWindow(QMainWindow):
@@ -73,6 +82,7 @@ class MainWindow(QMainWindow):
         self._pending_project: Path | None = None
         self._switch_actions: list[QAction] = []
         self._loads_stopped = False
+        self.midgard_launcher: Callable[[str, list[str]], bool] = _start_detached
         self._build()
         self._restore()
 
@@ -182,6 +192,12 @@ class MainWindow(QMainWindow):
         }
         return pages[name]
 
+    def _start_midgard(self) -> None:
+        if self.midgard_launcher(sys.executable, ["-m", "wyrd.midgard"]):
+            self.statusBar().showMessage("Started Midgard III")
+        else:
+            self.statusBar().showMessage("Cannot start Midgard III")
+
     def _show_simulate(self) -> None:
         if self.project is None:
             self.statusBar().showMessage("Open a project to simulate")
@@ -239,6 +255,11 @@ class MainWindow(QMainWindow):
         tools_menu = bar.addMenu("Tools")
         assert tools_menu is not None
         self._action(tools_menu, "Simulate", self._show_simulate, "Ctrl+T")
+        midgard = self._action(tools_menu, "Midgard III (Verilog Town)", self._start_midgard)
+        if importlib.util.find_spec("pygame") is None:
+            midgard.setEnabled(False)
+            midgard.setToolTip(MIDGARD_NEEDS)
+        self.midgard_action = midgard
         view_menu = bar.addMenu("View")
         assert view_menu is not None
         for dock in self.docks.values():
