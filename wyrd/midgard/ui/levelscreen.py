@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import shutil
 from pathlib import Path
@@ -15,12 +16,12 @@ from wyrd.midgard.model.grid import Node
 from wyrd.midgard.model.level import Level, Phase
 from wyrd.midgard.model.levelxml import level_path, parse_level_file
 from wyrd.midgard.model.traffic import TrafficControl
-from wyrd.midgard.model.watch import FileWatcher, editor_command
+from wyrd.midgard.model.watch import FileWatcher, editor_command, editor_launch_argv
 from wyrd.midgard.ui import layers
 from wyrd.midgard.ui.camera import Camera
 from wyrd.midgard.ui.clockstrip import ClockStrip, draw_inspector, inspector_lines
 from wyrd.midgard.ui.draw import draw_text
-from wyrd.midgard.ui.game import Event, Game, Pos, Screen
+from wyrd.midgard.ui.game import Event, Game, Launched, Pos, Screen
 from wyrd.midgard.ui.view import LEVEL_SIZE
 
 CAMERA_H = 1380
@@ -56,6 +57,7 @@ class LevelScreen(Screen):
         self.held: set[int] = set()
         self.last_real = (0.0, 0.0)
         self.last_editor_open = -1e9
+        self.launched: dict[int, Launched] = {}
         self._watch_acc = 0.0
         self._score_sent = False
         self._preview: Car | None = None
@@ -157,6 +159,30 @@ class LevelScreen(Screen):
     def open_editor(self, index: int) -> None:
         path = self.paths[index]
         self.last_editor_open = self.game.now()
+        if self._use_editor_window():
+            self._open_window(index, path)
+        else:
+            self._open_external(path)
+
+    def _use_editor_window(self) -> bool:
+        """The PySide6 window, unless the editor is off or MIDGARD_EDITOR names one (it wins)."""
+        if not self.game.editor or os.environ.get("MIDGARD_EDITOR", "").strip():
+            return False
+        return importlib.util.find_spec("PySide6") is not None
+
+    def _open_window(self, index: int, path: Path) -> None:
+        running = self.launched.get(index)
+        if running is not None and running.poll() is None:
+            return
+        argv = editor_launch_argv(path, self.number, path.stem)
+        try:
+            self.launched[index] = self.game.launcher(argv)
+        except OSError as exc:
+            self.message = f"Cannot start the editor: {exc}"
+            return
+        self.message = f"Editing {path.name}"
+
+    def _open_external(self, path: Path) -> None:
         try:
             command = editor_command(path, os.environ, shutil.which)
         except ValueError as exc:
@@ -405,12 +431,23 @@ class LevelScreen(Screen):
         if self._watch_acc < self.game.watch_interval:
             return
         self._watch_acc = 0.0
-        if not self.watcher.poll():
-            return
-        if self.phase is Phase.EDIT:
-            self.compile()
-        else:
-            self.message = FILE_CHANGED
+        changed = self.watcher.poll()
+        open_files = self._open_editor_files()
+        closed = self._reap_editors()
+        if any(p not in open_files for p in changed) or closed:
+            if self.phase is Phase.EDIT:
+                self.compile()
+            else:
+                self.message = FILE_CHANGED
+
+    def _open_editor_files(self) -> set[Path]:
+        return {self.paths[i] for i, proc in self.launched.items() if proc.poll() is None}
+
+    def _reap_editors(self) -> bool:
+        done = [i for i, proc in self.launched.items() if proc.poll() is not None]
+        for i in done:
+            del self.launched[i]
+        return bool(done)
 
     def _finish(self, dt: float) -> None:
         if self.phase is not Phase.DONE or self._score_sent:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shlex
+import sys
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
@@ -45,3 +46,18 @@ def editor_command(
         if which(name) is not None:
             return [name, str(path)]
     return None
+
+
+def editor_launch_argv(path: Path, level: int, name: str, python: str | None = None) -> list[str]:
+    """The command line that starts the Verilog editor window for one player file."""
+    return [
+        python or sys.executable,
+        "-m",
+        "wyrd.midgard.editors.verilog_editor",
+        "--file",
+        str(path),
+        "--level",
+        str(level),
+        "--name",
+        name,
+    ]

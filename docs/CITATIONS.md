@@ -11,9 +11,10 @@
 | Parmys | software | VTR's Yosys-based flow that Odin III matches under --vtr-compat |  | https://github.com/verilog-to-routing/vtr-verilog-to-routing |
 | slang | software | SystemVerilog front end | M. Popoloski. | https://github.com/MikePopoloski/slang |
 | PySide6 / Qt | software | The GUI toolkit |  | https://doc.qt.io/qtforpython-6/ |
-| pygame-ce | software | Planned for Verilog Town (W4) |  | https://pyga.me |
+| pygame-ce | software | Window, input and drawing for Midgard III (W4) |  | https://pyga.me |
+| Creepster | font | Title and menu font of Midgard III (W4) | Font Diner, Inc (2011). |  |
 | GTKWave | software | External waveform viewer opened from the Simulate tab |  | https://gtkwave.sourceforge.net |
-| verilogTown | paper | The Verilog teaching game ported in W4 | P. Jamieson, L. Grace, N. Mizuno, B. Zhang (2017). verilogTown - Improving Students Learning Hardware Description Language Design - Verilog - with a Video Game. ASEE Annual Conference and Exposition. |  |
+| verilogTown | paper | The Verilog teaching game, ported as Midgard III (W4) | P. Jamieson, L. Grace, N. Mizuno, B. Zhang (2017). verilogTown - Improving Students Learning Hardware Description Language Design - Verilog - with a Video Game. ASEE Annual Conference and Exposition. |  |
 | GraphCrunch | paper | Graph analysis background | T. Milenkovic, J. Lai, N. Przulj (2008). GraphCrunch: a tool for large network analyses. BMC Bioinformatics 9:70. |  |
 | theryx | software | Verilog RTL schematic and LSP VS Code extension (opened from the GUI) | L. C. Filho. | https://github.com/luigicfilho/theryx |
 | Gate-Breaker | paper | Netlist-to-RTL baseline for Loki | M. O. Faruque, P. Jamieson, A. Patooghy, A.-H. A. Badawy (2025). Gate-Breaker: An LLM-Powered Netlist-to-RTL Reverse Engineering Tool. IEEE IPCCC 2025, pp. 363-370, doi:10.1109/IPCCC66453.2025.11304682. | https://github.com/NMSU-PEARL/Gate-Breaker |

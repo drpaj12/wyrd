@@ -93,7 +93,16 @@ name = "pygame-ce"
 kind = "software"
 url = "https://pyga.me"
 license = "LGPL-2.1"
-role = "Planned for Verilog Town (W4)"
+role = "Window, input and drawing for Midgard III (W4)"
+
+[[item]]
+id = "creepster"
+name = "Creepster"
+kind = "font"
+authors = "Font Diner, Inc"
+year = 2011
+license = "SIL OFL 1.1"
+role = "Title and menu font of Midgard III (W4)"
 
 [[item]]
 id = "gtkwave"
@@ -112,7 +121,7 @@ year = 2017
 title = "verilogTown - Improving Students Learning Hardware Description Language Design - Verilog - with a Video Game"
 venue = "ASEE Annual Conference and Exposition"
 license = "MIT"
-role = "The Verilog teaching game ported in W4"
+role = "The Verilog teaching game, ported as Midgard III (W4)"
 
 [[item]]
 id = "graphcrunch"

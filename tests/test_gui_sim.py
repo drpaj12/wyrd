@@ -4,12 +4,15 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import gc
 import importlib.util
 import shutil
 import tempfile
 import time
 import unittest
+import weakref
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 from tests.fakes_sim import FakeBackend
@@ -18,18 +21,16 @@ from wyrd.bifrost.errors import SimUnavailable
 HAVE_QT = importlib.util.find_spec("PySide6") is not None
 
 if HAVE_QT:
-    from PySide6.QtCore import QCoreApplication, QRect, QSettings
-    from PySide6.QtWidgets import QApplication, QMenu, QPushButton
+    from PySide6.QtCore import QRect, QSettings
+    from PySide6.QtWidgets import QApplication, QMenu, QPushButton, QWidget
 
+    from tests.qt_helpers import dispose, qapp
     from wyrd.gui.mainwindow import MainWindow
     from wyrd.gui.simpanel import SimPanel
     from wyrd.project import load_project
 
-    _APP: QCoreApplication | None = None
-
     def setUpModule() -> None:
-        global _APP
-        _APP = QApplication.instance() or QApplication([])
+        qapp()
 
 
 TOML = """[project]
@@ -81,9 +82,19 @@ class SimPanelTest(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
+    def own(self, widget: "QWidget") -> None:
+        """Delete the widget when the test ends (cleanups run last-in first-out)."""
+        self.addCleanup(dispose, widget)
+
+    def panel(self, *args: Any) -> "SimPanel":
+        panel = SimPanel(*args)
+        self.own(panel)
+        return panel
+
     def opened(self, source: str = "module traffic") -> "MainWindow":
         d = project_dir(self.tmp, source)
         w = window(self.tmp, self.backend)
+        self.own(w)
         self.assertTrue(w.open_project(d))
         self.addCleanup(w.sim_panel.close_session)
         return w
@@ -154,7 +165,7 @@ class SimPanelTest(unittest.TestCase):
             return None
 
         d = project_dir(self.tmp)
-        panel = SimPanel(self.backend, launcher)
+        panel = self.panel(self.backend, launcher)
         self.addCleanup(panel.close_session)
         panel.set_project(load_project(d / "wyrd.toml"), d)
         compiled(panel)
@@ -181,7 +192,7 @@ class SimPanelTest(unittest.TestCase):
         with mock.patch(
             "wyrd.gui.simpanel.default_backend", side_effect=SimUnavailable("x is missing")
         ):
-            panel = SimPanel(backend=None)
+            panel = self.panel(None)
         self.assertFalse(panel.compile_button.isEnabled())
         self.assertEqual(panel.status_label.text(), "x is missing")
 
@@ -278,6 +289,27 @@ class SimPanelTest(unittest.TestCase):
         self.assertIsNotNone(panel.session)
         self.assertTrue(panel.compile_button.isEnabled())
 
+    def test_shutdown_waits_for_the_worker(self) -> None:
+        panel = self.opened().sim_panel
+        self.assertTrue(panel.compile())
+        panel.shutdown()
+        self.assertEqual(panel._pool.activeThreadCount(), 0)
+        self.assertIsNone(panel.session)
+        self.assertFalse(panel.busy)
+
+    def test_dropped_panel_is_freed(self) -> None:
+        # A signal connected to a lambda that holds the panel kept it alive to interpreter exit,
+        # where PySide deleted it during finalization and crashed (exit 139).
+        d = project_dir(self.tmp)
+        panel = SimPanel(self.backend)
+        panel.set_project(load_project(d / "wyrd.toml"), d)
+        self.assertTrue(compiled(panel))
+        panel.shutdown()
+        ref = weakref.ref(panel)
+        del panel
+        gc.collect()
+        self.assertIsNone(ref())
+
     def test_unexpected_compile_error_frees_panel(self) -> None:
         panel = self.opened().sim_panel
         with mock.patch(
@@ -335,7 +367,7 @@ class SimPanelTest(unittest.TestCase):
 
     def test_gtkwave_failures(self) -> None:
         d = project_dir(self.tmp)
-        panel = SimPanel(self.backend, lambda program, args: "no such program")
+        panel = self.panel(self.backend, lambda program, args: "no such program")
         self.addCleanup(panel.close_session)
         panel.set_project(load_project(d / "wyrd.toml"), d)
         compiled(panel)
@@ -409,6 +441,7 @@ class SimPanelTest(unittest.TestCase):
 
     def test_simulate_needs_project(self) -> None:
         w = window(self.tmp, self.backend)
+        self.own(w)
         bar = w.menuBar()
         assert bar is not None
         menu = [m for m in bar.findChildren(QMenu) if m.title() == "Tools"][0]

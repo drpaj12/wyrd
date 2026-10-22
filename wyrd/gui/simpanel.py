@@ -20,7 +20,7 @@ from PySide6.QtCore import (
     QTimer,
     Signal,
 )
-from PySide6.QtGui import QColor, QTextCursor
+from PySide6.QtGui import QCloseEvent, QColor, QTextCursor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -278,7 +278,7 @@ class SimPanel(QWidget):
 
     def _wire(self) -> None:
         self.compile_button.clicked.connect(self.compile)
-        self.step_button.clicked.connect(lambda: self._step(1))
+        self.step_button.clicked.connect(self._step_once)
         self.step_n_button.clicked.connect(self._step_n)
         self.run_button.toggled.connect(self._run_toggled)
         self._timer.timeout.connect(self._tick)
@@ -380,6 +380,15 @@ class SimPanel(QWidget):
             self.design_combo.addItems(list(project.designs))
         self._clear_views()
         self._update_enabled()
+
+    def shutdown(self) -> None:
+        """Close the session and wait for a compile worker, so none outlives the panel."""
+        self.close_session()
+        self._pool.waitForDone()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        self.shutdown()
+        super().closeEvent(event)
 
     def close_session(self) -> None:
         self._compile_gen += 1
@@ -576,6 +585,9 @@ class SimPanel(QWidget):
                 self.location_activated.emit(target[0], target[1])
 
     # stepping
+
+    def _step_once(self) -> None:
+        self._step(1)
 
     def _step(self, cycles: int) -> bool:
         if self.session is None:

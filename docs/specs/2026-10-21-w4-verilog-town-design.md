@@ -5,6 +5,8 @@ the author's resolution of everything those decisions left open (Section 17 list
 Amended 2026-10-21 (branch `docs/w4-faithful`, Peter: "a close replication of the original game"): the fidelity principle
 (Section 2), game time (5.9), the starter files corrected (7.3), the Verilog editor window and the level editor
 (8.1, 8.2), zoom and pan (9.3), the clock strip (9.4), the font (11), and the questions (17).
+Implemented 2026-10-22: the game (PR A, #16, merged), the Verilog editor, the level editor and the docs (branch
+`feat/w4-editors`, PRs B and C together; the PR number is added when it is opened).
 Plan: `docs/plans/2026-10-21-w4-verilog-town-plan.md`. Designed together with W3
 (`docs/specs/2026-10-21-w3-sim-design.md`): the game's sensors and lights are the session's inputs and outputs.
 Midgard III belongs to the Yggdrasil software suite (Odin III, Wyrd III, Loki III, Midgard III).
@@ -617,11 +619,11 @@ Launch: a left release on a tile with a `control` in EDIT (not placing a sensor,
 open; the Java: `!simulation_started && isSimulationPaused`) starts `sys.executable -m
 wyrd.midgard.editors.verilog_editor --file PATH --level N --name Traffic_signal_set_I` with `subprocess.Popen`
 (the Java: `ProcessBuilder` on `verilogEditor.jar`); no second editor for the same file. Editing is locked while the
-level runs (the click does nothing). Without PySide6 or on `--external-editor` / `MIDGARD_EDITOR` the external
-editor of the bullets above is used. The window is a `QMainWindow`:
+level runs (the click does nothing). Without PySide6, or when `MIDGARD_EDITOR` is set (it wins over the window),
+the external editor of the bullets above is used; `--no-editor` opens neither and shows the path. The window is a `QMainWindow`:
 
 - Menus (`QMenuBar`, shortcuts of the Java, Ctrl): File: Save `S`, Verify `R`, Exit `E`; Edit: Undo `Z`, Redo `Y`,
-  Search and Replace `F`; Simulate `M`: Simulate, Reset Simulation; Template: Combinational `1`, Sequential `2`.
+  Search and Replace `F`; Simulation: Simulate `M`, Reset Simulation; Template: Combinational `1`, Sequential `2`.
   (The Java gave Verify and Reset Simulation the same accelerator `R`; Reset keeps no shortcut here.)
 - Toolbar (images from `VerilogEditor/src/images`): save, verify (the check mark), undo, redo, search, simulate,
   reset; then the label `Internal Sensors:` and an 8-character binary field (`sensor_light`, default
@@ -662,7 +664,7 @@ Level Editor`. It reads and writes the original level XML exactly:
   box of the 17 group types of `MapGrid`: `STRAIGHT_NS`, `_2`, `_3`, `STRAIGHT_EW`, `_2`, the four `CORNER_*`,
   `FOUR_WAY`, `_2`, the four `THREE_WAY_*`, `NON_ROAD`, `_2`); middle click rotates the type; right click and right
   drag set `NON_ROAD`; dragging with the left button lays road and sets the entry and exit directions
-  (`StateTracker`, `BorderGrid`); buttons `Clear Map`, `Edit Cars`, `Export`, `Cancel`. Intersections on the map
+  (`StateTracker`, `BorderGrid`); buttons `Clear Map`, `Edit Cars`, `Export`, `Export As...`, `Cancel`. Intersections on the map
   edge are refused with `Can't have intersections on the edge!`.
 - `Edit Cars` (after `CarEditor`): a table of cars (start, end chosen from the start and end points the map
   defines, delay), `Add a Car`, `Save`, `Cancel`; an empty delay shows `Please input delay for all cars`; changing the
@@ -670,7 +672,11 @@ Level Editor`. It reads and writes the original level XML exactly:
   starts, 5.6).
 - `Export` writes `lvNN.xml` (the Java `exportXML`: `<level lv="N"><map size_x size_y>` then the border start and end
   cells, then the group cells in the Java order, then `<cars>`) and the map picture `lvNN.png` rendered from the 17
-  tile images of `LevelEditor/src/images` (`getBufferedImage`), then `Finished exporting`.
+  tile images of `LevelEditor/src/images` (`getBufferedImage`), then `Finished exporting` with the full paths of
+  both files. A level made with `Create` goes to `<data>/levels/Lv<N>/map/lvNN.xml` (Section 10's user-data
+  directory, made on export; the Java wrote under its install root); `Export As...` chooses another file. Both
+  files are written atomically (a temporary file in the same directory, then `os.replace`), so a failed export
+  leaves the old files intact.
 - Qt-free model `model/leveldoc.py`: `LevelDoc` (groups, cars, `from_level_data`, `to_level_data`,
   `populate_starts_ends`, `validate`), and `model/levelxml.py` gains `write_level_xml(data: LevelData) -> str` (the
   inverse of `parse_level_file`, keeping cell order). Tests: for all 13 shipped levels (and `samples/first_map.xml`)
@@ -874,7 +880,9 @@ recurses forever) ends as done and failed, so the level always reaches DONE; a l
 non-start tile, ends on a non-end tile or lies outside the map is refused with a message naming the car; a forced turn
 onto a missing link stops the car (Java throws). 9 Settings in a user data directory; keys are
 events, not polled (a held key no longer toggles every frame); no `Esc` key; an external editor as an extra;
-one general-sensors field in the Verilog editor (Question 12). Replicated on purpose (checked in the Java): no
+one general-sensors field in the Verilog editor (Question 12); `MIDGARD_EDITOR`, when set, opens the external
+editor instead of the Verilog editor window; the level editor's `Create` writes to `<data>/levels/Lv<N>/map/` (the
+Java wrote under its install root) and adds `Export As...`; editor and level files are saved atomically. Replicated on purpose (checked in the Java): no
 sound at all (no audio call or file in any module), the menu, level select, high scores, credits, key set,
 mouse behaviour, signal and car images, zoom and pan, the Verilog editor and level editor.
 

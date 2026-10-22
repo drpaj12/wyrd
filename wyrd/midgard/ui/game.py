@@ -7,6 +7,7 @@ import subprocess
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Protocol
 
 import pygame
 
@@ -23,6 +24,22 @@ DEFAULT_DESKTOP = (1920, 1080)
 Event = pygame.event.Event
 Pos = tuple[int, int] | None
 _MOUSE = (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP, pygame.MOUSEMOTION)
+
+
+class Launched(Protocol):
+    """A started helper program; `poll()` is `None` while it runs."""
+
+    def poll(self) -> object: ...
+
+
+def _popen(argv: list[str]) -> Launched:
+    return subprocess.Popen(
+        argv,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
 
 
 class Screen:
@@ -101,6 +118,7 @@ class Game:
         speed: int = 1,
         window_size: tuple[int, int] | None = None,
         editor: bool = True,
+        launcher: Callable[[list[str]], Launched] | None = None,
         now: Callable[[], float] = time.monotonic,
     ) -> None:
         pygame.display.init()
@@ -111,6 +129,7 @@ class Game:
         self.build: Callable[[Sequence[Path]], BuildResult] = build or self._default_build
         self.speed = speed
         self.editor = editor
+        self.launcher: Callable[[list[str]], Launched] = launcher or _popen
         self.now = now
         self.userdata = UserData(data_dir)
         self.assets = Assets()

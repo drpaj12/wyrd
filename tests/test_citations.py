@@ -8,7 +8,7 @@ from wyrd.citations import Citation, load, render_markdown
 ROOT = Path(__file__).parent.parent
 IDS = [
     "vtr", "odin2", "odin", "odin3", "abc", "yosys", "parmys", "slang", "qt", "pygame-ce",
-    "gtkwave", "verilog-town", "graphcrunch", "theryx", "gate-breaker",
+    "creepster", "gtkwave", "verilog-town", "graphcrunch", "theryx", "gate-breaker",
 ]  # fmt: skip
 
 
@@ -29,7 +29,7 @@ class CitationsTest(unittest.TestCase):
     def test_required_fields(self) -> None:
         for c in load():
             self.assertTrue(c.id and c.name)
-            self.assertIn(c.kind, {"paper", "software", "project"})
+            self.assertIn(c.kind, {"paper", "software", "project", "font"})
 
     def test_bad_file(self) -> None:
         bad = self._write('[[item]]\nid = "x1"\nkind = "paper"\n')

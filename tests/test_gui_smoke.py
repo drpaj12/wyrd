@@ -4,6 +4,7 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import gc
 import importlib.util
 import shutil
 import sys
@@ -11,6 +12,7 @@ import tempfile
 import time
 import tomllib
 import unittest
+import weakref
 from collections.abc import Callable
 from pathlib import Path
 from unittest import mock
@@ -32,7 +34,6 @@ if HAVE_QT:
         SignalInstance,
     )
     from PySide6.QtWidgets import (
-        QApplication,
         QComboBox,
         QDialog,
         QFileDialog,
@@ -43,6 +44,7 @@ if HAVE_QT:
         QTreeWidgetItem,
     )
 
+    from tests.qt_helpers import qapp
     from wyrd.gui.about import AboutDialog
     from wyrd.gui.adddesign import AddDesignDialog
     from wyrd.gui.flowpanel import FlowPanel
@@ -51,17 +53,15 @@ if HAVE_QT:
     from wyrd.gui.settingsdialog import SettingsDialog
     from wyrd.gui.sourceview import SourceView
     from wyrd.gui.stepload import load_messages, read_log_limited
+    from wyrd.gui.weakslot import weak
     from wyrd.guimodel.floorplan import FloorplanPlan, plan_floorplan
     from wyrd.guimodel.logparse import parse_log
     from wyrd.guimodel.tomledit import validate_text
     from wyrd.model import Design, Recipe, RunSpec, StepSpec
     from wyrd.store import Store
 
-    _APP: QCoreApplication | None = None
-
     def setUpModule() -> None:
-        global _APP
-        _APP = QApplication.instance() or QApplication([])
+        qapp()
 
 
 def child_count(item: "QTreeWidgetItem", i: int) -> int:
@@ -589,6 +589,34 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(panel.progress.value(), 500)
         self.assertIn("plan: 2 to run, 0 reused", panel.log.toPlainText())
 
+    def test_finished_panel_is_freed(self) -> None:
+        # The process signals reach the panel through weak slots; a lambda holding the panel
+        # kept it alive to interpreter exit, where PySide deleted it during finalization.
+        panel = FlowPanel()
+        argv = [sys.executable, "-c", STUB]
+        with mock.patch("wyrd.gui.flowpanel.run_argv", return_value=argv):
+            panel.start(self.tmp)
+            self.assertTrue(wait_for(panel.finished))
+        ref = weakref.ref(panel)
+        del panel
+        gc.collect()
+        self.assertIsNone(ref())
+
+    def test_weak_slot_drops_a_dead_object(self) -> None:
+        calls: list[int] = []
+
+        class Sink:
+            def take(self, value: int) -> None:
+                calls.append(value)
+
+        sink = Sink()
+        slot = weak(sink.take)
+        slot(1)
+        del sink
+        gc.collect()
+        slot(2)
+        self.assertEqual(calls, [1])
+
     def test_cancel(self) -> None:
         panel = FlowPanel()
         argv = [sys.executable, "-c", SLEEPER]
@@ -827,7 +855,7 @@ class DialogsTest(unittest.TestCase):
 
     def test_about(self) -> None:
         dlg = AboutDialog()
-        self.assertEqual(dlg.table.rowCount(), 15)
+        self.assertEqual(dlg.table.rowCount(), 16)
         cell = dlg.table.item(0, 0)
         assert cell is not None
         self.assertEqual(cell.text(), "VTR (Verilog-to-Routing)")

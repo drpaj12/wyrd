@@ -20,6 +20,9 @@ from wyrd.bifrost import (
     write_vcd,
 )
 
+# Re-exported so the Qt-free editor logic (vedit.py) needs no wyrd.bifrost import of its own.
+__all__ = ["Backend", "SimError"]
+
 
 class LightController(Protocol):
     last_inputs: tuple[int, int] | None

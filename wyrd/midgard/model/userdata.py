@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import os
 import shutil
-import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 
 from wyrd.midgard.model import ASSETS
+from wyrd.midgard.model.atomicio import write_text_atomic
 from wyrd.midgard.model.scores import ScoreTable
 from wyrd.midgard.model.sensors import SensorSet
 
@@ -31,21 +30,10 @@ def _read(path: Path) -> str:
 def _write(path: Path, text: str) -> str | None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        _replace_atomically(path, text)
+        write_text_atomic(path, text)
     except OSError as e:
         return f"cannot write {path}: {e.strerror or e}"
     return None
-
-
-def _replace_atomically(path: Path, text: str) -> None:
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(text)
-        os.replace(tmp, path)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
 
 
 class UserData:

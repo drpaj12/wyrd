@@ -17,13 +17,15 @@ Plans: `docs/plans/2026-10-21-w1-runner-plan.md`, `docs/plans/2026-10-21-w2-gui-
     QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest tests.test_gui_smoke -v
     QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest tests.test_gui_sim -v
     PYTHONPATH=/home/jamiespa/odin3-ws/work/odin3-s1/plugins/python ODIN3_LIB=<S1 build>/libodin3.so .venv/bin/python -m unittest tests.test_sim_odin3 -v   # real Odin III (needs cffi)
+    SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy .venv/bin/python -m unittest tests.test_midgard_ui_basic tests.test_midgard_ui tests.test_midgard_time_ui -v   # Midgard III game (pygame-ce)
+    QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest tests.test_midgard_editors -v   # Midgard III editors
     .venv/bin/ruff check .
     .venv/bin/mypy --strict wyrd tests
 
 ## Rules
 
 - Never commit to main. Open a PR; merge (squash) only with green CI.
-- Python 3.11+ (no 3.12-only syntax). Core is standard library only at runtime; PySide6 only under `wyrd/gui/`; optional extras `gui` (PySide6), `sim` (odin3, W3) and `midgard` (pygame-ce, W4).
+- Python 3.11+ (no 3.12-only syntax). Core is standard library only at runtime; PySide6 only under `wyrd/gui/` and `wyrd/midgard/editors/`; optional extras `gui` (PySide6), `sim` (odin3, W3) and `midgard` (pygame-ce, W4).
 - ruff and `mypy --strict` clean. Tests are `unittest` under `tests/`.
 - Small functions. No `# noqa`, `# type: ignore` or similar suppressions without Peter's approval.
 - Exit codes: 0 all runs ok; 1 some run not ok; 2 usage, config or preflight error.

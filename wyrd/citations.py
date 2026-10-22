@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 
-_KINDS = ("paper", "software", "project")
+_KINDS = ("paper", "software", "project", "font")
 
 
 @dataclass(frozen=True)

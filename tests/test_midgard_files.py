@@ -103,7 +103,7 @@ class UserDataTest(unittest.TestCase):
         self.assertIsNone(ud.save_scores(1, ScoreTable([(3, 7)])))
         target = self.tmp / "Lv1" / "high_score.txt"
         before = target.read_text(encoding="utf-8")
-        with patch("wyrd.midgard.model.userdata.os.replace", side_effect=OSError("disk full")):
+        with patch("wyrd.midgard.model.atomicio.os.replace", side_effect=OSError("disk full")):
             msg = ud.save_scores(1, ScoreTable([(9, 9)]))
         self.assertIn("cannot write", msg or "")
         self.assertEqual(target.read_text(encoding="utf-8"), before)
