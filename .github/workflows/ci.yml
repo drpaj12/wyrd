@@ -79,8 +79,8 @@ jobs:
       - run: SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy python -m unittest tests.test_midgard_ui_basic tests.test_midgard_ui -v
 
   docs:
-    # The user manual (docs/user, Sphinx + MyST). Warnings are errors. Not deployed: GitHub Pages
-    # is a repository setting the owner decides on.
+    # The user manual (docs/user, Sphinx + MyST). Warnings are errors. Deployed by pages.yml on push
+    # to main.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
