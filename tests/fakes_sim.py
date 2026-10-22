@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import contextlib
+import tempfile
 import types
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any, NamedTuple
 
+from wyrd.bifrost.backend import Backend
 from wyrd.bifrost.errors import CompileError
+from wyrd.bifrost.session import BifrostSession
 from wyrd.bifrost.types import Diagnostic, Kind, Signal
 
 TRAFFIC_SIGNALS: tuple[Signal, ...] = (
@@ -291,3 +294,38 @@ def make_fake_odin3(
     if has_simulation:
         module.__dict__["Simulation"] = Simulation
     return module
+
+
+# S1 section 10 reference trace: (rst, car_ns, car_ew) in, then (light_ns, light_ew, state, timer).
+TRACE_IN: tuple[tuple[int, int, int], ...] = (
+    (1, 0, 0),
+    (0, 0, 1),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+    (0, 1, 0),
+    (0, 0, 0),
+    (0, 0, 0),
+)
+TRACE_OUT: tuple[tuple[int, int, int, int], ...] = (
+    (2, 0, 0, 0),
+    (1, 0, 1, 1),
+    (1, 0, 1, 0),
+    (0, 2, 2, 3),
+    (0, 2, 2, 2),
+    (0, 2, 2, 1),
+    (0, 2, 2, 0),
+    (0, 1, 3, 1),
+    (0, 1, 3, 0),
+    (2, 0, 0, 3),
+)
+
+
+def traffic_session(backend: Backend | None = None) -> BifrostSession:
+    """A session on a throw-away `module traffic` file (the fake backend ignores the text)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "traffic.v"
+        path.write_text("module traffic", encoding="utf-8")
+        return BifrostSession.from_verilog([path], backend=backend or FakeBackend())

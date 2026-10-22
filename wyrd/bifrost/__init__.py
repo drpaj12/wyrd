@@ -19,9 +19,11 @@ from wyrd.bifrost.errors import (
     ValueRangeError,
     VectorError,
 )
+from wyrd.bifrost.session import BifrostSession
 from wyrd.bifrost.types import Diagnostic, Kind, Signal
 
 __all__ = [
+    "BifrostSession",
     "Backend",
     "CompiledDesign",
     "Odin3Backend",
