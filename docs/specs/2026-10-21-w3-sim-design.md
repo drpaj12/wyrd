@@ -1,6 +1,6 @@
 # W3: simulation in Wyrd (design)
 
-Status: decisions 1 to 6 approved by Peter, 2026-10-21; the rest is the author's resolution of what
+Status: implemented on branch feat/w3-bifrost, 2026-10-21 (PR number: pending). Decisions 1 to 6 approved by Peter, 2026-10-21; the rest is the author's resolution of what
 those decisions left open (Section 15 lists what Peter may still change). Plan:
 `docs/plans/2026-10-21-w3-sim-plan.md`. Designed together with W4 (`docs/specs/2026-10-21-w4-verilog-town-design.md`):
 the game's sensors and lights are this session's inputs and outputs. Builds on W1

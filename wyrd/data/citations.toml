@@ -96,6 +96,14 @@ license = "LGPL-2.1"
 role = "Planned for Verilog Town (W4)"
 
 [[item]]
+id = "gtkwave"
+name = "GTKWave"
+kind = "software"
+url = "https://gtkwave.sourceforge.net"
+license = "GPL-2.0-or-later"
+role = "External waveform viewer opened from the Simulate tab"
+
+[[item]]
 id = "verilog-town"
 name = "verilogTown"
 kind = "paper"

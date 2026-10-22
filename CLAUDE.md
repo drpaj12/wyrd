@@ -15,6 +15,8 @@ Plans: `docs/plans/2026-10-21-w1-runner-plan.md`, `docs/plans/2026-10-21-w2-gui-
 
     .venv/bin/python -m unittest discover -s tests -t . -v
     QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest tests.test_gui_smoke -v
+    QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest tests.test_gui_sim -v
+    PYTHONPATH=/home/jamiespa/odin3-ws/work/odin3-s1/plugins/python ODIN3_LIB=<S1 build>/libodin3.so .venv/bin/python -m unittest tests.test_sim_odin3 -v   # real Odin III (needs cffi)
     .venv/bin/ruff check .
     .venv/bin/mypy --strict wyrd tests
 

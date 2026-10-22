@@ -8,7 +8,7 @@ from wyrd.citations import Citation, load, render_markdown
 ROOT = Path(__file__).parent.parent
 IDS = [
     "vtr", "odin2", "odin", "odin3", "abc", "yosys", "parmys", "slang", "qt", "pygame-ce",
-    "verilog-town", "graphcrunch", "theryx", "gate-breaker",
+    "gtkwave", "verilog-town", "graphcrunch", "theryx", "gate-breaker",
 ]  # fmt: skip
 
 
