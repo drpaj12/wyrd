@@ -899,7 +899,7 @@ the two passes, the output ports), `VERILOG_SUPPORTED.txt`. Web pages read 2026-
 (`verilog.html` returned 404). Not verified against a running original (no Java
 runtime was used): the numbers of cars that pass on each level. The plan therefore tests invariants, not scores.
 
-## 17. Questions for Peter, with recommendations (1 to 5 accepted by Peter, 2026-10-21; 6 to 15 open)
+## 17. Questions for Peter, with recommendations (all accepted by Peter, 2026-10-21)
 
 1. (Superseded by decision 10 and 5.9.) Tick rate 30 default is replaced by 60 ticks per second at 1x.
 2. The Tutorial (level 0) is a menu button (decision 18). Recommend: keep. Note: game.html calls "Level 1" the tutorial;
