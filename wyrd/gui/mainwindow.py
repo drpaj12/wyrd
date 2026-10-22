@@ -299,7 +299,14 @@ class MainWindow(QMainWindow):
         for path in self._recent():
             act = self.recent_menu.addAction(path)
             if act is not None:
-                act.triggered.connect(lambda _checked=False, p=path: self.open_project(Path(p)))
+                act.setData(path)
+                act.triggered.connect(self._open_recent)
+
+    def _open_recent(self) -> None:
+        # A bound method, not a lambda: a lambda holding self is kept by Qt and leaks the window.
+        act = self.sender()
+        if isinstance(act, QAction):
+            self.open_project(Path(str(act.data())))
 
     def _remember(self, path: Path) -> None:
         text = str(path)
@@ -463,7 +470,7 @@ class MainWindow(QMainWindow):
             event.ignore()
             return
         self.flow.stop_floorplan()
-        self.sim_panel.close_session()
+        self.sim_panel.shutdown()
         self._stop_loads()
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("windowState", self.saveState())

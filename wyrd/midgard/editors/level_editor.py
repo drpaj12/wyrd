@@ -517,7 +517,7 @@ class MapWindow(QMainWindow):
         )
         for label, slot in actions:
             button = QPushButton(label)
-            button.clicked.connect(lambda _checked=False, s=slot: s())
+            button.clicked.connect(slot)
             self.buttons[label] = button
             row.addWidget(button)
         layout.addLayout(row)

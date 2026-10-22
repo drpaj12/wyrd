@@ -266,7 +266,7 @@ class SearchReplaceDialog(QDialog):
         ]
         for col, (label, action) in enumerate(buttons):
             button = QPushButton(label)
-            button.clicked.connect(lambda _checked=False, a=action: a())
+            button.clicked.connect(action)
             layout.addWidget(button, 2, col)
         self.find_edit.returnPressed.connect(self.find_next)
 
@@ -377,7 +377,7 @@ class VerilogEditorWindow(QMainWindow):
             action.setShortcut(QKeySequence(shortcut))
         if (VEDIT / f"{key}.png").is_file():
             action.setIcon(_icon(key))
-        action.triggered.connect(lambda _checked=False: slot())
+        action.triggered.connect(slot)
         self.addAction(action)
         self.actions[key] = action
 
@@ -390,10 +390,8 @@ class VerilogEditorWindow(QMainWindow):
         self._add("search", "Search and Replace", "Ctrl+F", self.do_search)
         self._add("simulate", "Simulate", "Ctrl+M", self.do_simulate)
         self._add("reset", "Reset Simulation", "", self.do_reset)
-        self._add(
-            "combinational", "Combinational", "Ctrl+1", lambda: self.use_template("combinational")
-        )
-        self._add("sequential", "Sequential", "Ctrl+2", lambda: self.use_template("sequential"))
+        self._add("combinational", "Combinational", "Ctrl+1", self.use_combinational)
+        self._add("sequential", "Sequential", "Ctrl+2", self.use_sequential)
 
     def _build_menus(self) -> None:
         bar = self.menuBar()
@@ -466,6 +464,12 @@ class VerilogEditorWindow(QMainWindow):
 
     def use_template(self, name: str) -> None:
         self.code.setPlainText(load_template(name))
+
+    def use_combinational(self) -> None:
+        self.use_template("combinational")
+
+    def use_sequential(self) -> None:
+        self.use_template("sequential")
 
     def closeEvent(self, event: QCloseEvent) -> None:
         prompt = self.session.should_prompt_on_exit()
