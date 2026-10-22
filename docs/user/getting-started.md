@@ -73,23 +73,29 @@ without graphics (`-DNO_GRAPHICS`), so the viewer exits at once. To use the butt
 VPR with graphics (Qt6) and tell Wyrd III where it is. Batch runs and goldens keep using the
 reference VPR from `vtr_root`; only the viewer uses the graphics one.
 
-These steps were written from the VTR build options and have not been run on this machine.
+These steps were verified on Ubuntu 24.04 under WSL2 (VTR 9.0.0-dev).
 
-1. Install the Qt6 development packages:
+1. Get Qt 6.9.3 or newer. VTR refuses an older Qt, and Ubuntu 24.04 ships Qt 6.4.2, so the
+   `qt6-*-dev` packages are not enough there. Install a private Qt with aqtinstall (no sudo; about
+   1.7 GB). `<qt>` is any directory you choose:
 
    ```bash
-   sudo apt install -y qt6-base-dev qt6-base-private-dev qt6-svg-dev qt6-tools-dev
+   python3 -m venv <qt>/aqt-venv
+   <qt>/aqt-venv/bin/pip install aqtinstall==3.3.0
+   <qt>/aqt-venv/bin/aqt install-qt linux desktop 6.9.3 linux_gcc_64 --outputdir <qt> --modules qtshadertools
    ```
 
-2. Configure and build only VPR, out of tree, from the same VTR source (the source tree is not
-   modified). `<dir>` is any build directory you choose:
+   VTR's own `dev/ensure_qt6_sdk.sh` does the same, but it writes into the VTR source tree.
+
+2. Configure and build only VPR, out of tree, from the same VTR source. `<dir>` is any build
+   directory you choose:
 
    ```bash
-   cmake -S $VTR_ROOT -B <dir> -DCMAKE_BUILD_TYPE=Release -DVPR_USE_EZGL=on
+   cmake -S $VTR_ROOT -B <dir> -DCMAKE_BUILD_TYPE=Release -DVPR_USE_EZGL=on -DCMAKE_PREFIX_PATH=<qt>/6.9.3/gcc_64
    cmake --build <dir> --target vpr -j6
    ```
 
-   The binary is `<dir>/vpr/vpr`.
+   The binary is `<dir>/vpr/vpr`; it finds the Qt libraries through its run path.
 
 3. Check that graphics are in. This prints `0` when `NO_GRAPHICS` is not defined:
 
@@ -108,3 +114,7 @@ These steps were written from the VTR build options and have not been run on thi
 
 On WSL, WSLg shows the VPR window; no X server is needed on Windows 11. If `vpr_gui` is unset the
 button uses the VPR named in the run's `vpr_stdout.log`.
+
+Under WSLg, VPR prints warnings such as `libEGL warning: failed to get driver name for fd -1` and
+`MESA: error: ZINK: failed to choose pdev`. They mean no GPU driver is visible, so drawing falls back
+to software; the window works. Each click of Floorplan opens another VPR window.
