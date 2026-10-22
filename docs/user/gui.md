@@ -4,6 +4,9 @@
 wyrd-gui [PROJECT_DIR]
 ```
 
+A step-by-step PDF tutorial does everything below in the interface, with a figure for each step:
+[wyrd-gui-tutorial.pdf](https://drpaj12.github.io/wyrd/wyrd-gui-tutorial.pdf).
+
 `wyrd-gui` needs the `gui` extra (PySide6). Without an argument it opens the last project (if its
 `wyrd.toml` still exists). Run it inside WSL: WSLg shows the window.
 
