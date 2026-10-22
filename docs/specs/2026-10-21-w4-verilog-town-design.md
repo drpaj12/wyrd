@@ -5,6 +5,8 @@ the author's resolution of everything those decisions left open (Section 17 list
 Amended 2026-10-21 (branch `docs/w4-faithful`, Peter: "a close replication of the original game"): the fidelity principle
 (Section 2), game time (5.9), the starter files corrected (7.3), the Verilog editor window and the level editor
 (8.1, 8.2), zoom and pan (9.3), the clock strip (9.4), the font (11), and the questions (17).
+Implemented 2026-10-22: the game (PR A, #16, merged), the Verilog editor, the level editor and the docs (branch
+`feat/w4-editors`, PRs B and C together; the PR number is added when it is opened).
 Plan: `docs/plans/2026-10-21-w4-verilog-town-plan.md`. Designed together with W3
 (`docs/specs/2026-10-21-w3-sim-design.md`): the game's sensors and lights are the session's inputs and outputs.
 Midgard III belongs to the Yggdrasil software suite (Odin III, Wyrd III, Loki III, Midgard III).

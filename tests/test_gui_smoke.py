@@ -827,7 +827,7 @@ class DialogsTest(unittest.TestCase):
 
     def test_about(self) -> None:
         dlg = AboutDialog()
-        self.assertEqual(dlg.table.rowCount(), 15)
+        self.assertEqual(dlg.table.rowCount(), 16)
         cell = dlg.table.item(0, 0)
         assert cell is not None
         self.assertEqual(cell.text(), "VTR (Verilog-to-Routing)")
