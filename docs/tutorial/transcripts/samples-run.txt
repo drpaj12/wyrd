@@ -1,0 +1,7 @@
+$ wyrd run --project samples
+ok single EArch a7246c56a569
+ok single k6_frac_N10_frac_chain_mem32K_40nm 3283433a8201
+ok dsp k6_frac_N10_frac_chain_mem32K_40nm 2fb49ce53a11
+ok multi EArch fce860666f91
+ok dsp EArch 86d4b945d9dc
+ok multi k6_frac_N10_frac_chain_mem32K_40nm ff4a191d5a90

@@ -1,0 +1,3 @@
+$ wyrd run
+ok counteradd EArch e92bccc8f1d5
+ok counteradd k6_frac_N10_frac_chain_mem32K_40nm acc443746f90

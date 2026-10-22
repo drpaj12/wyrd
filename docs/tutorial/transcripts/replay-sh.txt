@@ -1,0 +1,5 @@
+$ cat runs/counteradd/EArch/00a3cf1f1415/replay.sh
+#!/bin/sh
+# Replay re-runs the steps in place and overwrites their outputs in this run directory.
+set -e
+sh ~/wyrd-demo/runs/counteradd/EArch/00a3cf1f1415/0-odin3-flow/cmd.sh

@@ -1,5 +1,5 @@
 $ wyrd table
 | design | arch | status | clbs | crit_path_ns | hard_blocks.memory | hard_blocks.mult_36 | luts | min_chan_width | seconds.odin3 | seconds.vpr | wirelength |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| counteradd | EArch | ok | 2 | 2.565 | 0 | 0 | 4 | 20 | 0.114 | 0.315 | 86 |
-| counteradd | k6_frac_N10_frac_chain_mem32K_40nm | ok | 2 | 1.984 | 0 | 0 | 4 | 20 | 0.114 | 0.314 | 58 |
+| counteradd | EArch | ok | 2 | 2.565 | 0 | 0 | 4 | 20 | 0.167 | 0.519 | 86 |
+| counteradd | k6_frac_N10_frac_chain_mem32K_40nm | ok | 2 | 1.984 | 0 | 0 | 4 | 20 | 0.219 | 0.623 | 58 |

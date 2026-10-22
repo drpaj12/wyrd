@@ -1,0 +1,8 @@
+$ odin3-flow src/adder.v src/counter.v src/top.v --top top --target vtr --no-vpr --out out
+step odin3: FAILED (0.0 s) log ./out/odin3/odin3.log
+  seconds          {'odin3': 0.007}
+odin3_flow: step odin3 failed; see ./out/odin3/odin3.log
+$ grep error out/odin3/odin3.log
+odin3: error: ./src/adder.v:2:1: error: module 'adder' has the name of cell type 'adder' registered by an earlier read (hard cell); rename the module
+odin3: error: pass read_verilog: failed: ODIN3_ERR_PARSE
+odin3: error: -p: command 2: pass 'read_verilog' failed: ODIN3_ERR_PARSE

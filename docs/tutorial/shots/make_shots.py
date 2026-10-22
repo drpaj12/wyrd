@@ -71,6 +71,12 @@ def cli_part(w: Work) -> str:
     w.run(wyrd("script", key), w.demo, "script", f"wyrd script {key}")
     w.run(["find", "runs", "-maxdepth", "4", "-not", "-path", "*/out/*"], w.demo, "run-dir",
           "find runs -maxdepth 4")
+    cmd = next(w.demo.glob("runs/*/EArch/*/0-odin3-flow/cmd.sh"))
+    rel = cmd.relative_to(w.demo)
+    w.run(["cat", str(rel)], w.demo, "cmd-sh", f"cat {rel}")
+    replay = next(w.demo.glob(f"runs/*/*/{key}/replay.sh"))
+    w.run(["cat", str(replay.relative_to(w.demo))], w.demo, "replay-sh",
+          f"cat {replay.relative_to(w.demo)}")
     summary = next(w.demo.glob("runs/*/EArch/*/0-odin3-flow/out/summary.json"))
     TRANSCRIPTS.joinpath("summary.txt").write_text(
         f"$ cat runs/counteradd/EArch/{summary.parts[-4]}/0-odin3-flow/out/summary.json\n"
@@ -110,7 +116,7 @@ def compare_part(w: Work) -> None:
     shutil.copy(w.demo / "wyrd.toml", v2 / "wyrd.toml")
     shutil.copy(TUTORIAL / "project" / "variants" / "top_registered.v", v2 / "src" / "top.v")
     w.run(wyrd("run"), v2, "run-v2", "wyrd run")
-    w.run(wyrd("compare", "../wyrd-demo", ".", "--metrics", "luts,clbs,crit_path_ns"), v2,
+    w.run(wyrd("compare", str(w.demo), ".", "--metrics", "luts,clbs,crit_path_ns"), v2,
           "compare", "wyrd compare ~/wyrd-demo ~/wyrd-demo2 --metrics luts,clbs,crit_path_ns")
 
 
