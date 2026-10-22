@@ -107,9 +107,7 @@ def _parse_car(c: ET.Element, size_x: int, size_y: int, index: int) -> CarSpec:
     return CarSpec(start, end, delay)
 
 
-def _check_car_tiles(
-    index: int, spec: CarSpec, tiles: dict[tuple[int, int], GridType]
-) -> None:
+def _check_car_tiles(index: int, spec: CarSpec, tiles: dict[tuple[int, int], GridType]) -> None:
     start_type = tiles.get(spec.start, GridType.NON_ROAD)
     if start_type not in START_TYPES:
         raise LevelFormatError(
@@ -150,3 +148,35 @@ def parse_level_file(path: Path) -> LevelData:
         return parse_level_xml(path.read_bytes())
     except OSError as exc:
         raise LevelFormatError(f"cannot read {path}: {exc}") from exc
+
+
+_XML_DECLARATION = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>'
+
+
+def _grid_xml(pos: tuple[int, int], tile: GridType, kind: str | None) -> str:
+    inner = f"<intersection>{kind}</intersection>" if kind is not None else ""
+    return f'<grid x="{pos[0]}" y="{pos[1]}">{inner}<type>{tile.name}</type></grid>'
+
+
+def _car_xml(car: CarSpec) -> str:
+    return (
+        f'<car><start x="{car.start[0]}" y="{car.start[1]}"/>'
+        f'<end x="{car.end[0]}" y="{car.end[1]}"/><delay>{car.delay}</delay></car>'
+    )
+
+
+def write_level_xml(data: LevelData) -> str:
+    """The inverse of `parse_level_file`, in the layout the original level editor wrote.
+
+    That is the Java `Transformer` output: one line, no whitespace between elements, no final
+    newline. Cells keep the order of `data.tiles`; an `<intersection>` element precedes the
+    `<type>` of the cell that holds it.
+    """
+    kinds = {(i.x, i.y): i.kind for i in data.intersections}
+    grids = "".join(_grid_xml(pos, tile, kinds.get(pos)) for pos, tile in data.tiles.items())
+    cars = "".join(_car_xml(c) for c in data.cars)
+    cars_xml = f"<cars>{cars}</cars>" if cars else "<cars/>"
+    return (
+        f'{_XML_DECLARATION}<level lv="{data.number}">'
+        f'<map size_x="{data.size_x}" size_y="{data.size_y}">{grids}</map>{cars_xml}</level>'
+    )
