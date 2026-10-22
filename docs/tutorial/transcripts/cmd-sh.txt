@@ -1,5 +1,5 @@
 $ cat runs/counteradd/EArch/00a3cf1f1415/0-odin3-flow/cmd.sh
 #!/bin/sh
 cd ~/wyrd-demo/runs/counteradd/EArch/00a3cf1f1415/0-odin3-flow
-export VTR_ROOT=/home/jamiespa/odin3-ws/external/vtr-verilog-to-routing
-odin3-flow ~/wyrd-demo/src/add4.v ~/wyrd-demo/src/counter.v ~/wyrd-demo/src/top.v --top top --target vtr --arch /home/jamiespa/odin3-ws/external/vtr-verilog-to-routing/vtr_flow/arch/timing/EArch.xml --vpr --out ~/wyrd-demo/runs/counteradd/EArch/00a3cf1f1415/0-odin3-flow/out
+export VTR_ROOT=~/vtr-verilog-to-routing
+odin3-flow ~/wyrd-demo/src/add4.v ~/wyrd-demo/src/counter.v ~/wyrd-demo/src/top.v --top top --target vtr --arch $VTR_ROOT/vtr_flow/arch/timing/EArch.xml --vpr --out ~/wyrd-demo/runs/counteradd/EArch/00a3cf1f1415/0-odin3-flow/out

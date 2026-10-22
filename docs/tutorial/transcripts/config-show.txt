@@ -1,6 +1,6 @@
 $ wyrd config show
 tools = {'odin3': 'odin3', 'odin3_flow': 'odin3-flow'}  (machine)
-vtr_root = /home/jamiespa/odin3-ws/external/vtr-verilog-to-routing  (machine)
+vtr_root = $VTR_ROOT  (machine)
 mem_budget = 15121371955  (machine)
 jobs = 6  (machine)
 launcher = systemd  (machine)

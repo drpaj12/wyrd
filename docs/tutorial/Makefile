@@ -9,7 +9,7 @@
 
 TECTONIC ?= $(HOME)/odin3-ws/work/tools/tectonic/tectonic
 PYTHON   ?= python3
-WORK     ?= /tmp/claude-1000/wdoc-tutorial
+WORK     ?= $(CURDIR)/build/shots-work
 
 IMAGES := $(wildcard images/*.png)
 TRANSCRIPTS := $(wildcard transcripts/*.txt)

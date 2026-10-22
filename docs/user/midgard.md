@@ -32,7 +32,9 @@ counted in ticks, also shown as `MM:SS` at 60 ticks per second.
 ## Playing a level
 
 A level starts in the **edit phase**. Look at the map, place sensors, edit the Verilog files of the
-intersections, then press `S`.
+intersections, then press `S`. To place a sensor, click the sensor pile (bottom-left) and then a
+road tile, or drag from the pile onto the tile; drag a placed sensor to move it, right-click to
+remove it. The status line counts the sensors left.
 
 | Key | Action |
 |---|---|

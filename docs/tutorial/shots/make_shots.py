@@ -149,10 +149,25 @@ def child(script: str, *args: str, env: dict[str, str]) -> None:
     subprocess.run([sys.executable, str(HERE / script), *args], check=True, env=env)
 
 
+MARKER = ".wyrd-tutorial-work"
+
+
+def clear_root(root: Path) -> None:
+    """Empty the work directory, but only one this script made (it holds MARKER) or an empty one."""
+    if not root.exists():
+        return
+    resolved = root.resolve()
+    if resolved in {Path("/"), Path.home().resolve(), Path.cwd().resolve()}:
+        raise SystemExit(f"refusing to clear {resolved}")
+    if any(resolved.iterdir()) and not (resolved / MARKER).is_file():
+        raise SystemExit(f"refusing to clear {resolved}: not a tutorial work directory")
+    shutil.rmtree(resolved)
+
+
 def main(root: Path) -> int:
-    if root.exists():
-        shutil.rmtree(root)
+    clear_root(root)
     root.mkdir(parents=True)
+    (root / MARKER).write_text("", encoding="utf-8")
     w = Work(root)
     IMAGES.mkdir(parents=True, exist_ok=True)
     cli_part(w)
