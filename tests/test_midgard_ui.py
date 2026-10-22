@@ -238,13 +238,13 @@ class ErrorTest(UiBase):
         self.assertIsNotNone(screen.level.editor.placing)
 
 
-class FailingStart(ScriptedController):
-    def start(self) -> None:
-        raise ControllerError("cannot start light0: boom")
-
-
 class RobustnessTest(UiBase):
     def test_start_error_shown(self) -> None:
+        # Defined here, not at module level: the module must import without pygame-ce.
+        class FailingStart(ScriptedController):
+            def start(self) -> None:
+                raise ControllerError("cannot start light0: boom")
+
         def build(paths: Sequence[Path]) -> BuildResult:
             return BuildResult([FailingStart(safe_controller) for _ in paths], [], [])
 
