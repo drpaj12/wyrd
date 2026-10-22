@@ -18,7 +18,9 @@ from PySide6.QtWidgets import (
 )
 
 from wyrd import cli
+from wyrd.gui.messages import MessagesPane
 from wyrd.gui.projecttree import ProjectTree
+from wyrd.gui.sourceview import SourceView
 from wyrd.guimodel.projmodel import project_tree
 from wyrd.project import ConfigError, Project, load_project
 
@@ -35,6 +37,8 @@ class MainWindow(QMainWindow):
         self.project_dir: Path | None = None
         self.project_tree = ProjectTree()
         self.tabs = QTabWidget()
+        self.source_view = SourceView()
+        self.messages = MessagesPane()
         self.docks: dict[str, QDockWidget] = {}
         self.recent_menu = QMenu("Recent", self)
         self._build()
@@ -47,17 +51,23 @@ class MainWindow(QMainWindow):
         left.setWidget(self.project_tree)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, left)
         for name in TAB_NAMES:
-            self.tabs.addTab(QWidget(), name)
+            self.tabs.addTab(self.source_view if name == "Source" else QWidget(), name)
         self.setCentralWidget(self.tabs)
         self._build_docks()
         self._build_menus()
+        self.project_tree.file_activated.connect(self.show_source)
+        self.messages.location_activated.connect(self.show_source)
+
+    def show_source(self, path: Path, line: int | None = None) -> None:
+        self.source_view.open_file(path, line)
+        self.tabs.setCurrentWidget(self.source_view)
 
     def _build_docks(self) -> None:
         previous: QDockWidget | None = None
         for name in ("Messages", "Flow"):
             dock = QDockWidget(name, self)
             dock.setObjectName(f"dock-{name.lower()}")
-            dock.setWidget(QWidget())
+            dock.setWidget(self.messages if name == "Messages" else QWidget())
             self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, dock)
             if previous is not None:
                 self.tabifyDockWidget(previous, dock)
