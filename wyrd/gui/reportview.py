@@ -27,6 +27,7 @@ from wyrd.gui.sourceview import read_limited
 from wyrd.guimodel import runs
 from wyrd.guimodel.floorplan import FloorplanPlan, plan_floorplan
 from wyrd.guimodel.runs import RunInfo
+from wyrd.settings import load as load_settings
 
 ROLE_KIND = Qt.ItemDataRole.UserRole
 ROLE_ARG = Qt.ItemDataRole.UserRole + 1
@@ -190,7 +191,13 @@ class ReportView(QWidget):
             self.floorplan_button.setEnabled(False)
             self.floorplan_button.setToolTip("Select a run to show its floorplan.")
             return
-        plan = plan_floorplan(run.run_dir)
+        try:
+            vpr_gui = load_settings(None, {}).vpr_gui
+        except (ValueError, OSError) as e:
+            self.floorplan_button.setToolTip(str(e))
+            self.floorplan_button.setEnabled(False)
+            return
+        plan = plan_floorplan(run.run_dir, vpr_gui)
         if isinstance(plan, FloorplanPlan):
             self._plan = plan
             self.floorplan_button.setToolTip("Show the VPR floorplan of this run.")

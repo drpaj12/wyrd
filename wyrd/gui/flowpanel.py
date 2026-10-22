@@ -28,7 +28,10 @@ CANCEL_GRACE_MS = 30000
 CLOSE_TERM_MS = 10000
 KILL_GRACE_MS = 5000
 EARLY_EXIT_MS = 5000
-EARLY_EXIT_TEXT = "VPR exited early; is this VPR built with graphics (Qt6)? See the log above."
+EARLY_EXIT_TEXT = (
+    "VPR exited early; is this VPR built with graphics (Qt6)? Set tools.vpr_gui in the "
+    "machine config to a graphics VPR (see the manual, Floorplan viewer)."
+)
 
 
 def _lines(data: bytes) -> list[str]:

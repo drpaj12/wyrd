@@ -374,6 +374,13 @@ The flow in Section 3 only synthesises and implements the design. To see what it
 Bifrost III, a wrapper around the per-cycle simulator of Odin III. One simulation step is one rising edge of the
 clock. It needs the \cmd{sim} extra of Section 2.
 
+\subsection{The floorplan viewer}
+
+The \ui{Floorplan} button needs a VPR built with graphics (Qt6); the VPR of a normal VTR build is not. Build a second
+VPR out of tree and set it as \cmd{vpr\_gui} under \cmd{[tools]} in \cmd{machine.toml}. The steps are in the user
+manual, section ``Floorplan viewer (VPR graphics)'' of the Getting started page. Batch runs keep the reference VPR; only
+the viewer uses the graphics one.
+
 \subsection{From the command line}
 
 \begin{enumerate}

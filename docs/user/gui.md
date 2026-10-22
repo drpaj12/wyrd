@@ -53,8 +53,11 @@ and for every run a *Summary*, one node per *Step n: tool* with its log files, a
   double-click a row to open its location.
 - **Compare** with another project directory fills a table like `wyrd compare` and lists runs found
   in only one project.
-- **Floorplan** re-runs VPR with its graphics for the selected run. It needs a VPR built with Qt6
-  graphics; when VPR exits early the Flow log says so.
+- **Floorplan** re-runs VPR with its graphics for the selected run, using the VPR set as
+  `tools.vpr_gui` in the machine settings, else the VPR named in the run's log. It needs a VPR built
+  with Qt6 graphics; set one up as in [Floorplan viewer (VPR graphics)](getting-started.md). When VPR
+  exits early the Flow log says so and names the setting. The button is disabled, with the reason
+  as its tooltip, when `vpr_gui` is set to a file that does not exist.
 
 Project > Refresh results (F5) re-reads `wyrd.db`; it also happens after each flow run.
 

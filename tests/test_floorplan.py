@@ -68,6 +68,27 @@ class FloorplanTest(unittest.TestCase):
              "--route_chan_width", "42", *VIEW),
         )  # fmt: skip
 
+    def test_vpr_gui_used_when_set(self) -> None:
+        gui = self.root / "gfx" / "vpr"
+        gui.parent.mkdir()
+        gui.write_text("#!/bin/sh\n", encoding="utf-8")
+        logged = plan_floorplan(self.run_dir)
+        got = plan_floorplan(self.run_dir, gui)
+        assert isinstance(got, FloorplanPlan) and isinstance(logged, FloorplanPlan)
+        self.assertEqual(got.program, str(gui))
+        self.assertEqual(got.args, logged.args)
+
+    def test_vpr_gui_unset_keeps_logged(self) -> None:
+        got = plan_floorplan(self.run_dir, None)
+        assert isinstance(got, FloorplanPlan)
+        self.assertEqual(got.program, str(self.vpr))
+
+    def test_vpr_gui_missing(self) -> None:
+        self.assertEqual(
+            plan_floorplan(self.run_dir, Path("/nope/gfx-vpr")),
+            "graphics VPR (tools.vpr_gui) not found: /nope/gfx-vpr",
+        )
+
     def test_no_iterations_option(self) -> None:
         self.write_log(self.echo(str(self.vpr), "--route_chan_width 8"))
         got = plan_floorplan(self.run_dir)
