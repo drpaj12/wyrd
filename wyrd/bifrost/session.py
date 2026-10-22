@@ -16,6 +16,7 @@ from wyrd.bifrost.errors import (
 )
 from wyrd.bifrost.record import Recorder, Recording
 from wyrd.bifrost.types import Diagnostic, Signal
+from wyrd.bifrost.vectors import VectorFile, data_ports, random_vectors, session_ports
 
 
 def _unreadable(path: Path) -> CompileError:
@@ -219,6 +220,28 @@ class BifrostSession:
         self._sample(rec)
         self._recorder = rec
         return rec.snapshot()
+
+    def run_vectors(self, vectors: VectorFile, names: Sequence[str] | None = None) -> Recording:
+        self._check_open()
+        ports, _ = session_ports(self)
+        data = [p.name for p in data_ports(ports)]
+        for row in vectors.rows:
+            if len(row) != len(data):
+                raise ValueError(f"a vector row has {len(row)} values, the design has {len(data)}")
+        self.start_recording(names, max_samples=max(1_000_000, len(vectors.rows) + 1))
+        for row in vectors.rows:
+            self.set_many(dict(zip(data, row, strict=True)))
+            self.step(1)
+        rec = self.recording
+        assert rec is not None
+        return rec
+
+    def run_random(
+        self, cycles: int, seed: int = 0, names: Sequence[str] | None = None
+    ) -> Recording:
+        self._check_open()
+        ports, _ = session_ports(self)
+        return self.run_vectors(random_vectors(ports, cycles, seed), names)
 
     def stop_recording(self) -> Recording | None:
         self._check_open()

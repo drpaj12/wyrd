@@ -23,6 +23,13 @@ from wyrd.bifrost.record import Recording
 from wyrd.bifrost.session import BifrostSession
 from wyrd.bifrost.types import Diagnostic, Kind, Signal
 from wyrd.bifrost.vcd import vcd_text, write_vcd
+from wyrd.bifrost.vectors import (
+    VectorFile,
+    format_vectors,
+    parse_vectors,
+    random_vectors,
+    session_ports,
+)
 
 __all__ = [
     "BifrostSession",
@@ -43,8 +50,13 @@ __all__ = [
     "SimError",
     "SimUnavailable",
     "ValueRangeError",
+    "VectorFile",
     "VectorError",
+    "format_vectors",
     "parse_log",
+    "parse_vectors",
+    "random_vectors",
+    "session_ports",
     "vcd_text",
     "write_vcd",
 ]
