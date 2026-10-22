@@ -1,4 +1,4 @@
-"""Command line: `wyrd init | run | status | table | compare | script | config` (spec section 3)."""
+"""Command line: `wyrd init | run | status | table | compare | script | config | sim`."""
 
 from __future__ import annotations
 
@@ -10,12 +10,22 @@ import sqlite3
 import sys
 from collections import Counter
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from wyrd import report, settings
 from wyrd.preflight import ProjectLocked, acquire_lock, preflight
 from wyrd.project import ConfigError, Project, load_project
 from wyrd.sched import run_all
 from wyrd.store import Store
+
+if TYPE_CHECKING:
+    from wyrd.bifrost import (
+        Backend,
+        BifrostSession,
+        Diagnostic,
+        Recording,
+        VectorFile,
+    )
 
 
 def _config_init() -> int:
@@ -221,6 +231,88 @@ def _script(args: argparse.Namespace) -> int:
     return 0
 
 
+def _sim_backend() -> Backend:
+    from wyrd.bifrost import default_backend
+
+    return default_backend()
+
+
+def _sim_where(d: Diagnostic) -> str:
+    parts = [d.file, None if d.line is None else str(d.line), None if d.col is None else str(d.col)]
+    where = ":".join(x for x in parts if x is not None)
+    return f"{where}: " if where else ""
+
+
+def _sim_diag(d: Diagnostic) -> None:
+    print(f"{_sim_where(d)}{d.severity}: {d.message}", file=sys.stderr)
+
+
+def _print_run(rec: Recording, csv: bool) -> None:
+    ins = [n for n in rec.names if n in rec.inputs]
+    outs = [n for n in rec.names if n not in rec.inputs]
+    shown = ins + outs
+    if csv:
+        print(",".join(["cycle", *shown]))
+    for cycle, sample in zip(rec.cycles[1:], rec.samples[1:], strict=True):
+        by_name = dict(zip(rec.names, sample, strict=True))
+        if csv:
+            print(",".join([str(cycle), *(str(by_name[n]) for n in shown)]))
+            continue
+        left = " ".join(f"{n}={by_name[n]}" for n in ins)
+        right = " ".join(f"{n}={by_name[n]}" for n in outs)
+        print(f"{cycle}: {left} | {right}" if outs else f"{cycle}: {left}")
+
+
+def _sim_vectors(args: argparse.Namespace, session: BifrostSession) -> VectorFile:
+    from wyrd.bifrost import parse_vectors, random_vectors, session_ports
+
+    ports, outs = session_ports(session)
+    if args.vectors is not None:
+        text = Path(args.vectors).read_text(encoding="utf-8")
+        return parse_vectors(text, ports, outs, args.vectors)
+    return random_vectors(ports, args.random, args.seed)
+
+
+def _sim_write(args: argparse.Namespace, session: BifrostSession, vf: VectorFile) -> None:
+    from wyrd.bifrost import format_vectors, session_ports, write_vcd
+
+    rec = session.recording
+    assert rec is not None
+    if args.vcd:
+        write_vcd(rec, Path(args.vcd))
+    if args.save_vectors:
+        ports, outs = session_ports(session)
+        text = format_vectors(vf, ports, outs, recording=rec, seed=args.seed)
+        Path(args.save_vectors).write_text(text, encoding="utf-8")
+
+
+def _sim_session(args: argparse.Namespace, session: BifrostSession) -> int:
+    for d in session.diagnostics:
+        _sim_diag(d)
+    vf = _sim_vectors(args, session)
+    rec = session.run_vectors(vf)
+    _print_run(rec, args.csv)
+    _sim_write(args, session, vf)
+    return 0
+
+
+def _sim(args: argparse.Namespace) -> int:
+    from wyrd.bifrost import BifrostSession, CompileError, SimError
+
+    try:
+        backend = _sim_backend()
+        with BifrostSession.from_verilog(args.files, top=args.top, backend=backend) as session:
+            return _sim_session(args, session)
+    except CompileError as e:
+        for d in e.diagnostics or ():
+            _sim_diag(d)
+        if not e.diagnostics:
+            print(f"wyrd: {e}", file=sys.stderr)
+        return 2
+    except (SimError, ValueError, OSError) as e:
+        return _err(str(e))
+
+
 def _with_project(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     p.add_argument("--project", default=".", metavar="DIR")
     return p
@@ -251,6 +343,16 @@ def _parser() -> argparse.ArgumentParser:
     _with_format(compare)
     script = _with_project(sub.add_parser("script", help="write replay.sh for a run"))
     script.add_argument("key", help="run key or a prefix of at least 6 characters")
+    sim = sub.add_parser("sim", help="simulate Verilog files cycle by cycle (needs wyrd[sim])")
+    sim.add_argument("files", nargs="+")
+    sim.add_argument("--top")
+    source = sim.add_mutually_exclusive_group(required=True)
+    source.add_argument("--vectors", metavar="FILE")
+    source.add_argument("--random", type=int, metavar="N")
+    sim.add_argument("--seed", type=int, default=0)
+    sim.add_argument("--vcd", metavar="OUT")
+    sim.add_argument("--save-vectors", metavar="FILE")
+    sim.add_argument("--csv", action="store_true")
     return p
 
 
@@ -269,6 +371,7 @@ def main(argv: list[str] | None = None) -> int:
         "table": _table,
         "compare": _compare,
         "script": _script,
+        "sim": _sim,
     }
     return handlers[args.command](args)
 
