@@ -49,7 +49,8 @@ def _start_detached(program: str, args: list[str]) -> bool:
     process = QProcess()
     process.setProgram(program)
     process.setArguments(args)
-    return bool(process.startDetached())
+    result: object = process.startDetached()  # bool at runtime, tuple in the stubs
+    return bool(result[0]) if isinstance(result, tuple) else bool(result)
 
 
 class MainWindow(QMainWindow):

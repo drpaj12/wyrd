@@ -40,6 +40,9 @@ class Screen:
     def close(self) -> None:
         return None
 
+    def focus_lost(self) -> None:
+        return None
+
 
 class ButtonScreen(Screen):
     """A screen of clickable buttons: a release inside the button that took the press fires."""
@@ -116,6 +119,7 @@ class Game:
         self.running = True
         self.status = ""
         self.open_waveform: Callable[[Path], bool] = self._no_waveform
+        self._children: list[subprocess.Popen[bytes]] = []
         self.screen: Screen = Screen()
         self.view = View(MENU_SIZE)
         self.logical = pygame.Surface(MENU_SIZE)
@@ -128,19 +132,28 @@ class Game:
         program = shutil.which("gtkwave")
         if program is not None:
             try:
-                subprocess.Popen(
-                    [program, str(path)],
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    start_new_session=True,
-                )
+                self.spawn([program, str(path)])
                 return True
             except OSError as exc:
                 self.status = f"Could not start gtkwave: {exc}"
                 return False
         self.status = f"Waveform: {path}"
         return False
+
+    def spawn(self, command: Sequence[str]) -> None:
+        """Start a detached helper program; finished ones are reaped each frame."""
+        self._children.append(
+            subprocess.Popen(
+                list(command),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        )
+
+    def reap(self) -> None:
+        self._children = [p for p in self._children if p.poll() is None]
 
     def _set_screen(self, screen: Screen) -> None:
         old = self.screen
@@ -182,6 +195,9 @@ class Game:
         if event.type == pygame.QUIT:
             self.running = False
             return
+        if event.type == pygame.WINDOWFOCUSLOST:
+            self.screen.focus_lost()
+            return
         pos: Pos = None
         if event.type in _MOUSE:
             pos = self.view.to_logical(event.pos, self.window.get_size())
@@ -193,6 +209,7 @@ class Game:
             self.window = surface
         for event in events:
             self._dispatch(event)
+        self.reap()
         self.screen.update(dt)
         self.screen.draw(self.logical)
         present(self.logical, self.window, self.view)

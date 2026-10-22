@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess
 from pathlib import Path
 
 import pygame
@@ -68,13 +67,25 @@ class LevelScreen(Screen):
         data = parse_level_file(level_path(self.number))
         self.level = Level(data, self.game.userdata.load_sensors(self.number))
         count = len(self.level.town.controls)
-        self.paths: list[Path] = self.game.userdata.ensure_level_files(self.number, count)
+        self.errors: list[PlayerError] = []
+        self.warnings: list[str] = []
+        self.paths: list[Path] = self._level_files(count)
         self.watcher = FileWatcher(self.paths)
         n_cars = len(self.level.cars)
         self.car_frames = [layers.car_frame_index(self.number, k) for k in range(n_cars)]
-        self.errors: list[PlayerError] = []
-        self.warnings: list[str] = []
-        self.compile()
+        if self.files_ready:
+            self.compile()
+
+    def _level_files(self, count: int) -> list[Path]:
+        userdata = self.game.userdata
+        try:
+            paths = userdata.ensure_level_files(self.number, count)
+        except OSError as exc:
+            self.files_ready = False
+            self.message = f"Cannot create the level files: {exc}"
+            return userdata.verilog_paths(self.number, count)
+        self.files_ready = True
+        return paths
 
     @property
     def phase(self) -> Phase:
@@ -93,11 +104,13 @@ class LevelScreen(Screen):
         self._close_built()
         self.errors = []
         self.warnings = []
-        self.sim_unavailable = None
+        previous, self.sim_unavailable = self.sim_unavailable, None
+        if previous is not None and self.message == previous:
+            self.message = ""
         try:
             built = self.game.build(self.paths)
         except SimUnavailable as exc:
-            self.sim_unavailable = str(exc)
+            self.sim_unavailable = self.message = str(exc)
             return
         self.built = built
         self.errors = list(built.errors)
@@ -105,6 +118,8 @@ class LevelScreen(Screen):
 
     def try_start(self) -> None:
         if self.phase is not Phase.EDIT:
+            return
+        if not self.files_ready:
             return
         self.compile()
         built = self.built
@@ -114,7 +129,11 @@ class LevelScreen(Screen):
         if not built.ok:
             self.message = "Fix the errors before starting"
             return
-        self.level.start([c for c in built.controllers if c is not None])
+        try:
+            self.level.start([c for c in built.controllers if c is not None])
+        except ControllerError as exc:
+            self.message = str(exc)
+            return
         if self.recording:
             for c in self.level.controllers:
                 c.start_recording()
@@ -138,18 +157,16 @@ class LevelScreen(Screen):
     def open_editor(self, index: int) -> None:
         path = self.paths[index]
         self.last_editor_open = self.game.now()
-        command = editor_command(path, os.environ, shutil.which)
+        try:
+            command = editor_command(path, os.environ, shutil.which)
+        except ValueError as exc:
+            self.message = f"MIDGARD_EDITOR: {exc}"
+            return
         if command is None or not self.game.editor:
             self.message = f"Edit this file: {path}"
             return
         try:
-            subprocess.Popen(
-                command,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
+            self.game.spawn(command)
         except OSError as exc:
             self.message = f"Cannot start the editor: {exc}"
             return
@@ -176,9 +193,13 @@ class LevelScreen(Screen):
         elif t == pygame.MOUSEBUTTONUP:
             self.mouse = pos
             if pos is not None and pos[1] >= CAMERA_H and event.button == 1:
-                self._strip_click(pos)
+                if not self.help_open:
+                    self._strip_click(pos)
             elif pos is not None:
                 self._release(event.button, pos)
+
+    def focus_lost(self) -> None:
+        self.held.clear()
 
     def camera_enabled(self) -> bool:
         return not self.help_open and self.phase is not Phase.DONE

@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from collections.abc import Callable
 from pathlib import Path
+from unittest.mock import patch
 
 from wyrd.midgard.model import ASSETS
 from wyrd.midgard.model.scores import ScoreTable, format_time
@@ -97,6 +98,17 @@ class UserDataTest(unittest.TestCase):
         self.assertEqual(ud.load_scores(5).entries, [(0, 0)] * 10)
         self.assertEqual(ud.recordings_dir(3), self.tmp / "Lv3/recordings")
 
+    def test_failed_write_keeps_old_file(self) -> None:
+        ud = UserData(self.tmp)
+        self.assertIsNone(ud.save_scores(1, ScoreTable([(3, 7)])))
+        target = self.tmp / "Lv1" / "high_score.txt"
+        before = target.read_text(encoding="utf-8")
+        with patch("wyrd.midgard.model.userdata.os.replace", side_effect=OSError("disk full")):
+            msg = ud.save_scores(1, ScoreTable([(9, 9)]))
+        self.assertIn("cannot write", msg or "")
+        self.assertEqual(target.read_text(encoding="utf-8"), before)
+        self.assertEqual(sorted(p.name for p in target.parent.iterdir()), ["high_score.txt"])
+
     @unittest.skipIf(os.geteuid() == 0, "root ignores permissions")
     def test_save_into_read_only_dir(self) -> None:
         ud = UserData(self.tmp)
@@ -161,6 +173,10 @@ class EditorCommandTest(unittest.TestCase):
         self.assertEqual(editor_command(p, {}, finds("wslview")), ["wslview", "/p/a.v"])
         self.assertIsNone(editor_command(p, {}, finds()))
         self.assertEqual(editor_command(p, {}, finds("code", "xdg-open")), ["code", "/p/a.v"])
+
+    def test_unbalanced_quote_raises_value_error(self) -> None:
+        with self.assertRaises(ValueError):
+            editor_command(Path("/p/a.v"), {"MIDGARD_EDITOR": "ed 'x"}, lambda n: None)
 
 
 if __name__ == "__main__":

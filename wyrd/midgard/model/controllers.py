@@ -142,11 +142,14 @@ class MidgardController:
 
     def start(self) -> None:
         s = self.session
-        s.reset()
-        s.set("sensor_light", 0)
-        s.set("general_sensors", 0)
-        s.step(1)
-        s.set("rst", 1)
+        try:
+            s.reset()
+            s.set("sensor_light", 0)
+            s.set("general_sensors", 0)
+            s.step(1)
+            s.set("rst", 1)
+        except SimError as exc:
+            raise ControllerError(f"cannot start {self.name}: {exc}") from exc
         self._set_light = self._set_general = 0
         self.last_inputs = None
         self.last_outputs = None
@@ -209,7 +212,7 @@ class PlayerError:
     message: str
 
     def __str__(self) -> str:
-        where = self.file.name
+        where = str(self.file)
         if self.line is not None:
             where += f":{self.line}"
             if self.col is not None:

@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from tests.fakes_midgard import FakeLightBackend
 from tests.test_midgard_level import make_level, run_until_done
-from wyrd.bifrost import BifrostSession, SimUnavailable
+from wyrd.bifrost import BifrostSession, SimError, SimUnavailable
 from wyrd.midgard.model.controllers import (
     ControllerError,
     MidgardController,
@@ -89,6 +89,15 @@ class ControllerTest(ControllerBase):
             ctl.step(0, 0)
         self.assertTrue(str(cm.exception).startswith("runtime error in light7"))
 
+    def test_start_error(self) -> None:
+        ctl = self.controller("", "light3")
+        with (
+            patch.object(self.backend.handles[0], "step", side_effect=SimError("boom")),
+            self.assertRaises(ControllerError) as cm,
+        ):
+            ctl.start()
+        self.assertEqual(str(cm.exception), "cannot start light3: boom")
+
     def test_output_codes_above_four(self) -> None:
         ctl = self.controller("CODE5", "L")
         ctl.start()
@@ -132,8 +141,8 @@ class BuildTest(ControllerBase):
                 (3, None, None, "cannot read file"),
             ],
         )
-        self.assertEqual(str(result.errors[0]), f"{bad1.name}:2:5: syntax: unexpected X")
-        self.assertEqual(str(result.errors[1]), f"{bad2.name}: port 'outW' is missing")
+        self.assertEqual(str(result.errors[0]), f"{bad1}:2:5: syntax: unexpected X")
+        self.assertEqual(str(result.errors[1]), f"{bad2}: port 'outW' is missing")
         self.assertEqual(self.backend.open_handles, 1)
 
     def test_all_good(self) -> None:

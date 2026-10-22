@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from unittest.mock import patch
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
@@ -20,6 +21,7 @@ if HAVE_PYGAME:
     from wyrd.midgard.app import main
     from wyrd.midgard.model.controllers import (
         BuildResult,
+        ControllerError,
         ScriptedController,
         safe_controller,
     )
@@ -234,6 +236,87 @@ class ErrorTest(UiBase):
         self.assertIs(screen.level.phase, Phase.EDIT)
         self.click(game, (32, 1348))
         self.assertIsNotNone(screen.level.editor.placing)
+
+
+class FailingStart(ScriptedController):
+    def start(self) -> None:
+        raise ControllerError("cannot start light0: boom")
+
+
+class RobustnessTest(UiBase):
+    def test_start_error_shown(self) -> None:
+        def build(paths: Sequence[Path]) -> BuildResult:
+            return BuildResult([FailingStart(safe_controller) for _ in paths], [], [])
+
+        game = self.make_game(build=build)
+        game.open_level(1)
+        self.key(game, pygame.K_s)
+        screen = self.level_screen(game)
+        self.assertIs(screen.level.phase, Phase.EDIT)
+        self.assertEqual(screen.message, "cannot start light0: boom")
+
+    @unittest.skipIf(os.geteuid() == 0, "root ignores permissions")
+    def test_read_only_data_dir(self) -> None:
+        os.chmod(self.tmp, 0o500)
+        self.addCleanup(os.chmod, self.tmp, 0o700)
+        game = self.make_game()
+        game.open_level(1)
+        screen = self.level_screen(game)
+        self.assertTrue(screen.message.startswith("Cannot create the level files"))
+        game.frame(0.6, [])
+        self.key(game, pygame.K_s)
+        self.assertIs(screen.level.phase, Phase.EDIT)
+
+    def test_bad_editor_variable(self) -> None:
+        game = self.make_game()
+        game.editor = True
+        game.open_level(1)
+        screen = self.level_screen(game)
+        with patch.dict(os.environ, {"MIDGARD_EDITOR": "ed 'x"}):
+            screen.open_editor(0)
+        self.assertTrue(screen.message.startswith("MIDGARD_EDITOR: "))
+
+    def test_editor_children_are_reaped(self) -> None:
+        game = self.make_game()
+        game.editor = True
+        game.open_level(1)
+        screen = self.level_screen(game)
+        with patch.dict(os.environ, {"MIDGARD_EDITOR": "true"}):
+            screen.open_editor(0)
+        self.assertEqual(len(game._children), 1)
+        child = game._children[0]
+        child.wait()
+        game.frame(0.016, [])
+        self.assertEqual(game._children, [])
+        self.assertEqual(child.returncode, 0)
+
+    def test_focus_lost_clears_held_keys(self) -> None:
+        game = self.make_game()
+        game.open_level(1)
+        screen = self.level_screen(game)
+        down = pygame.event.Event(
+            pygame.KEYDOWN, key=pygame.K_LEFT, mod=0, unicode="", scancode=0
+        )
+        game.frame(0, [down])
+        self.assertEqual(screen.held, {pygame.K_LEFT})
+        game.frame(0, [pygame.event.Event(pygame.WINDOWFOCUSLOST)])
+        self.assertEqual(screen.held, set())
+
+    def test_strip_ignored_while_help_open(self) -> None:
+        game = self.make_game()
+        game.open_level(1)
+        screen = self.level_screen(game)
+        screen.help_open = True
+        self.click(game, (32, 1348))
+        self.assertIsNone(screen.level.editor.placing)
+
+    def test_sim_unavailable_shown_in_edit(self) -> None:
+        def build(paths: Sequence[Path]) -> BuildResult:
+            raise SimUnavailable("needs Odin III 1.0.3")
+
+        game = self.make_game(build=build)
+        game.open_level(1)
+        self.assertEqual(self.level_screen(game).message, "needs Odin III 1.0.3")
 
 
 class MouseTest(UiBase):

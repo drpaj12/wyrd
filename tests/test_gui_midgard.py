@@ -23,7 +23,7 @@ if HAVE_QT:
     from PySide6.QtGui import QAction
     from PySide6.QtWidgets import QApplication, QMenu
 
-    from wyrd.gui.mainwindow import MainWindow
+    from wyrd.gui.mainwindow import MainWindow, _start_detached
 
     _APP: QCoreApplication | None = None
 
@@ -86,6 +86,9 @@ class MidgardMenuTest(unittest.TestCase):
         w.midgard_launcher = lambda program, args: False
         self.action(w).trigger()
         self.assertEqual(w.statusBar().currentMessage(), "Cannot start Midgard III")
+
+    def test_default_launcher_reports_failure(self) -> None:
+        self.assertFalse(_start_detached("/nonexistent/wyrd-no-such-program", []))
 
     def test_disabled_without_pygame(self) -> None:
         w = self.window(None)
