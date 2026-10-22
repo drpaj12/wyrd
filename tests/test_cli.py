@@ -1,6 +1,7 @@
 import contextlib
 import io
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -201,6 +202,19 @@ class RobustnessTest(CliBase):
         self.assertEqual(code, 0)
         self.assertEqual(len(out.splitlines()), 1)
         self.assertEqual(err, "")
+
+    def test_run_progress(self) -> None:
+        root = self.init_project()
+        code, out, _ = wyrd("run", "--project", str(root), "--progress")
+        self.assertEqual(code, 0)
+        lines = out.splitlines()
+        self.assertEqual(lines[0], "plan: 1 to run, 0 reused")
+        run_line = re.compile(r"^\S+/\S+ \[[0-9a-f]{12}\] ok$")
+        idx = [i for i, ln in enumerate(lines) if run_line.match(ln)]
+        self.assertEqual(len(idx), 1)
+        self.assertLess(idx[0], len(lines) - 1)
+        _, plain, _ = wyrd("run", "--project", str(root), "--force")
+        self.assertNotIn("plan:", plain)
 
     def test_unexpected_load_error_exit_2(self) -> None:
         root = self.init_project()

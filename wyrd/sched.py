@@ -25,7 +25,7 @@ from wyrd.settings import Settings
 from wyrd.steps import Step, tool_versions
 from wyrd.store import Store, run_dir, run_key
 
-_UNSET = object()
+_CANCEL_SIGNALS = (signal.SIGINT, signal.SIGTERM)
 
 
 def estimate(
@@ -231,8 +231,8 @@ def run_all(
     """Run every run of the project; return run key to final status.
 
     Runs already `ok` are reused unless `force`. Smallest inputs go first. A step starts only
-    when its memory estimate fits the free budget. SIGINT kills the running groups and marks
-    those runs `cancelled`; runs not yet started are left out of the result.
+    when its memory estimate fits the free budget. SIGINT or SIGTERM kills the running groups and
+    marks those runs `cancelled`; runs not yet started are left out of the result.
     """
     sched = _Scheduler(
         settings,
@@ -246,14 +246,15 @@ def run_all(
             sched.results[plan.key] = "ok"
         else:
             todo.append(plan)
-    previous: Any = _UNSET
-    on_main = threading.current_thread() is threading.main_thread()
-    if on_main:
-        previous = signal.signal(signal.SIGINT, sched.on_sigint)
+    sched.log(f"plan: {len(todo)} to run, {len(sched.results)} reused")
+    previous: dict[int, Any] = {}
+    if threading.current_thread() is threading.main_thread():
+        for sig in _CANCEL_SIGNALS:
+            previous[sig] = signal.signal(sig, sched.on_sigint)
     try:
         with ThreadPoolExecutor(max_workers=settings.jobs) as pool:
             list(pool.map(sched.run_one, todo))
     finally:
-        if on_main and previous is not _UNSET:
-            signal.signal(signal.SIGINT, signal.SIG_DFL if previous is None else previous)
+        for number, old in previous.items():
+            signal.signal(number, signal.SIG_DFL if old is None else old)
     return dict(sched.results)

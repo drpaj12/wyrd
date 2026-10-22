@@ -1,5 +1,6 @@
 import os
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -25,6 +26,24 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(parse_bytes("60%", 100), 60)
         with self.assertRaises(ValueError):
             parse_bytes("4X")
+
+    def test_machine_file_param(self) -> None:
+        p = self.dir / "other.toml"
+        p.write_text("[resources]\njobs = 3\n", encoding="utf-8")
+        s = settings.load(None, {}, machine_file=p)
+        self.assertEqual(s.jobs, 3)
+        self.assertEqual(s.sources["jobs"], "machine")
+
+    def test_default_values_and_layout(self) -> None:
+        self.assertEqual(settings.default_values()["launcher"], "systemd")
+        layout = settings.machine_layout()
+        self.assertEqual(layout["tools"], ("odin3", "odin3_flow", "vtr_root"))
+        out = self.dir / "w.toml"
+        settings.write_machine_file(out)
+        data = tomllib.loads(out.read_text(encoding="utf-8"))
+        written = {k for sub in data.values() for k in sub}
+        wanted = {k for keys in layout.values() for k in keys}
+        self.assertEqual(wanted - {"vtr_root"}, written - {"vtr_root"})
 
     def test_defaults(self) -> None:
         s = settings.load(None, {})

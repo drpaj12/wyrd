@@ -1,0 +1,7 @@
+VPR FPGA Placement and Routing.
+Warning 1: Treated 1 constant nets as global which will not be routed (to see net names increase packer verbosity).
+Error 1: 
+Type: Packing
+File: vpr/src/pack/x.cpp
+Line: 120
+Message: text here

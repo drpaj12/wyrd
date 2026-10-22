@@ -96,6 +96,16 @@ class ProjectTests(unittest.TestCase):
             load_project(Path(tempfile.mkdtemp()) / "wyrd.toml")
         self.assertIsNone(cm.exception.line)
 
+    def test_text_overrides_file(self) -> None:
+        path = _write(BASE + SWEEP)
+        with self.assertRaises(ConfigError) as cm:
+            load_project(path, text="[project]\nname = 1\n")
+        self.assertEqual(cm.exception.line, 1)
+        self.assertEqual(cm.exception.path, path)
+        valid = path.read_text(encoding="utf-8")
+        path.write_text("garbage = = 1\n", encoding="utf-8")
+        self.assertEqual(load_project(path, text=valid).name, "t")
+
     def _err(self, text: str, with_file: bool = True) -> ConfigError:
         with self.assertRaises(ConfigError) as cm:
             load_project(_write(text, with_file))
