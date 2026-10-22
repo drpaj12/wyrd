@@ -9,7 +9,8 @@ from pathlib import Path
 
 _ODIN = re.compile(r"^odin3: (?P<level>error|warning): (?P<rest>.*)$")
 _LOC = re.compile(
-    r"(?P<file>[^\s:'\"]+\.[A-Za-z0-9_]+):(?P<line>\d+)(?::(?P<col>\d+))?: "
+    r"(?P<prefix>(?:[A-Za-z_][A-Za-z0-9_-]*: |--[A-Za-z0-9_-]+: )*)"
+    r"(?P<file>[^\s:'\"]+\.[A-Za-z][A-Za-z0-9_]*):(?P<line>\d+)(?::(?P<col>\d+))?: "
     r"(?:(?:error|warning): )?"
 )
 _VPR_WARN = re.compile(r"^Warning (?P<n>\d+): (?P<text>.*)$")
@@ -31,15 +32,13 @@ class Message:
 
 
 def _odin_message(level: str, rest: str, log: Path, n: int) -> Message:
-    m = _LOC.search(rest)
+    m = _LOC.match(rest)
     if m is None:
         return Message(level, "odin3", rest, None, None, None, log, n)
-    text = rest[m.end() :] if m.start() == 0 else rest
+    text = rest if m.group("prefix") else rest[m.end() :]
     col = m.group("col")
-    return Message(
-        level, "odin3", text, m.group("file"), int(m.group("line")),
-        int(col) if col else None, log, n,
-    )  # fmt: skip
+    col_no = int(col) if col else None
+    return Message(level, "odin3", text, m.group("file"), int(m.group("line")), col_no, log, n)
 
 
 def _vpr_text(header: str, fields: dict[str, str]) -> str:

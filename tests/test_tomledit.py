@@ -68,6 +68,45 @@ class TomlEditTest(unittest.TestCase):
         got2 = add_design(trailing, "newd", ["src/a.v"], None, True)
         self.assertTrue(validate_text(self.path, got2).ok)
 
+    def _sweep_text(self, design: str) -> str:
+        return self.text.replace('design = ["one", "two"]', design)
+
+    def _added(self, design: str) -> str:
+        got = add_design(self._sweep_text(design), "newd", ["src/a.v"], None, True)
+        v = validate_text(self.path, got)
+        self.assertTrue(v.ok, v.diagnostic)
+        names = {r.design.name for r in load_project(self.path, text=got).runs}
+        self.assertIn("newd", names)
+        return got
+
+    def test_sweep_trailing_comment(self) -> None:
+        got = self._added('design = ["one", "two"]  # note')
+        self.assertIn('design = ["one", "two", "newd"]  # note', got)
+        got = self._added('design = [\n  "one",\n  "two"  # last\n]')
+        self.assertIn('"two", "newd"  # last\n]', got)
+        self._added('design = [\n  "one",\n  "two",  # last\n]')
+
+    def test_sweep_bracket_and_quote_in_comment(self) -> None:
+        self._added('design = [\n  "one",  # ] closes?\n  "two",  # it\'s "x"\n]')
+        self._added('design = [\n  "one",\n  # ]\n  "two"\n  # ]\n]')
+
+    def test_sweep_comment_only_list(self) -> None:
+        got = self._added("design = [  # none\n]")
+        self.assertIn('design = ["newd"  # none\n]', got)
+
+    def test_sweep_continuation_line_starting_with_bracket(self) -> None:
+        text = self.text.replace(
+            "[sweep]", '[sweep]\nother = [\n  [1],\n  [2],\n]', 1
+        )
+        got = add_design(text, "newd", ["src/a.v"], None, True)
+        self.assertIn('design = ["one", "two", "newd"]', got)
+        self.assertTrue(validate_text(self.path, got).ok)
+
+    def test_sweep_design_after_bracket_continuation_refuses_cleanly(self) -> None:
+        text = '[sweep]\nx = """\n[sweep]\n"""\ndesign = ["a"]\n'
+        with self.assertRaises(AddDesignError):
+            add_design(text, "n", ["a.v"], None, True)
+
     def test_sweep_not_found_keeps_block(self) -> None:
         text = '[project]\nname = "x"\nsweep = { design = ["a"] }\n'
         with self.assertRaises(AddDesignError) as cm:

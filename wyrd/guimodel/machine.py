@@ -12,6 +12,8 @@ from pathlib import Path
 from wyrd import settings
 
 _BARE_KEY = re.compile(r"^[A-Za-z0-9_-]+$")
+_INT = re.compile(r"^-?(0|[1-9][0-9]*)$")
+_FLOAT = re.compile(r"^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$")
 
 
 @dataclass(frozen=True)
@@ -52,7 +54,8 @@ class MachineValues:
 def _default_texts() -> dict[str, str]:
     d = settings.default_values()
     tools = d["tools"]
-    assert isinstance(tools, dict)
+    if not isinstance(tools, dict):
+        raise TypeError("settings.default_values()['tools'] is not a table")
     out: dict[str, str] = {}
     for f in FIELDS:
         if f.table == "tools" and f.key != "vtr_root":
@@ -94,13 +97,34 @@ def _key(key: str) -> str:
     return key if _BARE_KEY.match(key) else json.dumps(key)
 
 
+def _unsafe(text: str) -> bool:
+    return any(c in text for c in "\n\r\"'")
+
+
 def _line(f: Field, text: str) -> str:
-    quoted = f.kind in ("str", "choice")
-    return f"{f.key} = {json.dumps(text) if quoted else text}"
+    if _unsafe(text):
+        raise ValueError(f"{f.key}: must not contain a newline or a quote")
+    if f.kind in ("str", "choice"):
+        return f"{f.key} = {json.dumps(text)}"
+    pattern = _INT if f.kind == "int" else _FLOAT
+    kind = "an integer" if f.kind == "int" else "a number"
+    if not pattern.match(text.strip()):
+        raise ValueError(f"{f.key}: must be {kind}, got {text!r}")
+    return f"{f.key} = {text.strip()}"
+
+
+def _extra_line(key: str, value: str) -> str:
+    if _unsafe(key) or _unsafe(value):
+        raise ValueError(f"tools.{key}: must not contain a newline or a quote")
+    return f"{_key(key)} = {json.dumps(value)}"
 
 
 def render(v: MachineValues) -> str:
-    """TOML text of the settings; empty ``vtr_root`` is left out."""
+    """TOML text of the settings; empty ``vtr_root`` is left out.
+
+    Raise ValueError for a number field that is empty or not a number, and for any value with a
+    newline or a quote, so no value can inject TOML.
+    """
     lines: list[str] = []
     for table in ("tools", "resources", "defaults"):
         if lines:
@@ -112,7 +136,7 @@ def render(v: MachineValues) -> str:
                 continue
             lines.append(_line(f, text))
         if table == "tools":
-            lines += [f"{_key(k)} = {json.dumps(x)}" for k, x in v.extra_tools.items()]
+            lines += [_extra_line(k, x) for k, x in v.extra_tools.items()]
     return "\n".join(lines) + "\n"
 
 
@@ -124,13 +148,21 @@ def _choice_error(v: MachineValues) -> str | None:
 
 
 def validate(v: MachineValues) -> str | None:
-    """The error text ``settings.load`` gives for these values, or None when they are fine."""
+    """The first error found in these values, or None when they are fine.
+
+    Checks the launcher choice here (``settings.load`` does not), then the number and text
+    rules of ``render``, then the error text ``settings.load`` gives.
+    """
     bad = _choice_error(v)
     if bad:
         return bad
+    try:
+        text = render(v)
+    except ValueError as e:
+        return str(e)
     with tempfile.TemporaryDirectory() as tmp:
         probe = Path(tmp) / "machine.toml"
-        probe.write_text(render(v), encoding="utf-8")
+        probe.write_text(text, encoding="utf-8")
         try:
             settings.load(None, {}, machine_file=probe)
         except ValueError as e:

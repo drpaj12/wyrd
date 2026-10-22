@@ -63,6 +63,17 @@ class LogParseTest(unittest.TestCase):
             self.assertIsNone(m.line)
         self.assertFalse(any(m.line == 30 for m in msgs))
 
+    def test_location_is_anchored(self) -> None:
+        lines = [
+            "odin3: error: see version 1.2:3: for details",
+            "odin3: error: version: 1.2:3: odd",
+            "odin3: error: abc: script.abc:3: command failed",
+            "odin3: error: write_blif: --vtr: a.blif:5: bad",
+        ]
+        msgs = parse_lines(lines, Path("l.log"))
+        self.assertEqual([m.file for m in msgs], [None, None, "script.abc", "a.blif"])
+        self.assertEqual(msgs[2].text, "abc: script.abc:3: command failed")
+
     def test_vpr_blank_line_before_fields(self) -> None:
         lines = ["Error 2: ", "", "Type: Route", "Message: boom"]
         msgs = parse_lines(lines, Path("l.log"))

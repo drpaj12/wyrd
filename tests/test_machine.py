@@ -61,6 +61,39 @@ class MachineTest(unittest.TestCase):
         v.values["resources.launcher"] = "docker"
         self.assertIsInstance(machine.validate(v), str)
 
+    def _base(self) -> MachineValues:
+        return machine.read_values(self.dir / "absent.toml")
+
+    def test_render_refuses_bad_numbers(self) -> None:
+        for bad in ("", "  ", "abc", "1 2", "1\nx = 2", "0x10", "007"):
+            v = self._base()
+            v.values["resources.jobs"] = bad
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                machine.render(v)
+            self.assertIsInstance(machine.validate(v), str)
+        v = self._base()
+        v.values["defaults.history_factor"] = ""
+        self.assertIsInstance(machine.validate(v), str)
+
+    def test_render_refuses_newline_and_quote(self) -> None:
+        for bad in ('a"b', "a\nb", "a\rb", "a'b"):
+            v = self._base()
+            v.values["tools.odin3"] = bad
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                machine.render(v)
+            err = machine.validate(v)
+            assert err
+            self.assertNotIn("TOML", err)
+            w = self._base()
+            w.extra_tools["foo"] = bad
+            with self.assertRaises(ValueError):
+                machine.render(w)
+
+    def test_launcher_error_text(self) -> None:
+        v = self._base()
+        v.values["resources.launcher"] = "docker"
+        self.assertEqual(machine.validate(v), "launcher: must be one of systemd, plain")
+
     def test_save_creates_dir(self) -> None:
         target = self.dir / "new" / "sub" / "machine.toml"
         v = machine.read_values(target)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -31,11 +32,14 @@ class RunInfo:
 
 
 def load_rows(root: Path) -> list[dict[str, object]] | None:
-    """Rows of ``root/wyrd.db``, or None when there is no database file."""
+    """Rows of ``root/wyrd.db``, or None when there is no usable database file."""
     db = root / "wyrd.db"
     if not db.is_file():
         return None
-    return Store.open_readonly(db).rows()
+    try:
+        return Store.open_readonly(db).rows()
+    except sqlite3.Error:
+        return None
 
 
 def _label(row: dict[str, object], many_recipes: bool) -> str:

@@ -17,6 +17,14 @@ class RunsTest(unittest.TestCase):
     def test_missing_db(self) -> None:
         self.assertIsNone(runs.load_rows(self.root))
 
+    def test_empty_db_file(self) -> None:
+        (self.root / "wyrd.db").write_bytes(b"")
+        self.assertIsNone(runs.load_rows(self.root))
+
+    def test_garbage_db_file(self) -> None:
+        (self.root / "wyrd.db").write_bytes(b"this is not a database " * 100)
+        self.assertIsNone(runs.load_rows(self.root))
+
     def test_run_infos(self) -> None:
         make_results(self.root)
         rows = runs.load_rows(self.root)

@@ -61,9 +61,37 @@ def _design_block(name: str, files: Sequence[str], top: str | None) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _list_end(text: str, start: int) -> int | None:
-    """Index of the ``]`` closing the list whose ``[`` precedes ``start``; skips strings."""
-    i, quote = start, ""
+def _scan_line(line: str, depth: int) -> int | None:
+    """Bracket depth after ``line``; skips strings and comments. None for a multi-line string."""
+    quote = ""
+    i = 0
+    while i < len(line):
+        c = line[i]
+        if quote:
+            if c == "\\" and quote == '"':
+                i += 1
+            elif c == quote:
+                quote = ""
+        elif c in "\"'":
+            if line.startswith(c * 3, i):
+                return None
+            quote = c
+        elif c == "#":
+            break
+        elif c == "[":
+            depth += 1
+        elif c == "]":
+            depth = max(depth - 1, 0)
+        i += 1
+    return depth
+
+
+def _list_span(text: str, start: int) -> tuple[int, int | None] | None:
+    """Close index of the list opened just before ``start`` and the end of its last code char.
+
+    Skips strings and ``#`` comments. The second value is None when the list holds no code.
+    """
+    depth, i, quote, last = 1, start, "", None
     while i < len(text):
         c = text[i]
         if quote:
@@ -71,24 +99,46 @@ def _list_end(text: str, start: int) -> int | None:
                 i += 1
             elif c == quote:
                 quote = ""
+                last = i + 1
         elif c in "\"'":
             quote = c
+        elif c == "#":
+            end = text.find("\n", i)
+            i = len(text) if end < 0 else end
+            continue
         elif c == "]":
-            return i
+            depth -= 1
+            if depth == 0:
+                return i, last
+            last = i + 1
+        elif c == "[":
+            depth += 1
+            last = i + 1
+        elif not c.isspace():
+            last = i + 1
         i += 1
     return None
 
 
 def _design_key_line(lines: list[str]) -> int | None:
-    """Index of the ``design = [`` line inside the ``[sweep]`` table, if any."""
-    start = next((i for i, ln in enumerate(lines) if _SWEEP.match(ln)), None)
-    if start is None:
-        return None
-    for i in range(start + 1, len(lines)):
-        if _DESIGN_KEY.match(lines[i]):
-            return i
-        if _HEADER.match(lines[i]):
+    """Index of the ``design = [`` line inside the ``[sweep]`` table, if any.
+
+    Only lines at bracket depth 0 count, so a continuation line of a multi-line array that
+    starts with ``[`` is not taken for a table header.
+    """
+    depth, in_sweep = 0, False
+    for i, ln in enumerate(lines):
+        if depth == 0:
+            if _SWEEP.match(ln):
+                in_sweep = True
+            elif _HEADER.match(ln):
+                in_sweep = False
+            elif in_sweep and _DESIGN_KEY.match(ln):
+                return i
+        scanned = _scan_line(ln, depth)
+        if scanned is None:
             return None
+        depth = scanned
     return None
 
 
@@ -99,23 +149,20 @@ def _insert_in_sweep(text: str, name: str) -> str | None:
         return None
     offset = sum(len(ln) for ln in lines[:idx])
     open_at = offset + lines[idx].index("[", lines[idx].index("="))
-    close = _list_end(text, open_at + 1)
-    if close is None:
+    span = _list_span(text, open_at + 1)
+    if span is None:
         return None
-    body = text[open_at + 1 : close].rstrip()
-    last = open_at + 1 + len(body)
+    _, last = span
     item = json.dumps(name)
-    if not body.strip():
-        piece = item
-    elif body.endswith(","):
-        piece = f" {item},"
-    else:
-        piece = f", {item}"
+    if last is None:
+        return text[: open_at + 1] + item + text[open_at + 1 :]
+    piece = f" {item}," if text[last - 1] == "," else f", {item}"
     return text[:last] + piece + text[last:]
 
 
-def add_design(text: str, name: str, files: Sequence[str], top: str | None,
-               add_to_sweep: bool) -> str:  # fmt: skip
+def add_design(
+    text: str, name: str, files: Sequence[str], top: str | None, add_to_sweep: bool
+) -> str:
     """Append a ``[[design]]`` block and optionally add the name to the sweep's design list.
 
     Raise AddDesignError (with the block already appended in ``.text``) when the sweep list

@@ -1,19 +1,53 @@
 import ast
+import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
+_QT = ("PySide6", "shiboken6")
+_GUI = "wyrd.gui"
 
 
-def _imports_pyside(path: Path) -> bool:
+def _is_qt(name: str) -> bool:
+    return any(name == q or name.startswith(q + ".") for q in _QT)
+
+
+def _is_gui(name: str) -> bool:
+    return name == _GUI or name.startswith(_GUI + ".")
+
+
+def _bad_module(name: str) -> bool:
+    return _is_qt(name) or _is_gui(name)
+
+
+def _import_from_bad(node: ast.ImportFrom) -> bool:
+    module = node.module or ""
+    if node.level == 0 and _bad_module(module):
+        return True
+    return node.level == 0 and module == "wyrd" and any(a.name == "gui" for a in node.names)
+
+
+def _dynamic_bad(node: ast.Call) -> bool:
+    func = node.func
+    name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", "")
+    if name not in ("import_module", "__import__") or not node.args:
+        return False
+    arg = node.args[0]
+    return isinstance(arg, ast.Constant) and isinstance(arg.value, str) and _bad_module(arg.value)
+
+
+def _node_bad(node: ast.AST) -> bool:
+    if isinstance(node, ast.Import):
+        return any(_bad_module(a.name) for a in node.names)
+    if isinstance(node, ast.ImportFrom):
+        return _import_from_bad(node)
+    return isinstance(node, ast.Call) and _dynamic_bad(node)
+
+
+def imports_qt_or_gui(path: Path) -> bool:
+    """True when the file imports Qt or ``wyrd.gui``, statically or by a string name."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            if any(a.name.startswith("PySide6") for a in node.names):
-                return True
-        elif isinstance(node, ast.ImportFrom) and (node.module or "").startswith("PySide6"):
-            return True
-    return False
+    return any(_node_bad(node) for node in ast.walk(tree))
 
 
 class QtFreeTest(unittest.TestCase):
@@ -22,9 +56,38 @@ class QtFreeTest(unittest.TestCase):
         offenders = [
             str(p.relative_to(ROOT))
             for p in sorted((ROOT / "wyrd").rglob("*.py"))
-            if gui not in p.parents and _imports_pyside(p)
+            if gui not in p.parents and imports_qt_or_gui(p)
         ]
         self.assertEqual(offenders, [])
+
+    def test_guard_flags_planted_examples(self) -> None:
+        planted = [
+            "import PySide6.QtWidgets",
+            "from PySide6 import QtCore",
+            "import shiboken6",
+            "from shiboken6 import wrapInstance",
+            "import wyrd.gui.app",
+            "from wyrd.gui import app",
+            "from wyrd import gui",
+            "import importlib\nimportlib.import_module('PySide6.QtGui')",
+            "__import__('shiboken6')",
+            "import importlib as i\ni.import_module('wyrd.gui.main')",
+        ]
+        clean = [
+            "import wyrd.guimodel.runs",
+            "from wyrd.guimodel import runs",
+            "from wyrd import report",
+            "import importlib\nimportlib.import_module('json')",
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            for i, src in enumerate(planted):
+                f = Path(tmp) / f"p{i}.py"
+                f.write_text(src + "\n", encoding="utf-8")
+                self.assertTrue(imports_qt_or_gui(f), src)
+            for i, src in enumerate(clean):
+                f = Path(tmp) / f"c{i}.py"
+                f.write_text(src + "\n", encoding="utf-8")
+                self.assertFalse(imports_qt_or_gui(f), src)
 
 
 if __name__ == "__main__":
