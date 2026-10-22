@@ -6,9 +6,13 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import importlib.util
 import shutil
+import sys
 import tempfile
+import time
 import unittest
+from collections.abc import Callable
 from pathlib import Path
+from unittest import mock
 
 from tests.helpers_results import make_results
 
@@ -18,13 +22,14 @@ SAMPLES = ROOT / "samples"
 LOGS = ROOT / "tests" / "data" / "logs"
 
 if HAVE_QT:
-    from PySide6.QtCore import QCoreApplication, QSettings
+    from PySide6.QtCore import QCoreApplication, QEventLoop, QSettings, QTimer, SignalInstance
     from PySide6.QtWidgets import QApplication, QTableWidget, QTreeWidgetItem
 
+    from wyrd.gui.flowpanel import FlowPanel
     from wyrd.gui.mainwindow import MainWindow
     from wyrd.gui.messages import MessagesPane
     from wyrd.gui.sourceview import SourceView
-    from wyrd.guimodel.floorplan import plan_floorplan
+    from wyrd.guimodel.floorplan import FloorplanPlan, plan_floorplan
     from wyrd.guimodel.logparse import parse_log
     from wyrd.model import Design, Recipe, RunSpec, StepSpec
     from wyrd.store import Store
@@ -264,6 +269,105 @@ class ReportTest(unittest.TestCase):
         cells = dict((r[0], r[1]) for r in table_cells(page))
         self.assertEqual(cells["Fmax (MHz)"], "n/a")
         self.assertEqual(cells["LUTs"], "n/a")
+
+
+def wait_for(signal: "SignalInstance", ms: int = 8000) -> bool:
+    """Run the event loop until ``signal`` fires; False when the guard timer expires first."""
+    loop = QEventLoop()
+    fired: list[bool] = []
+
+    def done(*_args: object) -> None:
+        fired.append(True)
+        loop.quit()
+
+    signal.connect(done)
+    QTimer.singleShot(ms, loop.quit)
+    loop.exec()
+    return bool(fired)
+
+
+def pump_until(cond: Callable[[], bool], ms: int = 5000) -> bool:
+    """Run the event loop until ``cond()`` holds; False on timeout."""
+    loop = QEventLoop()
+    guard = QTimer()
+    guard.setInterval(25)
+
+    def check() -> None:
+        if cond():
+            loop.quit()
+
+    guard.timeout.connect(check)
+    guard.start()
+    QTimer.singleShot(ms, loop.quit)
+    loop.exec()
+    guard.stop()
+    return cond()
+
+
+STUB = (
+    "import sys\n"
+    "print('plan: 2 to run, 0 reused', flush=True)\n"
+    "print('single/EArch [aaaaaaaaaaaa] ok', flush=True)\n"
+    "sys.exit(1)\n"
+)
+SLEEPER = "import time\nprint('started', flush=True)\ntime.sleep(30)\n"
+
+
+@unittest.skipUnless(HAVE_QT, "PySide6 not installed")
+class FlowTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_run_button_state(self) -> None:
+        w = window(self.tmp)
+        w.open_project(SAMPLES)
+        self.assertTrue(w.flow.run_button.isEnabled())
+        bad = self.tmp / "bad"
+        bad.mkdir()
+        (bad / "wyrd.toml").write_text("[project]\nname = 1\n", encoding="utf-8")
+        w.open_project(bad)
+        self.assertFalse(w.flow.run_button.isEnabled())
+
+    def test_stub_run(self) -> None:
+        panel = FlowPanel()
+        argv = [sys.executable, "-c", STUB]
+        with mock.patch("wyrd.gui.flowpanel.run_argv", return_value=argv):
+            panel.start(self.tmp)
+            self.assertTrue(panel.is_running())
+            codes: list[int] = []
+            panel.finished.connect(codes.append)
+            self.assertTrue(wait_for(panel.finished))
+        self.assertEqual(codes, [1])
+        self.assertEqual(panel.status_label.text(), "some runs not ok")
+        self.assertEqual(panel.progress.maximum(), 1000)
+        self.assertEqual(panel.progress.value(), 500)
+        self.assertIn("plan: 2 to run, 0 reused", panel.log.toPlainText())
+
+    def test_cancel(self) -> None:
+        panel = FlowPanel()
+        argv = [sys.executable, "-c", SLEEPER]
+        with mock.patch("wyrd.gui.flowpanel.run_argv", return_value=argv):
+            panel.start(self.tmp)
+        pump_until(lambda: "started" in panel.log.toPlainText())
+        self.assertIn("started", panel.log.toPlainText())
+        started = time.monotonic()
+        panel.cancel()
+        self.assertTrue(wait_for(panel.finished, 5000) or not panel.is_running())
+        self.assertFalse(panel.is_running())
+        self.assertLess(time.monotonic() - started, 5)
+
+    def test_floorplan_early_exit(self) -> None:
+        panel = FlowPanel()
+        cwd = self.tmp / "run" / "floorplan"
+        plan = FloorplanPlan(sys.executable, ("-c", "raise SystemExit(3)"), cwd, "rerun")
+        panel.start_floorplan(plan)
+        pump_until(lambda: "VPR exited early" in panel.log.toPlainText(), 3000)
+        self.assertTrue(cwd.is_dir())
+        self.assertIn("VPR exited early", panel.log.toPlainText())
 
 
 if __name__ == "__main__":

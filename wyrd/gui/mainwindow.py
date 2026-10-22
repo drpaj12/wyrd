@@ -18,10 +18,12 @@ from PySide6.QtWidgets import (
 )
 
 from wyrd import cli
+from wyrd.gui.flowpanel import FlowPanel
 from wyrd.gui.messages import MessagesPane
 from wyrd.gui.projecttree import ProjectTree
 from wyrd.gui.reportview import ReportView
 from wyrd.gui.sourceview import SourceView
+from wyrd.guimodel.floorplan import FloorplanPlan
 from wyrd.guimodel.logparse import Message, step_messages
 from wyrd.guimodel.projmodel import project_tree
 from wyrd.guimodel.runs import RunInfo, step_dirs
@@ -43,6 +45,7 @@ class MainWindow(QMainWindow):
         self.source_view = SourceView()
         self.messages = MessagesPane()
         self.report_view = ReportView()
+        self.flow = FlowPanel()
         self.docks: dict[str, QDockWidget] = {}
         self.recent_menu = QMenu("Recent", self)
         self._build()
@@ -62,6 +65,20 @@ class MainWindow(QMainWindow):
         self.project_tree.file_activated.connect(self.show_source)
         self.messages.location_activated.connect(self.show_source)
         self.report_view.run_selected.connect(self._on_run_selected)
+        self.report_view.floorplan_requested.connect(self._on_floorplan)
+        self.flow.run_requested.connect(self._run_flow)
+        self.flow.finished.connect(lambda _code: self.refresh_results())
+
+    def _run_flow(self) -> None:
+        if self.project_dir is not None and self.project is not None:
+            self.docks["Flow"].show()
+            self.docks["Flow"].raise_()
+            self.flow.start(self.project_dir)
+
+    def _on_floorplan(self, plan: FloorplanPlan) -> None:
+        self.docks["Flow"].show()
+        self.docks["Flow"].raise_()
+        self.flow.start_floorplan(plan)
 
     def _tab_widget(self, name: str) -> QWidget:
         return {"Source": self.source_view, "Report": self.report_view}.get(name, QWidget())
@@ -75,7 +92,7 @@ class MainWindow(QMainWindow):
         for name in ("Messages", "Flow"):
             dock = QDockWidget(name, self)
             dock.setObjectName(f"dock-{name.lower()}")
-            dock.setWidget(self.messages if name == "Messages" else QWidget())
+            dock.setWidget(self.messages if name == "Messages" else self.flow)
             self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, dock)
             if previous is not None:
                 self.tabifyDockWidget(previous, dock)
@@ -104,6 +121,9 @@ class MainWindow(QMainWindow):
         project_menu = bar.addMenu("Project")
         assert project_menu is not None
         self.project_menu = project_menu
+        self._action(project_menu, "Run flow", self._run_flow, "Ctrl+R")
+        self._action(project_menu, "Cancel", self.flow.cancel, "Ctrl+.")
+        self._action(project_menu, "Refresh results", self.refresh_results, "F5")
         view_menu = bar.addMenu("View")
         assert view_menu is not None
         for dock in self.docks.values():
@@ -167,6 +187,7 @@ class MainWindow(QMainWindow):
         return True
 
     def refresh_results(self) -> None:
+        self.flow.set_can_run(self.project is not None)
         self.report_view.set_project_dir(self.project_dir)
 
     def _on_run_selected(self, run: RunInfo | None) -> None:
@@ -196,7 +217,24 @@ class MainWindow(QMainWindow):
         else:
             self._warn("New Project", f"Cannot create wyrd.toml in {chosen}")
 
+    def _confirm_stop_flow(self) -> bool:
+        if not self.flow.is_running():
+            return True
+        if not self.silent:
+            answer = QMessageBox.question(
+                self, "Flow running", "A flow is running. Cancel it and quit?"
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return False
+        self.flow.cancel()
+        if self.flow.process is not None:
+            self.flow.process.waitForFinished(60000)
+        return True
+
     def closeEvent(self, event: QCloseEvent) -> None:
+        if not self._confirm_stop_flow():
+            event.ignore()
+            return
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("windowState", self.saveState())
         self.settings.sync()
