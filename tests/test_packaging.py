@@ -17,12 +17,22 @@ class PackagingTest(unittest.TestCase):
         }
         self.assertIn("wyrd.steps", found)
         self.assertIn("wyrd.bifrost", found)
+        self.assertIn("wyrd.guimodel", found)
+        self.assertIn("wyrd.gui", found)
         if isinstance(explicit, list):
             covered = set(explicit)
         else:
             patterns = setuptools["packages"]["find"]["include"]
             covered = {n for n in found if any(fnmatch.fnmatchcase(n, p) for p in patterns)}
         self.assertEqual(found - covered, set())
+
+    def test_gui_extra_and_script(self) -> None:
+        cfg = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        project = cfg["project"]
+        self.assertEqual(project["dependencies"], [])
+        self.assertEqual(project["optional-dependencies"]["gui"], ["PySide6-Essentials>=6.6,<7"])
+        self.assertEqual(project["gui-scripts"]["wyrd-gui"], "wyrd.gui.app:main")
+        self.assertEqual(cfg["tool"]["setuptools"]["package-data"]["wyrd"], ["data/*.toml"])
 
     def test_sim_extra(self) -> None:
         project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]

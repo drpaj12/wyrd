@@ -190,7 +190,25 @@ def _timeout(value: object) -> int:
     return result
 
 
-def load(project_run: dict[str, object] | None, cli: dict[str, object]) -> Settings:
+def default_values() -> dict[str, object]:
+    """The built-in defaults (a fresh dict each call)."""
+    return _defaults()
+
+
+def machine_layout() -> dict[str, tuple[str, ...]]:
+    """Keys of each machine.toml table; ``tools`` lists the tool entries including vtr_root."""
+    return {
+        "tools": ("odin3", "odin3_flow", "vtr_root"),
+        "resources": _TABLE_OF["resources"],
+        "defaults": _TABLE_OF["defaults"],
+    }
+
+
+def load(
+    project_run: dict[str, object] | None,
+    cli: dict[str, object],
+    machine_file: Path | None = None,
+) -> Settings:
     """Resolve settings from defaults, machine file, project [run] and cli."""
     if project_run:
         bad = sorted(set(project_run) - PROJECT_KEYS)
@@ -200,7 +218,7 @@ def load(project_run: dict[str, object] | None, cli: dict[str, object]) -> Setti
     values = _defaults()
     sources = {k: "default" for k in values}
     layers = [
-        ("machine", _read_machine(machine_path())),
+        ("machine", _read_machine(machine_file or machine_path())),
         ("project", dict(project_run or {})),
         ("cli", {k: v for k, v in cli.items() if v is not None}),
     ]

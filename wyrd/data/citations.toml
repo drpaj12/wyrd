@@ -1,0 +1,138 @@
+# Author-stated credits shown in the GUI About dialog and docs/CITATIONS.md.
+
+[[item]]
+id = "vtr"
+name = "VTR (Verilog-to-Routing)"
+kind = "paper"
+authors = "K. E. Murray et al."
+year = 2020
+title = "VTR 8: High-Performance CAD and Customizable FPGA Architecture Modelling"
+venue = "ACM Trans. Reconfigurable Technol. Syst. 13(2)"
+url = "https://verilogtorouting.org"
+license = "MIT"
+role = "Flow, architectures and benchmarks Wyrd drives"
+
+[[item]]
+id = "odin2"
+name = "Odin II"
+kind = "paper"
+authors = "P. Jamieson, K. B. Kent, F. Gharibian, L. Shannon"
+year = 2010
+title = "Odin II - An Open-Source Verilog HDL Synthesis Tool for CAD Research"
+venue = "IEEE FCCM"
+role = "Predecessor of Odin III"
+
+[[item]]
+id = "odin"
+name = "Odin"
+kind = "paper"
+authors = "P. Jamieson, J. Rose"
+year = 2005
+title = "A Verilog RTL Synthesis Tool for Heterogeneous FPGAs"
+venue = "FPL 2005"
+role = "Original Verilog synthesis tool; ancestor of Odin II"
+
+[[item]]
+id = "odin3"
+name = "Odin III"
+kind = "software"
+url = "https://github.com/drpaj12/odin3"
+license = "MIT"
+role = "The synthesis tool Wyrd runs"
+
+[[item]]
+id = "abc"
+name = "ABC"
+kind = "paper"
+authors = "R. Brayton, A. Mishchenko"
+year = 2010
+title = "ABC: An Academic Industrial-Strength Verification Tool"
+venue = "CAV 2010"
+url = "https://github.com/berkeley-abc/abc"
+role = "Logic optimisation and LUT mapping"
+
+[[item]]
+id = "yosys"
+name = "Yosys"
+kind = "paper"
+authors = "C. Wolf, J. Glaser"
+year = 2013
+title = "Yosys - A Free Verilog Synthesis Suite"
+venue = "Austrochip 2013"
+url = "https://yosyshq.net/yosys/"
+license = "ISC"
+role = "Reference front end in VTR"
+
+[[item]]
+id = "parmys"
+name = "Parmys"
+kind = "software"
+url = "https://github.com/verilog-to-routing/vtr-verilog-to-routing"
+role = "VTR's Yosys-based flow that Odin III matches under --vtr-compat"
+
+[[item]]
+id = "slang"
+name = "slang"
+kind = "software"
+authors = "M. Popoloski"
+url = "https://github.com/MikePopoloski/slang"
+license = "MIT"
+role = "SystemVerilog front end"
+
+[[item]]
+id = "qt"
+name = "PySide6 / Qt"
+kind = "software"
+url = "https://doc.qt.io/qtforpython-6/"
+license = "LGPL-3.0, GPL, commercial"
+role = "The GUI toolkit"
+
+[[item]]
+id = "pygame-ce"
+name = "pygame-ce"
+kind = "software"
+url = "https://pyga.me"
+license = "LGPL-2.1"
+role = "Planned for Verilog Town (W4)"
+
+[[item]]
+id = "verilog-town"
+name = "verilogTown"
+kind = "paper"
+authors = "P. Jamieson, L. Grace, N. Mizuno, B. Zhang"
+year = 2017
+title = "verilogTown - Improving Students Learning Hardware Description Language Design - Verilog - with a Video Game"
+venue = "ASEE Annual Conference and Exposition"
+license = "MIT"
+role = "The Verilog teaching game ported in W4"
+
+[[item]]
+id = "graphcrunch"
+name = "GraphCrunch"
+kind = "paper"
+authors = "T. Milenkovic, J. Lai, N. Przulj"
+year = 2008
+title = "GraphCrunch: a tool for large network analyses"
+venue = "BMC Bioinformatics 9:70"
+role = "Graph analysis background"
+
+[[item]]
+id = "theryx"
+name = "theryx"
+kind = "software"
+authors = "L. C. Filho"
+url = "https://github.com/luigicfilho/theryx"
+license = "MIT"
+role = "Verilog RTL schematic and LSP VS Code extension (opened from the GUI)"
+
+[[item]]
+id = "gate-breaker"
+name = "Gate-Breaker"
+kind = "paper"
+authors = "M. O. Faruque, P. Jamieson, A. Patooghy, A.-H. A. Badawy"
+year = 2025
+title = "Gate-Breaker: An LLM-Powered Netlist-to-RTL Reverse Engineering Tool"
+venue = "IEEE IPCCC 2025, pp. 363-370, doi:10.1109/IPCCC66453.2025.11304682"
+url = "https://github.com/NMSU-PEARL/Gate-Breaker"
+license = "BSD-3-Clause"
+role = "Netlist-to-RTL baseline for Loki"
