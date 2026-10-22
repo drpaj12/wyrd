@@ -869,7 +869,10 @@ high-score files in ticks (the original stored seconds). 6 The window keeps the 
 to 600 by 600; the 120-pixel clock strip. 7 No turn arcs, no sliding help or finish overlay; the finish overlay is
 merged into the score screen. 8 Defect fixes: the high-score insert without the duplicate quirk; sensor stacking
 refused; output codes 5 to 7 decode as STOP; unreachable destinations with no end tile fail the car instead of
-crashing; the BFS marks `start` visited; start delay below 1 rejected. 9 Settings in a user data directory; keys are
+crashing; the BFS marks `start` visited; start delay below 1 rejected; a car whose path search finds no end tile at all (a road cut after the start; Java
+recurses forever) ends as done and failed, so the level always reaches DONE; a level file whose car starts on a
+non-start tile, ends on a non-end tile or lies outside the map is refused with a message naming the car; a forced turn
+onto a missing link stops the car (Java throws). 9 Settings in a user data directory; keys are
 events, not polled (a held key no longer toggles every frame); no `Esc` key; an external editor as an extra;
 one general-sensors field in the Verilog editor (Question 12). Replicated on purpose (checked in the Java): no
 sound at all (no audio call or file in any module), the menu, level select, high scores, credits, key set,

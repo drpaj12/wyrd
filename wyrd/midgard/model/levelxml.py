@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
-from wyrd.midgard.model.grid import GridType
+from wyrd.midgard.model.grid import END_TYPES, START_TYPES, GridType
 
 INTERSECTION_KINDS = (
     "FOUR_WAY",
@@ -92,19 +92,34 @@ def _point(elem: ET.Element | None, what: str) -> tuple[int, int]:
     return _int_attr(elem, "x"), _int_attr(elem, "y")
 
 
-def _parse_car(c: ET.Element, size_x: int, size_y: int) -> CarSpec:
+def _parse_car(c: ET.Element, size_x: int, size_y: int, index: int) -> CarSpec:
     start = _point(c.find("start"), "start")
     end = _point(c.find("end"), "end")
     for what, (x, y) in (("start", start), ("end", end)):
         if not (0 <= x < size_x and 0 <= y < size_y):
-            raise LevelFormatError(f"car {what} {(x, y)} is outside the map")
+            raise LevelFormatError(f"car {index} {what} {(x, y)} is outside the map")
     try:
         delay = int((c.findtext("delay") or "").strip())
     except ValueError:
-        raise LevelFormatError("car delay is not a number") from None
+        raise LevelFormatError(f"car {index} delay is not a number") from None
     if delay < 1:
-        raise LevelFormatError(f"car delay must be at least 1 (got {delay})")
+        raise LevelFormatError(f"car {index} delay must be at least 1 (got {delay})")
     return CarSpec(start, end, delay)
+
+
+def _check_car_tiles(
+    index: int, spec: CarSpec, tiles: dict[tuple[int, int], GridType]
+) -> None:
+    start_type = tiles.get(spec.start, GridType.NON_ROAD)
+    if start_type not in START_TYPES:
+        raise LevelFormatError(
+            f"car {index} starts at {spec.start}, which is not a start tile ({start_type.name})"
+        )
+    end_type = tiles.get(spec.end, GridType.NON_ROAD)
+    if end_type not in END_TYPES:
+        raise LevelFormatError(
+            f"car {index} ends at {spec.end}, which is not an end tile ({end_type.name})"
+        )
 
 
 def parse_level_xml(text: str | bytes) -> LevelData:
@@ -120,7 +135,9 @@ def parse_level_xml(text: str | bytes) -> LevelData:
     tiles, inters = _parse_grids(map_elem)
     cars_elem = root.find("cars")
     car_elems = cars_elem.findall("car") if cars_elem is not None else []
-    cars = tuple(_parse_car(c, size_x, size_y) for c in car_elems)
+    cars = tuple(_parse_car(c, size_x, size_y, i) for i, c in enumerate(car_elems))
+    for index, spec in enumerate(cars):
+        _check_car_tiles(index, spec, tiles)
     try:
         number = int(root.get("lv", "0"))
     except ValueError:

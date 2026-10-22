@@ -128,6 +128,7 @@ class LevelLogic:
         if car.start_time == self.time_step:
             car_starts(car, town)
             car.state = CarState.MOVING
+            self._count_if_stranded(car)
         elif car.at_next_grid():
             self._at_grid(car, town)
 
@@ -145,11 +146,23 @@ class LevelLogic:
         if sig in (SignalState.NO_SIGNAL, SignalState.GO):
             car.state = CarState.MOVING
             free_movement(car, cur, town)
+            self._count_if_stranded(car)
         elif sig in _FORCED:
             car.state = CarState.MOVING
             forced_movement(car, cur, sig, town)
+            self._count_if_stranded(car)
         else:
             car.state = CarState.STOPPED
+
+    def _count_if_stranded(self, car: Car) -> None:
+        """Path finding ended the car (no end tile reachable): done and failed.
+
+        The car was already counted as forced in TownMap._force. Java would recurse forever
+        here (spec section 13); the port counts it like a car forced to a dead end.
+        """
+        if car.done and not car.crashed:
+            self.done_count += 1
+            self.success_raw += 1
 
     def check_crashes(self, cars: Sequence[Car]) -> None:
         i = 0

@@ -103,6 +103,26 @@ class LevelsTest(unittest.TestCase):
         with self.assertRaises(LevelFormatError):
             parse_level_xml(tiny(grid(1, 1, inter="SEVEN_WAY")))
 
+    def test_car_tiles_validated(self) -> None:
+        road = grid(1, 1, "START_NEDGE2S") + grid(3, 3, "END_S2SEDGE")
+        ok = parse_level_xml(tiny(road, "<cars>" + car(1, 1, 3, 3, 5) + "</cars>"))
+        self.assertEqual(ok.cars[0], CarSpec((1, 1), (3, 3), 5))
+        cars = "<cars>" + car(1, 1, 3, 3, 5) + car(2, 2, 3, 3, 6) + "</cars>"
+        with self.assertRaises(LevelFormatError) as ctx:
+            parse_level_xml(tiny(road, cars))
+        self.assertIn("car 1 starts at (2, 2)", str(ctx.exception))
+        self.assertIn("not a start tile", str(ctx.exception))
+        with self.assertRaises(LevelFormatError) as ctx:
+            parse_level_xml(tiny(road, "<cars>" + car(1, 1, 4, 4, 5) + "</cars>"))
+        self.assertIn("car 0 ends at (4, 4)", str(ctx.exception))
+        wrong = grid(1, 1, "STRAIGHT_ROAD_S2S") + grid(3, 3, "START_NEDGE2S")
+        with self.assertRaises(LevelFormatError):
+            parse_level_xml(tiny(wrong, "<cars>" + car(1, 1, 3, 3, 5) + "</cars>"))
+        with self.assertRaises(LevelFormatError) as ctx:
+            parse_level_xml(tiny(road, "<cars>" + car(1, 1, 3, -1, 5) + "</cars>"))
+        self.assertIn("car 0 end", str(ctx.exception))
+        self.assertIn("outside the map", str(ctx.exception))
+
     def test_node_signal(self) -> None:
         self.assertIs(Node(1, 1, GridType.NON_ROAD).traffic_signal(), SignalState.NO_SIGNAL)
 

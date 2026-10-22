@@ -98,6 +98,43 @@ class LevelTest(unittest.TestCase):
         # regression value recorded at W4 Task 6
         self.assertEqual((res.passed, res.ticks), (10, 815))
 
+    def test_cut_road_strands_cars_but_level_finishes(self) -> None:
+        # Java would recurse forever when no end tile is reachable (spec section 13)
+        level = make_level(1)
+        level.start([ScriptedController(safe_controller) for _ in level.town.controls])
+        for _ in range(40):
+            level.tick()
+        level.town.grid[5][17].south = None
+        self.assertGreater(run_until_done(level), 0)
+        self.assertIs(level.phase, Phase.DONE)
+        res = level.result()
+        self.assertEqual(level.logic.done_count, 10)
+        self.assertEqual((res.passed, res.failed, res.forced, res.crashed), (8, 2, 2, 0))
+        self.assertEqual(res.passed + res.failed, res.cars)
+
+    def test_level6_safe_controller_gridlocks(self) -> None:
+        # Genuine gridlock, not a port bug: the stub holds every entry while a middle tile is
+        # busy; intersections 1 and 2 (x 11-16, y 15-16) each hold a car that waits on a queue
+        # that waits at the other's entry. The Java LevelLogic has the same rules (W4 fix round).
+        level = make_level(6)
+        level.start([ScriptedController(safe_controller) for _ in level.town.controls])
+        for _ in range(1100):
+            level.tick()
+
+        def snapshot() -> tuple[int, list[tuple[int, int]]]:
+            return level.logic.done_count, [(c.px, c.py) for c in level.cars if c.running]
+
+        frozen = snapshot()
+        for _ in range(400):
+            self.assertFalse(level.tick())
+        self.assertEqual(snapshot(), frozen)
+        self.assertIs(level.phase, Phase.RUN)
+        self.assertEqual(len(frozen[1]), 13)
+        for index in (1, 2):
+            ctl = level.town.controls[index]
+            self.assertTrue(any(n.car is not None for n in ctl.internal))
+            self.assertTrue(all(s.name == "STOP" for s in ctl.facing.values()))
+
     def test_step_once(self) -> None:
         level = make_level(1, straight())
         calls = [0]
