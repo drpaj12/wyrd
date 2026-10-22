@@ -1,0 +1,5 @@
+$ wyrd table --metrics luts,clbs,crit_path_ns
+| design | arch | status | luts | clbs | crit_path_ns |
+|---|---|---|---|---|---|
+| counteradd | EArch | ok | 4 | 2 | 2.565 |
+| counteradd | k6_frac_N10_frac_chain_mem32K_40nm | ok | 4 | 2 | 1.984 |

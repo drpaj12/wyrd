@@ -14,6 +14,14 @@ Mizuno, Zhang, ASEE 2017).
 Settings precedence, lowest first: built-in defaults, `machine.toml`, the project's `[run]`
 table (`step_timeout` only), command-line flags. Design: `docs/specs/`.
 
+## Documentation
+
+- User manual (Sphinx and MyST, same form as the Odin III manual): `docs/user/`. Build it with
+  `pip install -r requirements-docs.txt` and `sphinx-build -W -b html docs/user build/docs`.
+- PDF tutorial (a project from scratch through Odin III and VTR, the GUI, simulation, the samples and
+  Midgard III): `docs/tutorial/wyrd-tutorial.pdf`; its LaTeX source, screenshots and the scripts that
+  regenerate them from real runs are in `docs/tutorial/`.
+
 ## GUI
 
     pip install -e ".[gui]"

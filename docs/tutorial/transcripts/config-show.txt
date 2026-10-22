@@ -1,0 +1,13 @@
+$ wyrd config show
+tools = {'odin3': 'odin3', 'odin3_flow': 'odin3-flow'}  (machine)
+vtr_root = $VTR_ROOT  (machine)
+mem_budget = 15121371955  (machine)
+jobs = 6  (machine)
+launcher = systemd  (machine)
+disk_min_free = 21474836480  (machine)
+disk_check_path = /mnt/c  (machine)
+vpr_mem = 4294967296  (machine)
+other_mem = 2147483648  (machine)
+history_factor = 1.25  (machine)
+oom_retry_factor = 2.0  (machine)
+step_timeout = 3600  (machine)

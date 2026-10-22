@@ -135,6 +135,23 @@ class SensorEditor:
         self.placing = None
         self.dirty = True
 
+    def can_drag_from(self, ix: int, iy: int) -> bool:
+        """True on the pile (while it holds a sensor) and on a placed sensor."""
+        node = _tile(self.grid, ix, iy)
+        if node is not None and node.sensor is not None:
+            return True
+        return (ix, iy) == PILE and self.sensors.unused_highest() is not None
+
+    def drag_release(self, start: tuple[int, int], end: tuple[int, int]) -> None:
+        """Press on the pile or a sensor, release on another tile: pick it up and drop it there.
+
+        A drop on a bad tile leaves the sensor in hand, as after a click.
+        """
+        if self.placing is None:
+            self._pick(*start)
+        if self.placing is not None:
+            self._drop(*end)
+
     def right_release(self, ix: int, iy: int) -> None:
         if self.placing is not None:
             self.placing = None

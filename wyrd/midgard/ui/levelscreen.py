@@ -56,6 +56,8 @@ class LevelScreen(Screen):
         self.mouse: Pos = None
         self.held: set[int] = set()
         self.last_real = (0.0, 0.0)
+        self.press_tile: tuple[int, int] | None = None
+        self._drag_from: tuple[int, int] | None = None
         self.last_editor_open = -1e9
         self.launched: dict[int, Launched] = {}
         self._watch_acc = 0.0
@@ -216,8 +218,10 @@ class LevelScreen(Screen):
             self.mouse = pos
             if pos is not None and pos[1] < CAMERA_H:
                 self.last_real = self.camera.to_world(*pos)
+                self._note_press(event.button, pos)
         elif t == pygame.MOUSEBUTTONUP:
             self.mouse = pos
+            self._drag_from, self.press_tile = self.press_tile, None
             if pos is not None and pos[1] >= CAMERA_H and event.button == 1:
                 if not self.help_open:
                     self._strip_click(pos)
@@ -350,7 +354,7 @@ class LevelScreen(Screen):
         self.mouse = pos
         if pos is None or pos[1] >= CAMERA_H or not any(event.buttons):
             return
-        if not self.camera_enabled():
+        if not self.camera_enabled() or self.press_tile is not None:
             return
         self.camera.drag(self.last_real, self.camera.to_world(*pos))
         self.last_real = self.camera.to_world(*pos)
@@ -367,11 +371,23 @@ class LevelScreen(Screen):
         tile = self.camera.tile_at(*pos)
         if tile is None:
             return
-        if button == 1:
+        start, self._drag_from = self._drag_from, None
+        if button == 1 and start is not None and start != tile:
+            self.level.editor.drag_release(start, tile)
+        elif button == 1:
             self._left_release(*tile)
         elif button == 3:
             self.level.editor.right_release(*tile)
         self._save_sensors()
+
+    def _note_press(self, button: int, pos: tuple[int, int]) -> None:
+        """A left press on the sensor pile or a placed sensor starts a drag (no camera pan)."""
+        self.press_tile = None
+        if button != 1 or self.phase is not Phase.EDIT or self.help_open:
+            return
+        tile = self.camera.tile_at(*pos)
+        if tile is not None and self.level.editor.can_drag_from(*tile):
+            self.press_tile = tile
 
     def _left_release(self, ix: int, iy: int) -> None:
         editor = self.level.editor
@@ -529,6 +545,19 @@ class LevelScreen(Screen):
             surface.blit(pygame.transform.smoothscale(part, (1280, CAMERA_H)), (0, 0))
 
     def _draw_status(self, surface: pygame.Surface) -> None:
+        draw_text(surface, self.game.assets, self.status_text(), (10, 104), 24, (255, 255, 255))
+
+    def status_text(self) -> str:
         tps = self.game.speed * self.game.tick_clock.ticks_per_second
         text = f"{self.phase.name}  {tps} ticks/s  {self.message}".rstrip()
-        draw_text(surface, self.game.assets, text, (10, 104), 24, (255, 255, 255))
+        if self.phase is Phase.EDIT:
+            text += "  " + self._sensor_hint()
+        return text
+
+    def _sensor_hint(self) -> str:
+        left = sum(1 for s in self.level.sensors.sensors if not s.placed)
+        noun = "sensor" if left == 1 else "sensors"
+        return (
+            f"{left} {noun} left: click or drag the pile (bottom-left) onto a road tile; "
+            "right-click removes"
+        )
