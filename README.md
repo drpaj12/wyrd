@@ -16,14 +16,20 @@ table (`step_timeout` only), command-line flags. Design: `docs/specs/`.
 
 ## Documentation
 
-- User manual (Sphinx and MyST, same form as the Odin III manual): `docs/user/`. Build it with
-  `pip install -r requirements-docs.txt` and `sphinx-build -W -b html docs/user build/docs`.
-- PDF tutorial (a project from scratch through Odin III and VTR, the GUI, simulation, the samples and
-  Midgard III): `docs/tutorial/wyrd-tutorial.pdf`; its LaTeX source, screenshots and the scripts that
-  regenerate them from real runs are in `docs/tutorial/`.
-- PDF GUI tutorial (the same work done in the graphical interface, a figure for each step, and a
-  Midgard III walk-through): `docs/tutorial-gui/wyrd-gui-tutorial.pdf`, also at
-  https://drpaj12.github.io/wyrd/wyrd-gui-tutorial.pdf; source and scripts in `docs/tutorial-gui/`.
+Start at the Yggdrasil III hub; every manual links to the others.
+
+- [Yggdrasil III hub](https://drpaj12.github.io/YggdrasilIII/): the suite, how the pieces connect, getting started.
+- [Odin III manual](https://drpaj12.github.io/odin3/).
+- [Wyrd III manual](https://drpaj12.github.io/wyrd/), with
+  [simulation (Bifrost III)](https://drpaj12.github.io/wyrd/simulation.html) and
+  [Midgard III (Verilog Town)](https://drpaj12.github.io/wyrd/midgard.html).
+- Tutorials (PDF): [command line](https://drpaj12.github.io/wyrd/wyrd-tutorial.pdf) and
+  [GUI](https://drpaj12.github.io/wyrd/wyrd-gui-tutorial.pdf).
+- [Loki III manual](https://drpaj12.github.io/loki/).
+
+Sources: manual `docs/user/` (`pip install -r requirements-docs.txt`, then
+`sphinx-build -W -b html docs/user build/docs`); tutorials `docs/tutorial/` and `docs/tutorial-gui/`
+(LaTeX, with the scripts that regenerate the screenshots from real runs).
 
 ## GUI
 
