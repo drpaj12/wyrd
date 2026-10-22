@@ -1,0 +1,2 @@
+$ wyrd config init
+wrote ~/.config/wyrd/machine.toml

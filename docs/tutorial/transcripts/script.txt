@@ -1,0 +1,2 @@
+$ wyrd script 00a3cf1f1415
+~/wyrd-demo/runs/counteradd/EArch/00a3cf1f1415/replay.sh

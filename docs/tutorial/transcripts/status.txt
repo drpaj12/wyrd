@@ -1,0 +1,2 @@
+$ wyrd status
+ok 2

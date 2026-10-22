@@ -1,0 +1,9 @@
+$ wyrd compare ~/wyrd-demo ~/wyrd-demo2 --metrics luts,clbs,crit_path_ns
+| design | arch | metric | A | B | B/A |
+|---|---|---|---|---|---|
+| counteradd | EArch | luts | 4 | 4 | 1 |
+| counteradd | EArch | clbs | 2 | 2 | 1 |
+| counteradd | EArch | crit_path_ns | 2.565 | 2.078 | 0.8101 |
+| counteradd | k6_frac_N10_frac_chain_mem32K_40nm | luts | 4 | 4 | 1 |
+| counteradd | k6_frac_N10_frac_chain_mem32K_40nm | clbs | 2 | 2 | 1 |
+| counteradd | k6_frac_N10_frac_chain_mem32K_40nm | crit_path_ns | 1.984 | 1.984 | 1 |

@@ -1,0 +1,2 @@
+$ wyrd init ~/wyrd-demo
+wrote ~/wyrd-demo/wyrd.toml
