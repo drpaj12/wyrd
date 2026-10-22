@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - run: pip install ".[gui]" ruff mypy
+      - run: pip install ".[gui]" "pygame-ce>=2.5,<3" ruff mypy
       - run: ruff check .
       - run: mypy --strict wyrd tests
 
@@ -59,3 +59,13 @@ jobs:
           ODIN3_WHEEL_URL: ${{ vars.ODIN3_WHEEL_URL }}
         run: pip install "$ODIN3_WHEEL_URL"
       - run: python -m unittest tests.test_sim_odin3 -v
+
+  midgard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install . "pygame-ce>=2.5,<3"
+      - run: SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy python -m unittest tests.test_midgard_ui_basic tests.test_midgard_ui -v

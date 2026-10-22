@@ -14,3 +14,9 @@ MIT License terms for the copied files: permission is granted, free of charge, t
 modify, merge, publish, distribute, sublicense and sell copies, provided the copyright notice and
 this permission notice are included in all copies or substantial portions. The software is
 provided "as is", without warranty of any kind.
+
+wyrd midgard: the game design, level files and images come from verilogTown
+(http://drpeterjamieson.com/verilogTown/, the address in the zip's README.md; MIT License, Copyright (c) 2014
+Peter Jamieson, Naoki Mizuno, and Boyu Zhang; artwork credited to John-Rhys Garcia in the original credits). The
+Python code is new. Citation: verilogTown, Jamieson, Grace, Mizuno, Zhang, ASEE 2017.
+Creepster font: Copyright (c) 2011, Font Diner, Inc; SIL Open Font License 1.1, see fonts/OFL.txt
