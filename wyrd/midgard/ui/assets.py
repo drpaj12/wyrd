@@ -15,6 +15,7 @@ class Assets:
         self._images: dict[str, pygame.Surface] = {}
         self._fonts: dict[tuple[str, int], pygame.font.Font] = {}
         self._frames: list[pygame.Surface] | None = None
+        self._transformed: dict[tuple[str, float, float], pygame.Surface] = {}
 
     def image(self, rel: str) -> pygame.Surface:
         cached = self._images.get(rel)
@@ -25,6 +26,15 @@ class Assets:
             cached = pygame.image.load(str(path)).convert_alpha()
             self._images[rel] = cached
         return cached
+
+    def transformed(self, rel: str, angle: float, scale: float) -> pygame.Surface:
+        """Cached `rotozoom` of an image (counterclockwise degrees)."""
+        key = (rel, angle, scale)
+        out = self._transformed.get(key)
+        if out is None:
+            out = pygame.transform.rotozoom(self.image(rel), angle, scale)
+            self._transformed[key] = out
+        return out
 
     def level_map(self, n: int) -> pygame.Surface:
         return self.image(f"levels/Lv{n}/lv{n:02d}.png")
