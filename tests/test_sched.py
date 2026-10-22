@@ -1,4 +1,5 @@
 import os
+import resource
 import signal
 import subprocess
 import sys
@@ -82,13 +83,16 @@ class WaitStepTest(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         d = Path(tmp.name)
+        # ru_maxrss of a child includes the parent's RSS at spawn, so the bound
+        # moves with the size of the test process (large in a full run).
+        parent = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
         proc = SystemdLauncher().start(
             [SLEEPY, "0", "150", "0"], dict(os.environ), d, 4 * GB, d / "o", d / "e"
         )
         res = wait_step(proc, 60, kill_is_oom=True)
         self.assertEqual(res.outcome, "ok")
         self.assertGreaterEqual(res.peak_mem_bytes, 150 * MB)
-        self.assertLess(res.peak_mem_bytes, 600 * MB)
+        self.assertLess(res.peak_mem_bytes, parent + 450 * MB)
 
 
 class PlainAsSystemd(SystemdLauncher):

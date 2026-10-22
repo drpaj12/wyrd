@@ -97,6 +97,21 @@ def imports_qt_or_gui(path: Path) -> bool:
     return any(_node_bad(node) for node in ast.walk(tree))
 
 
+def _midgard_violation(rel: Path, name: str) -> bool:
+    top = rel.parts[0] if len(rel.parts) > 1 else rel.name
+    root = name.split(".")[0]
+    if root in ("socket", "urllib", "http", "requests"):
+        return True
+    if root == "pygame":
+        return top not in ("ui", "app.py")
+    if root == "PySide6":
+        return top != "editors"
+    if top == "model" and root == "odin3":
+        return True
+    is_bifrost = name == "wyrd.bifrost" or name.startswith("wyrd.bifrost.")
+    return is_bifrost and top == "model" and rel.as_posix() != "model/controllers.py"
+
+
 class QtFreeTest(unittest.TestCase):
     def test_no_pyside_outside_gui(self) -> None:
         gui = ROOT / "wyrd" / "gui"
@@ -173,6 +188,16 @@ class QtFreeTest(unittest.TestCase):
                 for line, name, _ in imports_of(path):
                     if name.split(".")[0] in ("PySide6", "pygame"):
                         bad.append(f"{path.relative_to(ROOT)}:{line}: import {name}")
+        self.assertEqual(bad, [])
+
+    def test_midgard_import_rules(self) -> None:
+        mid = ROOT / "wyrd" / "midgard"
+        bad: list[str] = []
+        for path in sorted(mid.rglob("*.py")):
+            rel = path.relative_to(mid)
+            for line, name, _ in imports_of(path):
+                if _midgard_violation(rel, name):
+                    bad.append(f"{path.relative_to(ROOT)}:{line}: import {name}")
         self.assertEqual(bad, [])
 
 

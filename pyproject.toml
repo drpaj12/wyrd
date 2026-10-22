@@ -13,18 +13,21 @@ dependencies = []
 [project.optional-dependencies]
 gui = ["PySide6-Essentials>=6.6,<7"]
 sim = ["odin3>=1.0.3"]
+midgard = ["pygame-ce>=2.5,<3", "odin3>=1.0.3", "PySide6-Essentials>=6.6,<7"]
 
 [project.scripts]
 wyrd = "wyrd.cli:main"
 
 [project.gui-scripts]
 wyrd-gui = "wyrd.gui.app:main"
+midgard = "wyrd.midgard.app:main"
+midgard-editor = "wyrd.midgard.editors.level_editor:main"
 
 [tool.setuptools.packages.find]
 include = ["wyrd*"]
 
 [tool.setuptools.package-data]
-wyrd = ["data/*.toml"]
+wyrd = ["data/*.toml", "midgard/assets/**/*"]
 
 [tool.ruff]
 line-length = 100
