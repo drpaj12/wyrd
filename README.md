@@ -14,6 +14,19 @@ Mizuno, Zhang, ASEE 2017).
 Settings precedence, lowest first: built-in defaults, `machine.toml`, the project's `[run]`
 table (`step_timeout` only), command-line flags. Design: `docs/specs/`.
 
+## GUI
+
+    pip install -e ".[gui]"
+    wyrd-gui [PROJECT_DIR]
+
+The GUI (PySide6) shows the project tree, source files, the Quartus-style report, parsed
+warnings and errors, and a `wyrd.toml` editor with live validation. It runs the flow as a
+`wyrd run` subprocess. Run it inside WSL (WSLg shows the window); Windows needs no extra code.
+
+The Floorplan button re-runs VPR with its graphics enabled for the selected run, so it needs a VPR
+built with Qt6 graphics; when VPR exits early the Flow log says so. Credits for the tools and
+papers Wyrd builds on are in `docs/CITATIONS.md` and the About dialog.
+
 ## Samples
 
 `samples/` holds three projects (`single`, `multi`, `dsp`) swept over two architectures. They need
