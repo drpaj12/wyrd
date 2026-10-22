@@ -163,9 +163,11 @@ def midgard(root: Path) -> None:
     out.mkdir()
     shots = TUT.parent / "tutorial" / "shots"
     env = dict(os.environ, SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy")
-    for script, folder in ((shots / "midgard_shots.py", data), (HERE / "mg_gui_shots.py", root / "mgh"),
-                           (shots / "editor_shots.py", data)):
-        subprocess.run([sys.executable, str(script), str(folder), str(out)], check=True, env=env)
+    jobs = ((shots / "midgard_shots.py", data), (HERE / "mg_gui_shots.py", root / "mgh"),
+            (shots / "editor_shots.py", data))
+    for script, folder in jobs:
+        argv = [sys.executable, str(script), str(folder), str(out)]
+        subprocess.run(argv, check=True, env=env)
     for png in out.glob("*.png"):
         shutil.copy(png, IMAGES / f"gt-{png.name}")
 
@@ -187,8 +189,9 @@ def design(app: QApplication, win: MainWindow) -> None:
     # Edit the placeholder design out and set the project name and architectures, as typing would.
     text = win.editor.text.toPlainText()
     text = text.replace('name = "myproject"', 'name = "counteradd"')
-    text = text.replace('# One [[design]] per design. Replace the placeholder path with your Verilog files.\n'
-                        '[[design]]\nname = "mydesign"\nfiles = ["CHANGE_ME.v"]\n# top = "top"\n\n',
+    text = text.replace('# One [[design]] per design. Replace the placeholder path with your '
+                        'Verilog files.\n[[design]]\nname = "mydesign"\n'
+                        'files = ["CHANGE_ME.v"]\n# top = "top"\n\n',
                         "")
     text = text.replace('design = ["mydesign", "counteradd"]', 'design = ["counteradd"]')
     text = text.replace('arch = ["k6_frac_N10_frac_chain_mem32K_40nm"]',
@@ -224,7 +227,9 @@ def run_demo(app: QApplication, win: MainWindow, demo: Path) -> None:
     grab(win, "gt-flow-done")
     select_run_child(win, app, 0)
     grab(win, "gt-summary")
-    win.report_view.tree.setCurrentItem(win.report_view.tree.topLevelItem(0))
+    first = win.report_view.tree.topLevelItem(0)
+    assert first is not None
+    win.report_view.tree.setCurrentItem(first)
     pump(app, 0.8)
     grab(win, "gt-allruns")
     run_item = win.report_view.tree.topLevelItem(1)
@@ -316,7 +321,9 @@ def samples(app: QApplication, win: MainWindow, root: Path) -> None:
     wait(app, lambda: not win.flow.is_running(), timeout=900.0)
     win.refresh_results()
     pump(app, 1.5)
-    win.report_view.tree.setCurrentItem(win.report_view.tree.topLevelItem(0))
+    first = win.report_view.tree.topLevelItem(0)
+    assert first is not None
+    win.report_view.tree.setCurrentItem(first)
     pump(app, 1.0)
     grab(win, "gt-samples")
 
