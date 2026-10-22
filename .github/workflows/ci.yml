@@ -55,5 +55,7 @@ jobs:
           python-version: "3.12"
       - run: pip install .
       - if: vars.ODIN3_WHEEL_URL != ''
-        run: pip install "${{ vars.ODIN3_WHEEL_URL }}"
+        env:
+          ODIN3_WHEEL_URL: ${{ vars.ODIN3_WHEEL_URL }}
+        run: pip install "$ODIN3_WHEEL_URL"
       - run: python -m unittest tests.test_sim_odin3 -v

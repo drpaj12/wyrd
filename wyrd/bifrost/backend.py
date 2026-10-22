@@ -12,6 +12,8 @@ from wyrd.bifrost.diagnostics import parse_log
 from wyrd.bifrost.errors import CompileError, SimError, SimUnavailable
 from wyrd.bifrost.types import Diagnostic, Signal
 
+_BAD_PATH_CHARS = ('"', ";", "\n", "\r")
+
 UNAVAILABLE = (
     "odin3 with the simulation API is not installed; run: pip install \"wyrd[sim]\" "
     "(needs Odin III 1.0.3 or later)"
@@ -162,8 +164,9 @@ class Odin3Backend:
 
     def compile(self, files: Sequence[Path]) -> CompiledDesign:
         for p in files:
-            if '"' in str(p):
-                raise CompileError([_plain(f"{p}: a path with a double quote is not supported")])
+            if any(c in str(p) for c in _BAD_PATH_CHARS):
+                text = f"{p}: a path with a newline, `;` or `\"` is not supported"
+                raise CompileError([_plain(text)])
         script = "read_verilog " + " ".join(f'"{p}"' for p in files) + "; proc; opt; lower"
         design = self._odin3.Design()
         failure: Exception | None = None

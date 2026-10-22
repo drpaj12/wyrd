@@ -110,7 +110,7 @@ class SimPanelTest(unittest.TestCase):
         panel.compile()
         panel.vectors_edit.setPlainText("0 100\n1 xx1\n")
         panel.run_vectors_button.click()
-        self.assertTrue(panel.status_label.text().startswith("2:"))
+        self.assertTrue(panel.status_label.text().startswith("<vectors>:2:"))
         self.assertEqual(panel.vectors_edit.textCursor().blockNumber(), 1)
 
     def test_diagnostics_click(self) -> None:

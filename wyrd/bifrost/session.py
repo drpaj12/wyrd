@@ -209,7 +209,7 @@ class BifrostSession:
         if names is None:
             chosen = [s for s in self._signals if s.kind in ("input", "output")]
         else:
-            chosen = [self.signal(n) for n in names]
+            chosen = [s for s in map(self.signal, names) if s.kind != "clock"]
         rec = Recorder(
             [s.name for s in chosen],
             [s.width for s in chosen],

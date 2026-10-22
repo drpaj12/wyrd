@@ -74,6 +74,23 @@ def _node_bad(node: ast.AST) -> bool:
     return isinstance(node, ast.Call) and _dynamic_bad(node)
 
 
+def _dynamic_odin3(node: ast.AST) -> bool:
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", "")
+    if name not in ("import_module", "__import__") or not node.args:
+        return False
+    arg = node.args[0]
+    return isinstance(arg, ast.Constant) and isinstance(arg.value, str) and _is_odin3(arg.value)
+
+
+def dynamic_odin3_imports(path: Path) -> list[int]:
+    """Line numbers of import_module/__import__ calls naming odin3 by a string literal."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    return [getattr(n, "lineno", 0) for n in ast.walk(tree) if _dynamic_odin3(n)]
+
+
 def imports_qt_or_gui(path: Path) -> bool:
     """True when the file imports Qt or ``wyrd.gui``, statically or by a string name."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -125,7 +142,29 @@ class QtFreeTest(unittest.TestCase):
             for line, name, in_function in imports_of(path):
                 if _is_odin3(name) and (path != BACKEND or not in_function):
                     bad.append(f"{path.relative_to(ROOT)}:{line}: import {name}")
+            if path != BACKEND:
+                bad += [
+                    f"{path.relative_to(ROOT)}:{line}: dynamic import of odin3"
+                    for line in dynamic_odin3_imports(path)
+                ]
         self.assertEqual(bad, [])
+
+    def test_odin3_guard_flags_dynamic_examples(self) -> None:
+        planted = [
+            "import importlib\nimportlib.import_module('odin3')",
+            "import importlib\nimportlib.import_module('odin3.sim')",
+            "__import__('odin3')",
+        ]
+        clean = ["import importlib\nimportlib.import_module('json')", "__import__('odin3x')"]
+        with tempfile.TemporaryDirectory() as tmp:
+            for i, src in enumerate(planted):
+                f = Path(tmp) / f"p{i}.py"
+                f.write_text(src + "\n", encoding="utf-8")
+                self.assertTrue(dynamic_odin3_imports(f), src)
+            for i, src in enumerate(clean):
+                f = Path(tmp) / f"c{i}.py"
+                f.write_text(src + "\n", encoding="utf-8")
+                self.assertFalse(dynamic_odin3_imports(f), src)
 
     def test_sim_is_qt_and_pygame_free(self) -> None:
         bad: list[str] = []

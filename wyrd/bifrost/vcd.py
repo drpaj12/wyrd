@@ -34,7 +34,9 @@ def _code(k: int) -> str:
 
 
 def _clean(text: str) -> str:
-    return "".join(chr(b) if 33 <= b <= 126 else "_" for b in text.encode("utf-8"))
+    return "".join(
+        chr(b) if 33 <= b <= 126 and chr(b) not in "[]" else "_" for b in text.encode("utf-8")
+    )
 
 
 def _scope_tree(entries: list[tuple[str, int, str]]) -> _Scope:
@@ -150,5 +152,8 @@ def vcd_text(rec: Recording, top: str = "top") -> str:
 
 def write_vcd(rec: Recording, path: Path, top: str = "top") -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(vcd_text(rec, top), encoding="utf-8")
-    os.replace(tmp, path)
+    try:
+        tmp.write_text(vcd_text(rec, top), encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)

@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from tests.fakes_sim import TRACE_IN, traffic_session
 from wyrd.bifrost.errors import NoSuchSignal
@@ -150,6 +151,29 @@ class VcdTest(unittest.TestCase):
             write_vcd(rec, path)
             self.assertEqual(path.read_text(encoding="utf-8"), vcd_text(rec))
             self.assertEqual([p.name for p in Path(tmp).iterdir()], ["out.vcd"])
+
+    def test_write_vcd_failure_removes_tmp(self) -> None:
+        rec = Recording(("a",), (1,), (0,), ((0,),), ())
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "out.vcd"
+            patched = mock.patch("wyrd.bifrost.vcd.os.replace", side_effect=OSError("boom"))
+            with patched, self.assertRaises(OSError):
+                write_vcd(rec, path)
+            self.assertEqual(list(Path(tmp).iterdir()), [])
+
+    def test_vcd_brackets_cleaned(self) -> None:
+        rec = Recording(("u[3].q[0]",), (1,), (0,), ((0,),), ())
+        text = vcd_text(rec)
+        self.assertIn("$scope module u_3_ $end", text)
+        self.assertIn("$var wire 1 ! q_0_ $end", text)
+
+
+class RecordingNamesTest(unittest.TestCase):
+    def test_clock_names_dropped(self) -> None:
+        s = traffic_session()
+        rec = s.start_recording(["clk", "car_ns", "light_ns"])
+        self.assertEqual(rec.names, ("car_ns", "light_ns"))
+        self.assertEqual(rec.clocks, ("clk",))
 
 
 if __name__ == "__main__":

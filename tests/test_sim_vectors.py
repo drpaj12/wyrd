@@ -76,6 +76,25 @@ class VectorFormatTest(unittest.TestCase):
         self.check_error("0 1x0\n", 1, "expected 3 input bits of 0 and 1, found `1x0`")
         self.check_error("0 100\n2 001\n", 2, "expected cycle 1, found `2`")
 
+    def test_port_line_count(self) -> None:
+        ports, outs = ports_outs()
+        full = format_vectors(VF2, ports, outs).splitlines()
+        short = "\n".join(full[:3] + full[-2:]) + "\n"
+        self.check_error(short, 4, "the header lists 2 port lines, the design has 6")
+        header_only = "\n".join(full[:3]) + "\n"
+        self.check_error(header_only, 4, "the header lists 2 port lines, the design has 6")
+
+    def test_error_carries_name(self) -> None:
+        ports, outs = ports_outs()
+        with self.assertRaises(VectorError) as cm:
+            parse_vectors("0 10\n", ports, outs, name="my.vec")
+        self.assertEqual(
+            str(cm.exception), "my.vec:1: expected 3 input bits of 0 and 1, found `10`"
+        )
+        with self.assertRaises(VectorError) as cm:
+            parse_vectors("0 10\n", ports, outs)
+        self.assertTrue(str(cm.exception).startswith("<vectors>:1: "))
+
     def test_no_data_input(self) -> None:
         ports = (Signal("clk", 1, "clock"),)
         self.assertEqual(parse_vectors("0 -\n", ports).rows, ((),))

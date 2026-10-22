@@ -66,7 +66,9 @@ class SessionClosed(SimError, RuntimeError):
 
 
 class VectorError(SimError):
-    def __init__(self, line: int, message: str) -> None:
+    def __init__(self, line: int, message: str, name: str | None = None) -> None:
         self.line = line
         self.message = message
-        super().__init__(f"{line}: {message}")
+        self.name = name
+        where = f"{name}:{line}" if name else f"{line}"
+        super().__init__(f"{where}: {message}")

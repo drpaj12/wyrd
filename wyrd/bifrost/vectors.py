@@ -108,17 +108,31 @@ def _split_row(word: str, data: Sequence[Signal], number: int) -> tuple[int, ...
     return tuple(values)
 
 
+def _check_port_count(seen: int, expected: list[str], number: int) -> None:
+    if seen and seen != len(expected):
+        raise VectorError(
+            number, f"the header lists {seen} port lines, the design has {len(expected)}"
+        )
+
+
 def parse_vectors(
     text: str,
     ports: Sequence[Signal],
     outputs: Sequence[Signal] = (),
     name: str = "<vectors>",
 ) -> VectorFile:
-    del name
+    try:
+        return _parse(text, ports, outputs)
+    except VectorError as e:
+        raise VectorError(e.line, e.message, name) from None
+
+
+def _parse(text: str, ports: Sequence[Signal], outputs: Sequence[Signal]) -> VectorFile:
     data = data_ports(ports)
     expected = _port_lines(ports, outputs)
     rows: list[tuple[int, ...]] = []
     seen = 0
+    number = 0
     for number, raw in enumerate(text.split("\n"), start=1):
         line = raw.rstrip("\r")
         words = line.split()
@@ -129,6 +143,8 @@ def parse_vectors(
                 _check_port_line(line.strip(), seen, expected, number)
                 seen += 1
             continue
+        if not rows:
+            _check_port_count(seen, expected, number)
         if len(rows) >= MAX_LINES:
             raise VectorError(number, f"more than {MAX_LINES} vector lines")
         if len(words) not in (2, 3):
@@ -136,4 +152,5 @@ def parse_vectors(
         if words[0] != str(len(rows)):
             raise VectorError(number, f"expected cycle {len(rows)}, found `{words[0]}`")
         rows.append(_split_row(words[1], data, number))
+    _check_port_count(seen, expected, number)
     return VectorFile(tuple(rows))

@@ -4,7 +4,14 @@ import time
 import unittest
 from pathlib import Path
 
-from tests.fakes_sim import TRACE_IN, TRACE_OUT, FakeBackend, traffic_session
+from tests.fakes_sim import (
+    TRACE_IN,
+    TRACE_OUT,
+    FakeBackend,
+    FakeCompiled,
+    FakeHandle,
+    traffic_session,
+)
 from wyrd.bifrost.errors import (
     CompileError,
     NoSuchSignal,
@@ -64,6 +71,24 @@ class SessionTest(unittest.TestCase):
         with self.assertRaises(NoSuchSignal):
             s.get("nope")
         self.assertEqual(s.get("car_ns"), 0)
+
+    def test_unknown_name_keyerror_maps_to_no_such_signal(self) -> None:
+        class Strict(FakeHandle):
+            def get(self, name: str) -> int:
+                raise KeyError(f"{name}: not in the simulated netlist")
+
+            def set(self, name: str, value: int) -> None:
+                raise KeyError(f"{name}: not in the simulated netlist")
+
+        backend = FakeBackend()
+        compiled = FakeCompiled(backend, ())
+        s = BifrostSession(compiled, Strict(backend), [])
+        with self.assertRaises(NoSuchSignal) as cm:
+            s.get("ghost")
+        self.assertEqual(cm.exception.name, "ghost")
+        with self.assertRaises(NoSuchSignal) as cm:
+            s.set("car_ns", 1)
+        self.assertEqual(cm.exception.name, "car_ns")
 
     def test_set_many_is_atomic(self) -> None:
         s = traffic_session()

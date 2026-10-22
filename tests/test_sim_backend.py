@@ -34,6 +34,12 @@ class Odin3BackendTest(unittest.TestCase):
             with self.assertRaises(CompileError):
                 Odin3Backend().compile([Path('/a"b.v')])
 
+    def test_compile_refuses_script_breaking_paths(self) -> None:
+        with mock.patch.dict(sys.modules, {"odin3": make_fake_odin3()}):
+            for bad in ("/a\nb.v", "/a;b.v", "/a\rb.v"):
+                with self.assertRaises(CompileError):
+                    Odin3Backend().compile([Path(bad)])
+
     def test_compile_failure_gives_diagnostics(self) -> None:
         records = [
             (0, "/y.v:3:1: error: syntax: unexpected endmodule"),
