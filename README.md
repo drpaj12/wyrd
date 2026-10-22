@@ -21,6 +21,9 @@ table (`step_timeout` only), command-line flags. Design: `docs/specs/`.
 - PDF tutorial (a project from scratch through Odin III and VTR, the GUI, simulation, the samples and
   Midgard III): `docs/tutorial/wyrd-tutorial.pdf`; its LaTeX source, screenshots and the scripts that
   regenerate them from real runs are in `docs/tutorial/`.
+- PDF GUI tutorial (the same work done in the graphical interface, a figure for each step, and a
+  Midgard III walk-through): `docs/tutorial-gui/wyrd-gui-tutorial.pdf`, also at
+  https://drpaj12.github.io/wyrd/wyrd-gui-tutorial.pdf; source and scripts in `docs/tutorial-gui/`.
 
 ## GUI
 

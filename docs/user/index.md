@@ -19,6 +19,8 @@ Bifrost III, which uses the `odin3` Python package for simulation.
 This manual follows the layout of the Odin III manual: a getting-started page, then one page per part.
 A step-by-step PDF tutorial that builds one project from scratch is published with this manual:
 [wyrd-tutorial.pdf](https://drpaj12.github.io/wyrd/wyrd-tutorial.pdf) (source in `docs/tutorial/`).
+A second PDF tutorial does everything in the graphical interface, with a figure for each step:
+[wyrd-gui-tutorial.pdf](https://drpaj12.github.io/wyrd/wyrd-gui-tutorial.pdf) (source in `docs/tutorial-gui/`).
 
 The other Yggdrasil III manuals are linked in the sidebar: the
 [hub](https://drpaj12.github.io/YggdrasilIII/), [Odin III](https://drpaj12.github.io/odin3/) and
