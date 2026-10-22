@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import itertools
 import random
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -72,12 +73,18 @@ def format_vectors(
     return "\n".join(lines) + "\n"
 
 
+def random_rows(ports: Sequence[Signal], seed: int) -> Iterator[tuple[int, ...]]:
+    """Endless rows of random data-port values; the first n match `random_vectors(.., n, seed)`."""
+    rng = random.Random(seed)
+    data = data_ports(ports)
+    while True:
+        yield tuple(rng.getrandbits(p.width) for p in data)
+
+
 def random_vectors(ports: Sequence[Signal], cycles: int, seed: int) -> VectorFile:
     if cycles < 0:
         raise ValueError("cycles must be >= 0")
-    rng = random.Random(seed)
-    data = data_ports(ports)
-    return VectorFile(tuple(tuple(rng.getrandbits(p.width) for p in data) for _ in range(cycles)))
+    return VectorFile(tuple(itertools.islice(random_rows(ports, seed), cycles)))
 
 
 def _is_port_line(words: list[str]) -> bool:
@@ -96,7 +103,7 @@ def _split_row(word: str, data: Sequence[Signal], number: int) -> tuple[int, ...
     total = sum(p.width for p in data)
     if total == 0:
         if word != "-":
-            raise VectorError(number, "expected `-`: the design has no input bit")
+            raise VectorError(number, "expected `-`: the design has no non-clock input bit")
         return ()
     if len(word) != total or set(word) - {"0", "1"}:
         raise VectorError(number, f"expected {total} input bits of 0 and 1, found `{word}`")

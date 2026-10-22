@@ -16,7 +16,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QWidget
 
-from wyrd.guimodel.waveform import WaveRow, format_value, segments
+from wyrd.guimodel.waveform import WaveRow, format_value, segments, visible_range
 
 NAME_WIDTH = 160
 CELL_WIDTH = 24
@@ -24,6 +24,7 @@ MIN_CELL = 8
 MAX_CELL = 64
 ROW_HEIGHT = 28
 MARGIN = 6
+MAX_WIDGET = 16_000_000
 Radix = Literal["hex", "dec", "bin"]
 RADIXES: dict[str, Radix] = {"hex": "hex", "dec": "dec", "bin": "bin"}
 
@@ -41,16 +42,20 @@ class WaveformView(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self.rows: list[WaveRow] = []
+        self.first_sample = 0
         self.sample_count = 0
         self.cursor_index: int | None = None
         self.cell_width = CELL_WIDTH
         self.radix: Radix = "hex"
         self._resize()
 
-    def set_rows(self, rows: list[WaveRow]) -> None:
+    def set_rows(self, rows: list[WaveRow], first: int = 0) -> None:
+        """Show rows whose values start at recording sample `first`; indexes stay absolute."""
         self.rows = list(rows)
-        self.sample_count = max((len(r.values) for r in rows), default=0)
-        if self.cursor_index is not None and self.cursor_index >= self.sample_count:
+        self.first_sample = first
+        self.sample_count = first + max((len(r.values) for r in rows), default=0)
+        index = self.cursor_index
+        if index is not None and not first <= index < self.sample_count:
             self.cursor_index = None
             self.cursor_changed.emit(None)
         self._resize()
@@ -63,12 +68,16 @@ class WaveformView(QWidget):
             self.update()
 
     def _resize(self) -> None:
-        width = NAME_WIDTH + max(1, self.sample_count) * self.cell_width + MARGIN
-        self.setFixedSize(width, max(1, len(self.rows)) * ROW_HEIGHT + MARGIN)
+        shown = max(1, self.sample_count - self.first_sample)
+        width = min(MAX_WIDGET, NAME_WIDTH + shown * self.cell_width + MARGIN)
+        self.resize(width, max(1, len(self.rows)) * ROW_HEIGHT + MARGIN)
 
     def sample_at(self, x: float) -> int | None:
-        index = int((x - NAME_WIDTH) // self.cell_width)
-        return index if x >= NAME_WIDTH and 0 <= index < self.sample_count else None
+        index = self.first_sample + int((x - NAME_WIDTH) // self.cell_width)
+        return index if x >= NAME_WIDTH and self.first_sample <= index < self.sample_count else None
+
+    def _x_of(self, index: int) -> int:
+        return NAME_WIDTH + (index - self.first_sample) * self.cell_width
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         index = self.sample_at(event.position().x())
@@ -88,18 +97,32 @@ class WaveformView(QWidget):
 
     def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
-        painter.fillRect(self.rect(), BACKGROUND)
+        area = event.rect()
+        painter.fillRect(area, BACKGROUND)
         metrics = QFontMetrics(self.font())
+        span = visible_range(
+            area.left(),
+            area.right(),
+            NAME_WIDTH,
+            self.cell_width,
+            self.first_sample,
+            self.sample_count,
+        )
         for index, row in enumerate(self.rows):
-            self._paint_row(painter, metrics, index, row)
+            self._paint_row(painter, metrics, index, row, span)
         if self.cursor_index is not None:
-            x = NAME_WIDTH + self.cursor_index * self.cell_width + self.cell_width / 2
+            x = self._x_of(self.cursor_index) + self.cell_width / 2
             painter.setPen(QPen(CURSOR, 1))
             painter.drawLine(QPointF(x, 0), QPointF(x, self.height()))
         painter.end()
 
     def _paint_row(
-        self, painter: QPainter, metrics: QFontMetrics, index: int, row: WaveRow
+        self,
+        painter: QPainter,
+        metrics: QFontMetrics,
+        index: int,
+        row: WaveRow,
+        span: tuple[int, int],
     ) -> None:
         top = index * ROW_HEIGHT
         painter.setPen(QPen(GRID, 1))
@@ -112,9 +135,10 @@ class WaveformView(QWidget):
             label,
         )
         previous: int | None = None
-        for seg in segments(row.values):
-            x0 = NAME_WIDTH + seg.start * self.cell_width
-            x1 = NAME_WIDTH + seg.end * self.cell_width
+        lo, hi = span
+        for seg in segments(row.values[lo - self.first_sample : hi - self.first_sample]):
+            x0 = self._x_of(lo + seg.start)
+            x1 = self._x_of(lo + seg.end)
             if row.width == 1:
                 previous = self._paint_bit(painter, top, x0, x1, seg.value, previous)
             else:

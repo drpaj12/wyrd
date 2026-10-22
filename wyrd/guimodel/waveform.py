@@ -23,9 +23,29 @@ class WaveRow:
     values: tuple[int, ...]
 
 
-def rows_from_recording(rec: Recording) -> list[WaveRow]:
+MAX_VIEW_SAMPLES = 100_000
+
+
+def view_start(count: int, limit: int = MAX_VIEW_SAMPLES) -> int:
+    """First sample shown when only the last `limit` of `count` samples are kept in the view."""
+    return max(0, count - max(1, limit))
+
+
+def visible_range(
+    left: float, right: float, name_width: int, cell_width: int, first: int, count: int
+) -> tuple[int, int]:
+    """Samples [lo, hi) whose cells touch the pixel span left..right, clamped to first..count."""
+    lo = first + int((left - name_width) // cell_width)
+    hi = first + int((right - name_width) // cell_width) + 1
+    high = max(first, min(count, hi))
+    return min(max(first, lo), high), high
+
+
+def rows_from_recording(rec: Recording, start: int = 0) -> list[WaveRow]:
+    """One row per name from sample `start` on (older samples stay in the recording only)."""
+    samples = rec.samples[start:]
     return [
-        WaveRow(name, rec.widths[i], tuple(sample[i] for sample in rec.samples))
+        WaveRow(name, rec.widths[i], tuple(sample[i] for sample in samples))
         for i, name in enumerate(rec.names)
     ]
 

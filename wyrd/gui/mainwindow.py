@@ -183,6 +183,9 @@ class MainWindow(QMainWindow):
         return pages[name]
 
     def _show_simulate(self) -> None:
+        if self.project is None:
+            self.statusBar().showMessage("Open a project to simulate")
+            return
         self.tabs.setCurrentWidget(self.sim_panel)
 
     def show_source(self, path: Path, line: int | None = None) -> None:

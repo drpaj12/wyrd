@@ -7,6 +7,7 @@ from wyrd.bifrost.vectors import (
     VectorFile,
     format_vectors,
     parse_vectors,
+    random_rows,
     random_vectors,
     session_ports,
 )
@@ -100,7 +101,9 @@ class VectorFormatTest(unittest.TestCase):
         self.assertEqual(parse_vectors("0 -\n", ports).rows, ((),))
         with self.assertRaises(VectorError) as cm:
             parse_vectors("0 1\n", ports)
-        self.assertEqual(cm.exception.message, "expected `-`: the design has no input bit")
+        self.assertEqual(
+            cm.exception.message, "expected `-`: the design has no non-clock input bit"
+        )
         self.assertEqual(format_vectors(VectorFile(((),)), ports).splitlines()[-1], "0 -")
 
     def test_wide_ports(self) -> None:
@@ -109,6 +112,16 @@ class VectorFormatTest(unittest.TestCase):
         text = format_vectors(vf, ports)
         self.assertIn("0 10110", text)
         self.assertEqual(parse_vectors(text, ports), vf)
+
+    def test_random_rows_match_random_vectors(self) -> None:
+        ports, _ = ports_outs()
+        rows = random_rows(ports, 7)
+        self.assertEqual(tuple(next(rows) for _ in range(9)), random_vectors(ports, 9, 7).rows)
+
+    def test_headerless_file_is_accepted(self) -> None:
+        # S1 (spec SV-2): the header is optional, a hand-written file needs only vector lines.
+        ports, outs = ports_outs()
+        self.assertEqual(parse_vectors("0 100\n1 011\n", ports, outs).rows, ((1, 0, 0), (0, 1, 1)))
 
     def test_random_vectors(self) -> None:
         ports, _ = ports_outs()

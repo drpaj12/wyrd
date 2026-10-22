@@ -2,12 +2,24 @@
 
 from __future__ import annotations
 
+import itertools
 import os
 import shutil
-from collections.abc import Callable
+import time
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from pathlib import Path
 
-from PySide6.QtCore import QProcess, Qt, QTimer, Signal
+from PySide6.QtCore import (
+    QCoreApplication,
+    QObject,
+    QProcess,
+    QRunnable,
+    Qt,
+    QThreadPool,
+    QTimer,
+    Signal,
+)
 from PySide6.QtGui import QColor, QTextCursor
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -41,15 +53,20 @@ from wyrd.bifrost import (
     default_backend,
     format_vectors,
     parse_vectors,
-    random_vectors,
     session_ports,
     write_vcd,
 )
 from wyrd.bifrost import (
     Signal as SimSignal,
 )
+from wyrd.bifrost.vectors import data_ports, random_rows
 from wyrd.gui.waveformview import WaveformView
-from wyrd.guimodel.waveform import format_value, parse_int_text, rows_from_recording
+from wyrd.guimodel.waveform import (
+    format_value,
+    parse_int_text,
+    rows_from_recording,
+    view_start,
+)
 from wyrd.project import Project
 
 SIGNAL_HEADERS = ["Name", "Width", "Kind", "Value"]
@@ -59,11 +76,60 @@ TICK_MS = 50
 TICKS_PER_SECOND = 1000 // TICK_MS
 GTKWAVE_MISSING = "gtkwave not found; install it (for example: sudo apt install gtkwave)"
 BAD_CELL = QColor(255, 200, 200)
-Launcher = Callable[[str, list[str]], bool]
+CHUNK = 1000
+MIN_RECORDING = 1_000_000
+# A launcher returns None when the program started, else the reason it did not.
+Launcher = Callable[[str, list[str]], str | None]
 
 
-def _start_detached(program: str, args: list[str]) -> bool:
-    return bool(QProcess.startDetached(program, args))
+def _start_detached(program: str, args: list[str]) -> str | None:
+    process = QProcess()
+    process.setProgram(program)
+    process.setArguments(args)
+    if process.startDetached():
+        return None
+    return process.errorString() or "unknown error"
+
+
+@dataclass
+class _Job:
+    """A long run, advanced CHUNK units per timer tick so the window stays responsive."""
+
+    label: str
+    total: int
+    advance: Callable[[int], None]
+    finish: Callable[[bool], None]
+    done: int = 0
+
+
+class _CompileSignals(QObject):
+    done = Signal(int, object)
+    failed = Signal(int, object)
+
+
+class _CompileTask(QRunnable):
+    def __init__(
+        self,
+        generation: int,
+        files: list[Path],
+        top: str | None,
+        backend: Backend,
+        signals: _CompileSignals,
+    ) -> None:
+        super().__init__()
+        self.generation = generation
+        self.files = files
+        self.top = top
+        self.backend = backend
+        self.signals = signals
+
+    def run(self) -> None:
+        try:
+            session = BifrostSession.from_verilog(self.files, top=self.top, backend=self.backend)
+        except (SimError, ValueError, OSError) as e:
+            self.signals.failed.emit(self.generation, e)
+        else:
+            self.signals.done.emit(self.generation, session)
 
 
 def _spin(low: int, high: int, value: int) -> QSpinBox:
@@ -89,8 +155,16 @@ class SimPanel(QWidget):
         self._rows: list[SimSignal] = []
         self._record_names: list[str] | None = None
         self._last: tuple[VectorFile, int] | None = None
+        self._job: _Job | None = None
+        self._compiling = False
+        self._compile_gen = 0
+        self._pool = QThreadPool(self)
+        self._pool.setMaxThreadCount(1)
+        self._compile_signals = _CompileSignals(self)
         self._timer = QTimer(self)
         self._timer.setInterval(TICK_MS)
+        self._job_timer = QTimer(self)
+        self._job_timer.setInterval(0)
         self._build()
         self._wire()
         self._init_backend()
@@ -104,6 +178,8 @@ class SimPanel(QWidget):
         self.top_edit.setPlaceholderText("top module (optional)")
         self.compile_button = QPushButton("Compile")
         self.status_label = QLabel("")
+        self.progress_label = QLabel("")
+        self.stop_button = QPushButton("Stop")
         self.step_button = QPushButton("Step")
         self.step_n_button = QPushButton("Step N")
         self.step_n_box = _spin(1, 100000, 10)
@@ -165,6 +241,7 @@ class SimPanel(QWidget):
             self._row("Design", self.design_combo, "Top", self.top_edit, self.compile_button)
         )
         layout.addWidget(self.status_label)
+        layout.addLayout(self._row(self.progress_label, self.stop_button))
         layout.addWidget(split, 1)
         layout.addLayout(
             self._row(
@@ -202,9 +279,13 @@ class SimPanel(QWidget):
     def _wire(self) -> None:
         self.compile_button.clicked.connect(self.compile)
         self.step_button.clicked.connect(lambda: self._step(1))
-        self.step_n_button.clicked.connect(lambda: self._step(self.step_n_box.value()))
+        self.step_n_button.clicked.connect(self._step_n)
         self.run_button.toggled.connect(self._run_toggled)
         self._timer.timeout.connect(self._tick)
+        self._job_timer.timeout.connect(self._job_tick)
+        self.stop_button.clicked.connect(self.stop_job)
+        self._compile_signals.done.connect(self._compile_done)
+        self._compile_signals.failed.connect(self._compile_failed)
         self.reset_button.clicked.connect(self._reset)
         self.run_random_button.clicked.connect(self._run_random)
         self.run_vectors_button.clicked.connect(self._run_vectors)
@@ -248,26 +329,45 @@ class SimPanel(QWidget):
         ]
 
     def _always_controls(self) -> list[QWidget]:
-        return [
-            self.top_edit,
-            self.record_box,
-            self.internal_box,
-            self.radix_box,
-            self.signals_table,
-            self.vectors_edit,
-            self.vectors_open,
-            self.vectors_save,
-        ]
+        return [self.radix_box, self.vectors_edit, self.vectors_open, self.vectors_save]
+
+    def _idle_controls(self) -> list[QWidget]:
+        return [self.top_edit, self.design_combo, self.signals_table]
+
+    def _setup_controls(self) -> list[QWidget]:
+        # These only take effect at compile time, so they are locked while a session is live.
+        return [self.record_box, self.internal_box]
+
+    @property
+    def busy(self) -> bool:
+        return self._compiling or self._job is not None
+
+    @property
+    def running(self) -> bool:
+        return self._timer.isActive()
 
     def _update_enabled(self) -> None:
-        live = self._available and self.session is not None
+        idle = not self.busy
+        live = self._available and self.session is not None and idle
         has_design = self.design_combo.count() > 0
-        self.design_combo.setEnabled(True)
-        self.compile_button.setEnabled(self._available and has_design)
+        self.compile_button.setEnabled(self._available and has_design and idle)
         for widget in self._always_controls():
             widget.setEnabled(self._available)
+        for widget in self._idle_controls():
+            widget.setEnabled(self._available and idle)
+        for widget in self._setup_controls():
+            widget.setEnabled(self._available and idle and self.session is None)
         for widget in self._session_controls():
             widget.setEnabled(live)
+        self.stop_button.setEnabled(self._job is not None)
+
+    def wait(self, timeout: float = 10.0) -> bool:
+        """Process events until compiling and runs have finished; False on timeout."""
+        end = time.monotonic() + timeout
+        while self.busy and time.monotonic() < end:
+            QCoreApplication.processEvents()
+            time.sleep(0.001)
+        return not self.busy
 
     # project and session
 
@@ -282,6 +382,9 @@ class SimPanel(QWidget):
         self._update_enabled()
 
     def close_session(self) -> None:
+        self._compile_gen += 1
+        self._compiling = False
+        self._drop_job()
         self.run_button.setChecked(False)
         session, self.session = self.session, None
         if session is not None:
@@ -304,7 +407,11 @@ class SimPanel(QWidget):
         top = self.top_edit.text().strip() or design.top or None
         return name, list(design.files), top
 
+    def design_name(self) -> str:
+        return self.design_combo.currentText() or "design"
+
     def compile(self) -> bool:
+        """Start compiling in a worker thread; True if it started (see `wait`)."""
         self.close_session()
         self._clear_views()
         self._fill_diagnostics([])
@@ -312,21 +419,34 @@ class SimPanel(QWidget):
         if chosen is None or self._backend is None:
             return False
         _name, files, top = chosen
-        try:
-            self.session = BifrostSession.from_verilog(files, top=top, backend=self._backend)
-        except CompileError as e:
-            self._fill_diagnostics(list(e.diagnostics))
-            self.view_tabs.setCurrentWidget(self.diagnostics_table)
-            self.status_label.setText(str(e))
-            self._update_enabled()
-            return False
-        except SimError as e:
-            self.status_label.setText(str(e))
-            self._update_enabled()
-            return False
-        return self._after_compile(self.session)
+        self._compiling = True
+        self.status_label.setText("Compiling...")
+        self._update_enabled()
+        task = _CompileTask(self._compile_gen, files, top, self._backend, self._compile_signals)
+        self._pool.start(task)
+        return True
 
-    def _after_compile(self, session: BifrostSession) -> bool:
+    def _compile_failed(self, generation: int, error: object) -> None:
+        if generation != self._compile_gen:
+            return
+        self._compiling = False
+        if isinstance(error, CompileError):
+            self._fill_diagnostics(list(error.diagnostics))
+            self.view_tabs.setCurrentWidget(self.diagnostics_table)
+        self.status_label.setText(str(error))
+        self._update_enabled()
+
+    def _compile_done(self, generation: int, session: object) -> None:
+        if not isinstance(session, BifrostSession):
+            return
+        if generation != self._compile_gen:
+            session.close()
+            return
+        self._compiling = False
+        self.session = session
+        self._after_compile(session)
+
+    def _after_compile(self, session: BifrostSession) -> None:
         self._fill_diagnostics(list(session.diagnostics))
         self._record_names = None
         if self.internal_box.isChecked():
@@ -337,7 +457,6 @@ class SimPanel(QWidget):
         self._refresh_waveform()
         self.status_label.setText(f"Compiled: {len(session.signals)} signals")
         self._update_enabled()
-        return True
 
     # tables
 
@@ -364,20 +483,21 @@ class SimPanel(QWidget):
     def _text_of(self, value: int, width: int) -> str:
         return format_value(value, width, self.waveform.radix)
 
-    def _cursor_values(self) -> dict[str, int] | None:
+    def _cursor_values(self) -> tuple[int, dict[str, int]] | None:
+        """The session cycle at the cursor sample and the recorded values there."""
         cursor = self.waveform.cursor_index
         if cursor is None or self.session is None:
             return None
         rec = self.session.recording
         if rec is None or cursor >= len(rec.samples):
             return None
-        return dict(zip(rec.names, rec.samples[cursor], strict=True))
+        return rec.cycles[cursor], dict(zip(rec.names, rec.samples[cursor], strict=True))
 
     def _refresh_values(self) -> None:
         if self.session is None:
             return
         at = self._cursor_values()
-        header = "Value" if at is None else f"Value @{self.waveform.cursor_index}"
+        header = "Value" if at is None else f"Value @{at[0]}"
         self.signals_table.setHorizontalHeaderItem(3, QTableWidgetItem(header))
         self._refreshing = True
         try:
@@ -385,7 +505,7 @@ class SimPanel(QWidget):
                 item = self.signals_table.item(r, 3)
                 if item is None:
                     continue
-                value = self.session.get(sig.name) if at is None else at.get(sig.name)
+                value = self.session.get(sig.name) if at is None else at[1].get(sig.name)
                 item.setText("" if value is None else self._text_of(value, sig.width))
                 editable = sig.kind == "input" and at is None
                 flags = item.flags() | Qt.ItemFlag.ItemIsEditable
@@ -472,6 +592,22 @@ class SimPanel(QWidget):
             self.status_label.setText("recording full")
         return True
 
+    def _step_n(self) -> None:
+        session = self.session
+        if session is None or self.busy:
+            return
+        self.run_button.setChecked(False)
+        total = self.step_n_box.value()
+
+        def finish(stopped: bool) -> None:
+            self._refresh_waveform()
+            self._refresh_values()
+            if not stopped:
+                full = session.recording_full
+                self.status_label.setText("recording full" if full else f"stepped {total} cycles")
+
+        self._start_job(_Job("Step N", total, session.step, finish))
+
     def _run_toggled(self, on: bool) -> None:
         self.run_button.setText("Pause" if on else "Run")
         if on and self.session is not None:
@@ -494,24 +630,93 @@ class SimPanel(QWidget):
         self._refresh_waveform()
         self._refresh_values()
 
-    # runs
+    # long runs
 
-    def _run_random(self) -> None:
-        if self.session is None:
+    def _start_job(self, job: _Job) -> None:
+        self._job = job
+        self._show_progress()
+        self._update_enabled()
+        self._job_timer.start()
+
+    def _show_progress(self) -> None:
+        job = self._job
+        self.progress_label.setText("" if job is None else f"{job.label}: {job.done}/{job.total}")
+
+    def _drop_job(self) -> None:
+        self._job_timer.stop()
+        self._job = None
+        self._show_progress()
+
+    def _end_job(self, stopped: bool, error: str | None = None) -> None:
+        job = self._job
+        self._drop_job()
+        if job is not None:
+            job.finish(stopped)
+            if stopped:
+                self.status_label.setText(error or f"stopped at {job.done}/{job.total}")
+        self._update_enabled()
+
+    def stop_job(self) -> None:
+        """End the long run in progress; what has been recorded so far stays."""
+        self._end_job(True)
+
+    def _job_tick(self) -> None:
+        job = self._job
+        if job is None:
+            self._job_timer.stop()
             return
-        cycles, seed = self.random_cycles.value(), self.seed_box.value()
-        ports, _outputs = session_ports(self.session)
+        count = min(CHUNK, job.total - job.done)
         try:
-            self.session.reset()
-            self.session.run_random(cycles, seed, self._record_names)
+            if count:
+                job.advance(count)
+        except (ValueError, SimError) as e:
+            self._end_job(True, str(e))
+            return
+        job.done += count
+        if job.done >= job.total:
+            self._end_job(False)
+        else:
+            self._show_progress()
+
+    def _rows_job(
+        self, label: str, rows: Iterator[tuple[int, ...]], total: int, seed: int, text: str
+    ) -> None:
+        session = self.session
+        if session is None:
+            return
+        ports, _outputs = session_ports(session)
+        names = [p.name for p in data_ports(ports)]
+        done: list[tuple[int, ...]] = []
+        try:
+            session.reset()
+            session.start_recording(self._record_names, max_samples=max(MIN_RECORDING, total + 1))
         except (ValueError, SimError) as e:
             self.status_label.setText(str(e))
             return
-        self._last = (random_vectors(ports, cycles, seed), seed)
-        self._after_run(f"random run: {cycles} cycles, seed {seed}")
+
+        def advance(count: int) -> None:
+            for row in itertools.islice(rows, count):
+                session.set_many(dict(zip(names, row, strict=True)))
+                session.step(1)
+                done.append(row)
+
+        def finish(stopped: bool) -> None:
+            self._last = (VectorFile(tuple(done)), seed)
+            self._after_run(text if not stopped else f"{label}: {len(done)} of {total} cycles")
+
+        self.run_button.setChecked(False)
+        self._start_job(_Job(label, total, advance, finish))
+
+    def _run_random(self) -> None:
+        if self.session is None or self.busy:
+            return
+        cycles, seed = self.random_cycles.value(), self.seed_box.value()
+        ports, _outputs = session_ports(self.session)
+        text = f"random run: {cycles} cycles, seed {seed}"
+        self._rows_job("Run random", random_rows(ports, seed), cycles, seed, text)
 
     def _run_vectors(self) -> None:
-        if self.session is None:
+        if self.session is None or self.busy:
             return
         ports, outputs = session_ports(self.session)
         try:
@@ -519,14 +724,8 @@ class SimPanel(QWidget):
         except VectorError as e:
             self._show_vector_error(e)
             return
-        try:
-            self.session.reset()
-            self.session.run_vectors(vf, self._record_names)
-        except (ValueError, SimError) as e:
-            self.status_label.setText(str(e))
-            return
-        self._last = (vf, 0)
-        self._after_run(f"vector run: {len(vf.rows)} cycles")
+        text = f"vector run: {len(vf.rows)} cycles"
+        self._rows_job("Run vectors", iter(vf.rows), len(vf.rows), 0, text)
 
     def _after_run(self, text: str) -> None:
         self._refresh_waveform()
@@ -545,7 +744,11 @@ class SimPanel(QWidget):
 
     def _refresh_waveform(self) -> None:
         rec = None if self.session is None else self.session.recording
-        self.waveform.set_rows([] if rec is None else rows_from_recording(rec))
+        if rec is None:
+            self.waveform.set_rows([])
+            return
+        start = view_start(len(rec.samples))
+        self.waveform.set_rows(rows_from_recording(rec, start), start)
 
     def _radix_changed(self, radix: str) -> None:
         self.waveform.set_radix(radix)
@@ -556,13 +759,21 @@ class SimPanel(QWidget):
 
     # files
 
-    def save_vcd(self, path: Path) -> None:
+    def _io_failed(self, what: str, path: Path | str, error: Exception) -> None:
+        self.status_label.setText(f"could not {what} {path}: {error}")
+
+    def save_vcd(self, path: Path) -> bool:
         rec = None if self.session is None else self.session.recording
         if rec is None:
             self.status_label.setText("nothing recorded")
-            return
-        write_vcd(rec, path, self.design_combo.currentText() or "top")
+            return False
+        try:
+            write_vcd(rec, path, self.design_name())
+        except OSError as e:
+            self._io_failed("save", path, e)
+            return False
         self.status_label.setText(f"saved {path}")
+        return True
 
     def _save_vcd_dialog(self) -> None:
         path, _ = QFileDialog.getSaveFileName(self, "Save VCD", "", "VCD (*.vcd)")
@@ -574,23 +785,51 @@ class SimPanel(QWidget):
             self.status_label.setText("no vectors have been run")
             return
         path, _ = QFileDialog.getSaveFileName(self, "Save vectors", "", "Text (*.txt *.vec)")
-        if not path:
-            return
+        if path:
+            self.save_vectors(Path(path))
+
+    def save_vectors(self, path: Path) -> bool:
+        if self.session is None or self._last is None:
+            self.status_label.setText("no vectors have been run")
+            return False
         ports, outputs = session_ports(self.session)
         vf, seed = self._last
-        text = format_vectors(vf, ports, outputs, recording=self.session.recording, seed=seed)
-        Path(path).write_text(text, encoding="utf-8")
+        try:
+            text = format_vectors(vf, ports, outputs, recording=self.session.recording, seed=seed)
+            path.write_text(text, encoding="utf-8")
+        except (OSError, ValueError) as e:
+            self._io_failed("save", path, e)
+            return False
         self.status_label.setText(f"saved {path}")
+        return True
 
     def _open_vectors(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Open vectors")
         if path:
-            self.vectors_edit.setPlainText(Path(path).read_text(encoding="utf-8"))
+            self.load_vectors(Path(path))
+
+    def load_vectors(self, path: Path) -> bool:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as e:
+            self._io_failed("open", path, e)
+            return False
+        self.vectors_edit.setPlainText(text)
+        return True
 
     def _save_vectors_text(self) -> None:
         path, _ = QFileDialog.getSaveFileName(self, "Save vector text")
         if path:
-            Path(path).write_text(self.vectors_edit.toPlainText(), encoding="utf-8")
+            self.save_vectors_text(Path(path))
+
+    def save_vectors_text(self, path: Path) -> bool:
+        try:
+            path.write_text(self.vectors_edit.toPlainText(), encoding="utf-8")
+        except OSError as e:
+            self._io_failed("save", path, e)
+            return False
+        self.status_label.setText(f"saved {path}")
+        return True
 
     def _template(self) -> None:
         if self.session is None:
@@ -613,8 +852,13 @@ class SimPanel(QWidget):
             self.status_label.setText("nothing recorded")
             return
         out = self.project_dir / "sim"
-        out.mkdir(exist_ok=True)
-        vcd = out / f"{self.design_combo.currentText()}.vcd"
-        write_vcd(rec, vcd, self.design_combo.currentText())
-        if not self.launcher(program, [str(vcd)]):
-            self.status_label.setText(f"could not start {program}")
+        vcd = out / f"{self.design_name()}.vcd"
+        try:
+            out.mkdir(exist_ok=True)
+            write_vcd(rec, vcd, self.design_name())
+        except OSError as e:
+            self._io_failed("write", vcd, e)
+            return
+        error = self.launcher(program, [str(vcd)])
+        if error is not None:
+            self.status_label.setText(f"could not start {program}: {error}")
