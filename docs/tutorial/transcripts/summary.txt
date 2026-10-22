@@ -1,0 +1,17 @@
+$ cat runs/counteradd/EArch/00a3cf1f1415/0-odin3-flow/out/summary.json
+{
+  "luts": 4,
+  "luts_note": ".names with two or more inputs (constants and one-input buffers or inverters excluded)",
+  "clbs": 2,
+  "hard_blocks": {
+    "mult_36": 0,
+    "memory": 0
+  },
+  "min_chan_width": 20,
+  "crit_path_ns": 2.56528,
+  "wirelength": 86,
+  "seconds": {
+    "odin3": 0.114,
+    "vpr": 0.315
+  }
+}

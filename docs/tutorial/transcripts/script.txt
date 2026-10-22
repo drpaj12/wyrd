@@ -1,0 +1,2 @@
+$ wyrd script bb8342dc7f89
+~/wyrd-demo/runs/counteradd/k6_frac_N10_frac_chain_mem32K_40nm/bb8342dc7f89/replay.sh

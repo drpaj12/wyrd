@@ -1,0 +1,12 @@
+$ cat counteradd.vec
+# wyrd seed 3 cycles 6
+# clock clk 0
+# input rst 1
+# input step 4
+# output total 5
+0 01001 01010
+1 10010 00010
+2 01110 01111
+3 10111 00111
+4 11001 01001
+5 01001 01010

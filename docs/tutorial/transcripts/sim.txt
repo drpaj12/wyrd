@@ -1,0 +1,7 @@
+$ wyrd sim src/*.v --top top --random 6 --seed 3 --vcd counteradd.vcd --save-vectors counteradd.vec
+1: rst=0 step=9 | total=10
+2: rst=1 step=2 | total=2
+3: rst=0 step=14 | total=15
+4: rst=1 step=7 | total=7
+5: rst=1 step=9 | total=9
+6: rst=0 step=9 | total=10

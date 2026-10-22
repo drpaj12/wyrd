@@ -1,0 +1,6 @@
+$ wyrd run --progress
+plan: 2 to run, 0 reused
+counteradd/k6_frac_N10_frac_chain_mem32K_40nm [bb8342dc7f89] ok
+counteradd/EArch [00a3cf1f1415] ok
+ok counteradd k6_frac_N10_frac_chain_mem32K_40nm bb8342dc7f89
+ok counteradd EArch 00a3cf1f1415
