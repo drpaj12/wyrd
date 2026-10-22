@@ -7,7 +7,7 @@
 \usepackage{courier}
 \usepackage[letterpaper,margin=1.1in,top=1.0in,bottom=1.0in]{geometry}
 \usepackage{graphicx,xcolor,fancyhdr,titlesec,caption,enumitem,fancyvrb,listings,float,url}
-\usepackage[colorlinks=true,linkcolor=blue!60!black,urlcolor=blue!60!black]{hyperref}
+\usepackage[colorlinks=true,linkcolor=blue!60!black,urlcolor=blue!60!black,citecolor=blue!60!black,bookmarksopen=true,bookmarksnumbered=true,pdfborder={0 0 0}]{hyperref}
 
 \definecolor{banner}{HTML}{1F5FBF}
 \definecolor{codebg}{HTML}{F4F4F4}
@@ -66,6 +66,12 @@
 \end{center}
 \vspace{2pt}
 \noindent\colorbox{banner}{\parbox{\dimexpr\linewidth-2\fboxsep}{\color{white}\sffamily\itshape\small For Wyrd III 0.1\quad(Yggdrasil III suite)\hfill October 2026}}
+
+\begingroup\hypersetup{linkcolor=blue!60!black}
+\renewcommand{\contentsname}{Contents}
+\tableofcontents
+\endgroup
+\clearpage
 
 \section{Introduction}
 
@@ -302,12 +308,85 @@ the reset pulse, the step input and \cmd{total} in hexadecimal.
 
 \section{The Floorplan}\label{sec:floorplan}
 
-The \ui{Floorplan} button in the \ui{Report} tab (next to the tree) shows the placement and routing of the selected run in VPR's
-own graphics window. It re-runs VPR with graphics for that run, using the VPR named by \ui{vpr\_gui} in the Settings dialog
-(Section~\ref{sec:settings}); if \ui{vpr\_gui} is empty it uses the VPR named in the run's log. The button is disabled, with the reason as its tooltip,
-when no VPR can be used. Wyrd III needs a VPR built with Qt6 graphics for this; the manual's Floorplan setup section describes how to build one.
-The Flow log prints the command it starts. The window is VPR's, not Wyrd III's, and it is not shown in a figure here because it is drawn
-with OpenGL, which cannot be captured by the scripted screenshots used in this tutorial.
+The \ui{Floorplan} button in the \ui{Report} tab shows the placement and routing of a finished run in VPR's own graphics window.
+It needs a VPR built with graphics. A normal VTR build leaves graphics out, so the window would close at once. The steps are: build a
+graphics VPR once (Section~\ref{sec:fp-build}), tell Wyrd III where it is (Section~\ref{sec:fp-set}), press \ui{Floorplan}
+(Section~\ref{sec:fp-open}) and step through the window (Section~\ref{sec:fp-step}).
+
+\subsection{Build a VPR with graphics}\label{sec:fp-build}
+
+These steps were checked on Ubuntu 24.04 under WSL2 with VTR 9.0.0-dev. They run in a terminal; \cmd{<qt>} and \cmd{<dir>} are
+folders you choose and \cmd{\$VTR\_ROOT} is your VTR source. Nothing needs \cmd{sudo}.
+
+\begin{enumerate}
+\item VTR needs Qt 6.9.3 or newer. Ubuntu 24.04 ships Qt 6.4.2, so install a private Qt with aqtinstall (about 1.7 GB):
+\begin{lstlisting}[language=bash]
+$ python3 -m venv <qt>/aqt-venv
+$ <qt>/aqt-venv/bin/pip install aqtinstall==3.3.0
+$ <qt>/aqt-venv/bin/aqt install-qt linux desktop 6.9.3 linux_gcc_64 \
+    --outputdir <qt> --modules qtshadertools
+\end{lstlisting}
+\item Configure and build only VPR, out of the VTR tree:
+\begin{lstlisting}[language=bash]
+$ cmake -S $VTR_ROOT -B <dir> -DCMAKE_BUILD_TYPE=Release -DVPR_USE_EZGL=on \
+    -DCMAKE_PREFIX_PATH=<qt>/6.9.3/gcc_64
+$ cmake --build <dir> --target vpr -j6
+\end{lstlisting}
+The program is \cmd{<dir>/vpr/vpr}.
+\item Check that graphics are in. The command prints \cmd{0} when \cmd{NO\_GRAPHICS} is not defined:
+\begin{lstlisting}[language=bash]
+$ grep -c NO_GRAPHICS <dir>/vpr/CMakeFiles/vpr.dir/flags.make
+0
+\end{lstlisting}
+\end{enumerate}
+
+\subsection{Point Wyrd III at it}\label{sec:fp-set}
+
+Open \menu{Project \gt Settings...} and type the path of the new program in the \ui{vpr\_gui} field of the \ui{tools} group, for example
+\cmd{<dir>/vpr/vpr}, then press \ui{OK} (Figure~\ref{fig:gt-settings}, which shows the field filled in). The runs themselves keep using the
+VPR of \ui{vtr\_root}; only the \ui{Floorplan} button uses \ui{vpr\_gui}. If the field is empty the button uses the VPR named in the run's log.
+A path that is not an executable file is refused.
+
+\subsection{Open the floorplan}\label{sec:fp-open}
+
+Select a finished run in the tree of the \ui{Report} tab and press \ui{Floorplan}, next to the tree. The button is disabled, with the
+reason as its tooltip, when no VPR can be used. Wyrd III starts VPR again for that run, with graphics on, and the VPR window opens
+(under WSL, WSLg shows it). The \ui{Flow} log prints the command. Messages such as
+\cmd{libEGL warning: failed to get driver name for fd -1} and \cmd{MESA: error: ZINK: failed to choose pdev} appear in the log: they
+mean no GPU driver is visible, drawing uses the CPU, and the window works. Each press of \ui{Floorplan} opens another VPR window.
+
+\subsection{Step through it}\label{sec:fp-step}
+
+The window shows the chip grid. Blocks are drawn in colour with their names (Figure~\ref{fig:gt-fp-place}). Wyrd III starts VPR with
+\cmd{--graphics\_pause final\_stage}: VPR packs, places and routes the design first without stopping, then pauses once with the
+finished picture on screen. The \ui{Proceed} button at the bottom of the window is what lets VPR carry on and exit. If you want VPR to
+stop at every stage or every update (placement, then routing), run VPR yourself with \cmd{--graphics\_pause major} or
+\cmd{every\_update}; each pause also waits for \ui{Proceed}. Under \ui{Misc.} the switch \ui{Proceed by Step} and the field
+\ui{Steps to Proceed} make VPR pause after a chosen number of updates.
+
+The controls, all named as they are on the buttons of the VPR window:
+\begin{itemize}
+\item \ui{Zoom Fit} shows the whole chip again; \ui{Zoom Select} lets you click two points to zoom into the rectangle between them.
+The mouse wheel also zooms, and dragging with the mouse pans.
+\item The menu buttons \ui{Block}, \ui{Net}, \ui{Route} and \ui{Misc.} open the toggles. \ui{Block} has \ui{Block Internals} (how deep to
+draw inside blocks), \ui{Block Text}, \ui{Block Outline}, \ui{Block Pin Utilization} and \ui{Placement Macros}.
+\item \ui{Net} has the switch \ui{Display Nets} with its type box (\ui{Flylines}), \ui{Inter-cluster Nets} and \ui{Intra-cluster Nets}
+(Figure~\ref{fig:gt-fp-nets}), and the switch \ui{Display Critical Paths} with \ui{Critical Path Flylines}, \ui{Critical Path Routing} and
+\ui{Critical Path Delays} (Figure~\ref{fig:gt-fp-cpd}).
+\item \ui{Route} has the switch \ui{Display Routing Resources} with \ui{Channel Nodes}, \ui{Switch Box Edges} and
+\ui{Connection Box Edges}, and the \ui{Congestion} and \ui{Routing Utilization} boxes. They show the routed design.
+\item \ui{Misc.} has \ui{Proceed by Step}, \ui{Steps to Proceed}, the \ui{Save} button (writes the picture to a file) and \ui{Manual Move}.
+\end{itemize}
+Close the window when you are done.
+
+\note{A grab of the VPR window is black under WSLg, because VPR draws with OpenGL. The three pictures here were made by VPR itself instead:
+with \cmd{--disp off} VPR draws offscreen, and \cmd{--graphics\_commands "save\_graphics place.png"} writes a PNG. The script
+\cmd{docs/tutorial-gui/shots/floorplan\_shots.py} builds the same command as the \ui{Floorplan} button for the run of the tutorial and saves
+the pictures. They show the same drawing as the window; the \ui{Route} switches, which only the live window can set, are not in them.}
+
+\shot[0.72]{gt-fp-place}{The placement of the tutorial design on the EArch grid: two logic blocks (CLBs) and the I/O pads around them.}
+\shot[0.72]{gt-fp-nets}{The same placement with the nets drawn as flylines (\ui{Display Nets}).}
+\shot[0.72]{gt-fp-cpd}{After routing, with the critical path drawn (\ui{Display Critical Paths}); the heading gives its delay, 1.758 ns.}
 
 \section{The Sample Project and Midgard III}
 
