@@ -54,12 +54,14 @@ class UiBase(unittest.TestCase):
         self,
         build: Callable[[Sequence[Path]], BuildResult] | None = None,
         backend: Backend | None = None,
+        speed: int = 4,
+        data: Path | None = None,
     ) -> Game:
         game = Game(
-            self.tmp,
+            data or self.tmp,
             backend=backend or FakeLightBackend(),
             build=build,
-            speed=4,
+            speed=speed,
             window_size=(640, 750),
             editor=False,
         )

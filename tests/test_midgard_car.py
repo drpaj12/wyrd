@@ -43,6 +43,9 @@ class Stub:
     def start_recording(self) -> None:
         return None
 
+    def stop_recording(self) -> None:
+        return None
+
     def recording(self) -> Recording | None:
         return None
 

@@ -34,7 +34,7 @@ class FakeLightHandle:
         self._sigs = {s.name: s for s in _signals(flags)}
         self.log: list[tuple[int, int, int]] = []
         self.set_calls: list[tuple[str, int]] = []
-        self._closed = False
+        self.closed = False
         self.reset()
 
     def reset(self) -> None:
@@ -89,8 +89,8 @@ class FakeLightHandle:
         return self._cycle
 
     def close(self) -> None:
-        if not self._closed:
-            self._closed = True
+        if not self.closed:
+            self.closed = True
             self._backend.open_handles -= 1
 
 
@@ -122,6 +122,9 @@ class FakeLightBackend:
     def __init__(self) -> None:
         self.open_handles = 0
         self.handles: list[FakeLightHandle] = []
+
+    def live(self) -> list[FakeLightHandle]:
+        return [h for h in self.handles if not h.closed]
 
     def compile(self, files: Sequence[Path]) -> FakeLightCompiled:
         text = "\n".join(p.read_text(encoding="utf-8") for p in files)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -123,6 +125,20 @@ class Game:
         return build_controllers(paths, self.backend)
 
     def _no_waveform(self, path: Path) -> bool:
+        program = shutil.which("gtkwave")
+        if program is not None:
+            try:
+                subprocess.Popen(
+                    [program, str(path)],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                return True
+            except OSError as exc:
+                self.status = f"Could not start gtkwave: {exc}"
+                return False
         self.status = f"Waveform: {path}"
         return False
 

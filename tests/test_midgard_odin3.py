@@ -49,6 +49,9 @@ class Tracer:
     def start_recording(self) -> None:
         self.inner.start_recording()
 
+    def stop_recording(self) -> None:
+        self.inner.stop_recording()
+
     def recording(self) -> Recording | None:
         return self.inner.recording()
 

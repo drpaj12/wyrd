@@ -19,6 +19,7 @@ from wyrd.midgard.model.traffic import TrafficControl
 from wyrd.midgard.model.watch import FileWatcher, editor_command
 from wyrd.midgard.ui import layers
 from wyrd.midgard.ui.camera import Camera
+from wyrd.midgard.ui.clockstrip import ClockStrip, draw_inspector, inspector_lines
 from wyrd.midgard.ui.draw import draw_text
 from wyrd.midgard.ui.game import Event, Game, Pos, Screen
 from wyrd.midgard.ui.view import LEVEL_SIZE
@@ -45,6 +46,8 @@ class LevelScreen(Screen):
         self.game = game
         self.number = number
         self.camera = Camera()
+        self.strip = ClockStrip()
+        self.recording = False
         self.world = pygame.Surface((1280, CAMERA_H))
         self.message = ""
         self.help_open = False
@@ -112,6 +115,9 @@ class LevelScreen(Screen):
             self.message = "Fix the errors before starting"
             return
         self.level.start([c for c in built.controllers if c is not None])
+        if self.recording:
+            for c in self.level.controllers:
+                c.start_recording()
         self.message = ""
         self.game.tick_clock.reset()
 
@@ -120,6 +126,7 @@ class LevelScreen(Screen):
         self.help_open = False
         self.done_timer = 0.0
         self.message = ""
+        self.recording = False
         self.camera = Camera()
         self._load()
 
@@ -168,7 +175,9 @@ class LevelScreen(Screen):
                 self.last_real = self.camera.to_world(*pos)
         elif t == pygame.MOUSEBUTTONUP:
             self.mouse = pos
-            if pos is not None:
+            if pos is not None and pos[1] >= CAMERA_H and event.button == 1:
+                self._strip_click(pos)
+            elif pos is not None:
                 self._release(event.button, pos)
 
     def camera_enabled(self) -> bool:
@@ -183,6 +192,12 @@ class LevelScreen(Screen):
             pygame.K_r: self.restart,
             pygame.K_m: self._key_menu,
             pygame.K_c: self._key_clear,
+            pygame.K_PERIOD: self._key_step,
+            pygame.K_1: lambda: self._set_speed(1),
+            pygame.K_2: lambda: self._set_speed(2),
+            pygame.K_4: lambda: self._set_speed(4),
+            pygame.K_v: self._key_record,
+            pygame.K_e: self.export,
         }
         action = actions.get(key)
         if action is not None:
@@ -210,6 +225,79 @@ class LevelScreen(Screen):
         if self.phase is Phase.EDIT:
             self.level.editor.clear_all()
             self._save_sensors()
+
+    def _set_speed(self, speed: int) -> None:
+        self.game.speed = speed
+
+    def _key_step(self) -> None:
+        if self.phase is Phase.EDIT:
+            self.try_start()
+            self._pause_if_running()
+        elif self.phase is Phase.PAUSE:
+            try:
+                self.level.step_once()
+            except ControllerError as exc:
+                self.message = str(exc)
+                self._pause_if_running()
+
+    def _pause_if_running(self) -> None:
+        if self.phase is Phase.RUN:
+            self.level.toggle_pause()
+
+    def _key_record(self) -> None:
+        self.recording = not self.recording
+        if self.phase is Phase.EDIT:
+            self.message = "Recording armed" if self.recording else "Recording off"
+            return
+        for c in self.level.controllers:
+            if self.recording:
+                c.start_recording()
+            else:
+                c.stop_recording()
+        self.message = "Recording" if self.recording else "Recording stopped"
+
+    def export(self) -> list[Path]:
+        """Write one VCD per recorded intersection (PAUSE or DONE); return the paths."""
+        if self.phase not in (Phase.PAUSE, Phase.DONE):
+            return []
+        folder = self.game.userdata.recordings_dir(self.number)
+        paths: list[Path] = []
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            for i, c in enumerate(self.level.controllers):
+                if c.recording() is not None:
+                    paths.append(folder / f"intersection_{i}.vcd")
+                    c.export_vcd(paths[-1])
+        except (OSError, ControllerError) as exc:
+            self.message = f"Export failed: {exc}"
+            return []
+        names = ", ".join(str(p) for p in paths)
+        self.message = f"Exported: {names}" if paths else "nothing recorded"
+        return paths
+
+    def _waveform(self) -> None:
+        paths = self.export()
+        if paths:
+            self.game.open_waveform(paths[0])
+
+    def _strip_click(self, pos: tuple[int, int]) -> None:
+        actions = {
+            "pause": self._key_pause_toggle,
+            "step": self._key_step,
+            "x1": lambda: self._set_speed(1),
+            "x2": lambda: self._set_speed(2),
+            "x4": lambda: self._set_speed(4),
+            "rec": self._key_record,
+            "export": self.export,
+            "waveform": self._waveform,
+        }
+        name = self.strip.hit(pos)
+        if name is not None:
+            actions[name]()
+
+    def _key_pause_toggle(self) -> None:
+        if self.phase in (Phase.RUN, Phase.PAUSE):
+            self.level.toggle_pause()
 
     def _motion(self, event: Event, pos: Pos) -> None:
         self.mouse = pos
@@ -330,10 +418,17 @@ class LevelScreen(Screen):
         self._draw_world()
         self._blit_camera(surface)
         layers.draw_score_bar(surface, self.game.assets, self.level.result())
+        self._draw_clock(surface)
         self._draw_status(surface)
         layers.draw_error_panel(surface, self.game.assets, self.errors)
         if self.help_open:
             layers.draw_help(surface, self.game.assets)
+
+    def _draw_clock(self, surface: pygame.Surface) -> None:
+        a, level, game = self.game.assets, self.level, self.game
+        self.strip.draw(surface, a, level, game.speed, self.recording, level.controllers)
+        if self.phase in (Phase.PAUSE, Phase.DONE):
+            draw_inspector(surface, a, inspector_lines(level.controllers))
 
     def _draw_world(self) -> None:
         w, assets, level = self.world, self.game.assets, self.level

@@ -33,6 +33,8 @@ class LightController(Protocol):
 
     def start_recording(self) -> None: ...
 
+    def stop_recording(self) -> None: ...
+
     def recording(self) -> Recording | None: ...
 
     def export_vcd(self, path: Path) -> None: ...
@@ -59,6 +61,9 @@ class ScriptedController:
         return None
 
     def start_recording(self) -> None:
+        return None
+
+    def stop_recording(self) -> None:
         return None
 
     def recording(self) -> Recording | None:
@@ -181,6 +186,9 @@ class MidgardController:
 
     def start_recording(self) -> None:
         self.session.start_recording()
+
+    def stop_recording(self) -> None:
+        self.session.stop_recording()
 
     def recording(self) -> Recording | None:
         return self.session.recording
