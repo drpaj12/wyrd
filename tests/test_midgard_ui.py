@@ -272,7 +272,10 @@ class RobustnessTest(UiBase):
         game.editor = True
         game.open_level(1)
         screen = self.level_screen(game)
-        with patch.dict(os.environ, {"MIDGARD_EDITOR": "ed 'x"}):
+        with (
+            patch("importlib.util.find_spec", return_value=None),
+            patch.dict(os.environ, {"MIDGARD_EDITOR": "ed 'x"}),
+        ):
             screen.open_editor(0)
         self.assertTrue(screen.message.startswith("MIDGARD_EDITOR: "))
 
@@ -281,7 +284,10 @@ class RobustnessTest(UiBase):
         game.editor = True
         game.open_level(1)
         screen = self.level_screen(game)
-        with patch.dict(os.environ, {"MIDGARD_EDITOR": "true"}):
+        with (
+            patch("importlib.util.find_spec", return_value=None),
+            patch.dict(os.environ, {"MIDGARD_EDITOR": "true"}),
+        ):
             screen.open_editor(0)
         self.assertEqual(len(game._children), 1)
         child = game._children[0]
@@ -317,6 +323,111 @@ class RobustnessTest(UiBase):
         game = self.make_game(build=build)
         game.open_level(1)
         self.assertEqual(self.level_screen(game).message, "needs Odin III 1.0.3")
+
+
+class _Proc:
+    """A stand-in for a launched editor process; `code` None means still open."""
+
+    def __init__(self) -> None:
+        self.code: int | None = None
+
+    def poll(self) -> int | None:
+        return self.code
+
+
+class EditorLaunchTest(UiBase):
+    def make(self) -> tuple[Game, list[list[str]], list[_Proc]]:
+        self.clock = [100.0]
+        argvs: list[list[str]] = []
+        procs: list[_Proc] = []
+
+        def fake(argv: list[str]) -> _Proc:
+            argvs.append(argv)
+            procs.append(_Proc())
+            return procs[-1]
+
+        game = Game(
+            self.tmp,
+            backend=FakeLightBackend(),
+            speed=4,
+            window_size=(640, 750),
+            editor=True,
+            launcher=fake,
+            now=lambda: self.clock[0],
+        )
+        game.tick_clock.max_backlog = 100000
+        self.addCleanup(game.close)
+        return game, argvs, procs
+
+    def click_control(self, game: Game, index: int) -> None:
+        screen = self.level_screen(game)
+        for ix, column in enumerate(screen.level.town.grid):
+            for iy, node in enumerate(column):
+                if node.control is not None and node.control.index == index:
+                    self.click(game, ((ix - 1) * 64 + 32, 1380 - ((iy - 1) * 64 + 32)))
+                    return
+        self.fail("no such control")
+
+    def test_click_launches_editor(self) -> None:
+        game, argvs, procs = self.make()
+        game.open_level(1)
+        game.frame(0.7, [])
+        self.click_control(game, 0)
+        self.assertEqual(len(argvs), 1)
+        argv = argvs[0]
+        self.assertEqual(
+            argv[argv.index("--file") + 1],
+            str(self.tmp / "Lv1" / "VerilogFiles" / "Traffic_signal_set_0.v"),
+        )
+        self.assertEqual(argv[argv.index("--level") + 1], "1")
+        game.frame(0.7, [])
+        self.clock[0] += 1.0
+        self.click_control(game, 0)
+        self.assertEqual(len(argvs), 1)
+        procs[0].code = 0
+        game.frame(0.7, [])
+        self.clock[0] += 1.0
+        self.click_control(game, 0)
+        self.assertEqual(len(argvs), 2)
+
+    def test_run_phase_launches_nothing(self) -> None:
+        game, argvs, _ = self.make()
+        game.open_level(1)
+        game.frame(0.7, [])
+        self.key(game, pygame.K_s)
+        game.frame(0.7, [])
+        self.click_control(game, 0)
+        self.assertEqual(argvs, [])
+
+    def test_no_pyside_uses_external_editor(self) -> None:
+        game, argvs, _ = self.make()
+        game.open_level(1)
+        game.frame(0.7, [])
+        screen = self.level_screen(game)
+        path = self.tmp / "Lv1" / "VerilogFiles" / "Traffic_signal_set_0.v"
+        with (
+            patch("importlib.util.find_spec", return_value=None),
+            patch("wyrd.midgard.ui.levelscreen.editor_command", return_value=None) as cmd,
+        ):
+            screen.open_editor(0)
+        self.assertEqual(argvs, [])
+        cmd.assert_called_once()
+        self.assertEqual(screen.message, f"Edit this file: {path}")
+
+    def test_open_editor_hides_file_change_and_recompiles_on_close(self) -> None:
+        game, _, procs = self.make()
+        game.open_level(1)
+        game.frame(0.7, [])
+        screen = self.level_screen(game)
+        self.click_control(game, 0)
+        with patch.object(screen, "compile", wraps=screen.compile) as compiles:
+            self.write_file(1, 0, SYNTAX)
+            game.frame(0.7, [])
+            compiles.assert_not_called()
+            procs[0].code = 0
+            game.frame(0.7, [])
+            compiles.assert_called_once()
+        self.assertTrue(screen.errors)
 
 
 class MouseTest(UiBase):

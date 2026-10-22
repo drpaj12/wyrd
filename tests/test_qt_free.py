@@ -115,10 +115,11 @@ def _midgard_violation(rel: Path, name: str) -> bool:
 class QtFreeTest(unittest.TestCase):
     def test_no_pyside_outside_gui(self) -> None:
         gui = ROOT / "wyrd" / "gui"
+        editors = ROOT / "wyrd" / "midgard" / "editors"
         offenders = [
             str(p.relative_to(ROOT))
             for p in sorted((ROOT / "wyrd").rglob("*.py"))
-            if gui not in p.parents and imports_qt_or_gui(p)
+            if gui not in p.parents and editors not in p.parents and imports_qt_or_gui(p)
         ]
         self.assertEqual(offenders, [])
 

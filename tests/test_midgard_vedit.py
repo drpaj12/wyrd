@@ -116,6 +116,19 @@ class VeditTest(VeditBase):
         assert first is not None and again is not None
         self.assertEqual(first.clock_cycle, again.clock_cycle)
 
+    def test_check_unsaved_leaves_file_and_state(self) -> None:
+        s, path = self.session()
+        s.verify()
+        s.set_text("SYNTAX_ERROR")
+        res = s.check_unsaved()
+        self.assertFalse(res.ok)
+        self.assertEqual(path.read_text(encoding="utf-8"), GOOD + "\n")
+        self.assertTrue(s.dirty)
+        self.assertIsNotNone(s.simulate("00000000", ZERO30)[0])
+        s.set_text(GOOD + " ")
+        self.assertTrue(s.check_unsaved().ok)
+        self.assertEqual(len(self.backend.live()), 1)
+
     def test_reverify_closes_old_controller(self) -> None:
         s, _ = self.session()
         s.verify()

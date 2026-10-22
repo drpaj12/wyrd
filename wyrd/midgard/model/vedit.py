@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -105,31 +106,44 @@ class EditorSession:
             self._controller.close()
             self._controller = None
 
-    def _compile(self) -> VerifyResult:
-        self.save()
+    def _build(self, target: Path) -> tuple[VerifyResult, LightController | None]:
         messages = [f"Compiling {self.path}"]
-        self._drop_controller()
-        self.cycle = 0
         try:
-            result = build_controllers([self.path], self.backend)
+            result = build_controllers([target], self.backend)
         except SimError as exc:
-            return VerifyResult(False, (*messages, f"Error: {exc}"))
+            return VerifyResult(False, (*messages, f"Error: {exc}")), None
         if result.errors:
             errs = [_error_message(e.line, e.col, e.message) for e in result.errors]
-            return VerifyResult(False, (*messages, *errs))
+            return VerifyResult(False, (*messages, *errs)), None
         controller = result.controllers[0]
         if controller is None:
-            return VerifyResult(False, (*messages, "Error: no controller"))
+            return VerifyResult(False, (*messages, "Error: no controller")), None
         try:
             controller.start()
         except ControllerError as exc:
             controller.close()
-            return VerifyResult(False, (*messages, f"Error: {exc}"))
-        self._controller = controller
-        return VerifyResult(True, (*messages, "Compile successful"))
+            return VerifyResult(False, (*messages, f"Error: {exc}")), None
+        return VerifyResult(True, (*messages, "Compile successful")), controller
+
+    def _compile(self) -> VerifyResult:
+        self.save()
+        self._drop_controller()
+        self.cycle = 0
+        result, self._controller = self._build(self.path)
+        return result
 
     def verify(self) -> VerifyResult:
         return self._compile()
+
+    def check_unsaved(self) -> VerifyResult:
+        """Compile the current text from a scratch copy; the file and the session state stay."""
+        with tempfile.TemporaryDirectory() as tmp:
+            scratch = Path(tmp) / self.path.name
+            scratch.write_text(self.text + "\n", encoding="utf-8")
+            result, controller = self._build(scratch)
+            if controller is not None:
+                controller.close()
+        return result
 
     def reset(self) -> str:
         return "\n".join(self._compile().messages)
