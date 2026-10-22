@@ -9,9 +9,13 @@ from tests.fakes_sim import TRACE_IN, TRACE_OUT
 from wyrd.bifrost import (
     BifrostSession,
     CompileError,
+    NoSuchSignal,
+    SessionClosed,
+    ValueRangeError,
     odin3_available,
     vcd_text,
 )
+from wyrd.bifrost.backend import Odin3Backend
 
 TRAFFIC = Path(__file__).parent / "data" / "sim" / "traffic.v"
 OUT_NAMES = ["light_ns", "light_ew", "state", "timer"]
@@ -123,3 +127,34 @@ class RealOdin3Test(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(odin3_available(), "odin3 with the simulation API is not installed")
+class RealHandleErrorsTest(unittest.TestCase):
+    """The backend handle maps the binding's KeyError/ValueError/RuntimeError (S1 spec SP-3)."""
+
+    def setUp(self) -> None:
+        design = Odin3Backend().compile([TRAFFIC])
+        self.addCleanup(design.close)
+        self.handle = design.open(None)
+        self.addCleanup(self.handle.close)
+
+    def test_unknown_name(self) -> None:
+        for call in (lambda: self.handle.get("nope"), lambda: self.handle.set("nope", 1)):
+            with self.assertRaises(NoSuchSignal) as cm:
+                call()
+            self.assertEqual(cm.exception.name, "nope")
+            self.assertTrue(str(cm.exception).startswith("nope: not in the simulated netlist"))
+
+    def test_value_out_of_range(self) -> None:
+        with self.assertRaises(ValueRangeError):
+            self.handle.set("car_ns", 2)
+        with self.assertRaises(ValueRangeError):
+            self.handle.step(-1)
+
+    def test_closed(self) -> None:
+        self.handle.close()
+        # the binding is closed underneath; the handle maps its RuntimeError
+        for call in (self.handle.settle, self.handle.reset, lambda: self.handle.step(1)):
+            with self.assertRaises(SessionClosed):
+                call()

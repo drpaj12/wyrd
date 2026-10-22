@@ -9,9 +9,17 @@ from types import ModuleType
 from typing import Any, Protocol
 
 from wyrd.bifrost.diagnostics import parse_log
-from wyrd.bifrost.errors import CompileError, SimError, SimUnavailable
+from wyrd.bifrost.errors import (
+    CompileError,
+    NoSuchSignal,
+    SessionClosed,
+    SimError,
+    SimUnavailable,
+    ValueRangeError,
+)
 from wyrd.bifrost.types import Diagnostic, Signal
 
+_BINDING_ERRORS = (KeyError, ValueError, RuntimeError)
 _BAD_PATH_CHARS = ('"', ";", "\n", "\r")
 
 UNAVAILABLE = (
@@ -63,47 +71,60 @@ class _Handle:
     def signals(self) -> Sequence[Signal]:
         return self._signals
 
+    def _translate(self, e: Exception, name: str | None) -> SimError:
+        """Map the binding's exceptions (spec SP-3) to Bifrost's."""
+        if isinstance(e, KeyError) and name is not None:
+            return NoSuchSignal(name)
+        if isinstance(e, ValueError):
+            return ValueRangeError(str(e))
+        if isinstance(e, RuntimeError) and not isinstance(e, self._err):
+            return SessionClosed(str(e))
+        return SimError(str(e.args[0]) if isinstance(e, KeyError) and e.args else str(e))
+
     def signal(self, name: str) -> Signal | None:
         try:
             info = self._sim.signal(name)
-        except self._err as e:
-            raise SimError(str(e)) from e
+        except _BINDING_ERRORS + (self._err,) as e:
+            raise self._translate(e, name) from e
         return None if info is None else _signal(info)
 
     def get(self, name: str) -> int:
         try:
             value: int = self._sim.get(name)
-        except self._err as e:
-            raise SimError(str(e)) from e
+        except _BINDING_ERRORS + (self._err,) as e:
+            raise self._translate(e, name) from e
         return value
 
     def set(self, name: str, value: int) -> None:
         try:
             self._sim.set(name, value)
-        except self._err as e:
-            raise SimError(str(e)) from e
+        except _BINDING_ERRORS + (self._err,) as e:
+            raise self._translate(e, name) from e
 
     def settle(self) -> None:
         try:
             self._sim.settle()
-        except self._err as e:
-            raise SimError(str(e)) from e
+        except _BINDING_ERRORS + (self._err,) as e:
+            raise self._translate(e, None) from e
 
     def step(self, cycles: int) -> None:
         try:
             self._sim.step(cycles)
-        except self._err as e:
-            raise SimError(str(e)) from e
+        except _BINDING_ERRORS + (self._err,) as e:
+            raise self._translate(e, None) from e
 
     def reset(self) -> None:
         try:
             self._sim.reset()
-        except self._err as e:
-            raise SimError(str(e)) from e
+        except _BINDING_ERRORS + (self._err,) as e:
+            raise self._translate(e, None) from e
 
     @property
     def cycle(self) -> int:
-        value: int = self._sim.cycle
+        try:
+            value: int = self._sim.cycle
+        except _BINDING_ERRORS + (self._err,) as e:
+            raise self._translate(e, None) from e
         return value
 
     def close(self) -> None:
