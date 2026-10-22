@@ -12,7 +12,9 @@ machine file `wyrd config init` writes takes it from $VTR_ROOT). Typical call:
       python make_shots.py /tmp/claude-1000/wdoc-tutorial
 
 Output: ../images/*.png (screenshots) and ../transcripts/*.txt (command output). WORK_DIR is
-wiped first. In the transcripts WORK_DIR/demo is printed as ~/wyrd-demo and nothing else is edited.
+wiped first. In the transcripts WORK_DIR/demo is printed as ~/wyrd-demo and nothing else is
+edited. The samples commands are shown with `--project samples` but run inside the copy, which
+gives the same output.
 """
 
 from __future__ import annotations
@@ -101,6 +103,29 @@ def fail_part(w: Work) -> None:
     print("transcript bad-module")
 
 
+def compare_part(w: Work) -> None:
+    """The same project with a registered output, run in demo2, compared with demo."""
+    v2 = w.root / "demo2"
+    shutil.copytree(w.demo / "src", v2 / "src")
+    shutil.copy(w.demo / "wyrd.toml", v2 / "wyrd.toml")
+    shutil.copy(TUTORIAL / "project" / "variants" / "top_registered.v", v2 / "src" / "top.v")
+    w.run(wyrd("run"), v2, "run-v2", "wyrd run")
+    w.run(wyrd("compare", "../wyrd-demo", ".", "--metrics", "luts,clbs,crit_path_ns"), v2,
+          "compare", "wyrd compare ~/wyrd-demo ~/wyrd-demo2 --metrics luts,clbs,crit_path_ns")
+
+
+def samples_part(w: Work) -> Path:
+    """The shipped samples, run in a copy so the repository stays clean."""
+    scratch = w.root / "samples"
+    shutil.copytree(TUTORIAL.parent.parent / "samples", scratch,
+                    ignore=shutil.ignore_patterns("expected", "make-expected", "__pycache__"))
+    w.run(wyrd("run"), scratch, "samples-run", "wyrd run --project samples")
+    w.run(wyrd("table", "--metrics", "luts,clbs,hard_blocks.memory,hard_blocks.mult_36"),
+          scratch, "samples-table",
+          "wyrd table --project samples --metrics luts,clbs,hard_blocks.memory,hard_blocks.mult_36")
+    return scratch
+
+
 def sim_part(w: Work) -> None:
     files = ["src/add4.v", "src/counter.v", "src/top.v"]
     w.run(wyrd("sim", *files, "--top", "top", "--random", "6", "--seed", "3",
@@ -125,7 +150,10 @@ def main(root: Path) -> int:
     w = Work(root)
     IMAGES.mkdir(parents=True, exist_ok=True)
     cli_part(w)
-    child("gui_shots.py", str(w.demo), str(IMAGES), env=dict(w.env, QT_QPA_PLATFORM="offscreen"))
+    compare_part(w)
+    samples = samples_part(w)
+    child("gui_shots.py", str(w.demo), str(IMAGES), str(samples),
+          env=dict(w.env, QT_QPA_PLATFORM="offscreen"))
     sim_part(w)
     fail_part(w)
     data = root / "midgard"

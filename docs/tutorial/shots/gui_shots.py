@@ -1,6 +1,6 @@
 """Screenshots of the Wyrd III GUI for the tutorial, from the real GUI against real Odin III.
 
-    QT_QPA_PLATFORM=offscreen python gui_shots.py PROJECT_DIR OUT_DIR
+    QT_QPA_PLATFORM=offscreen python gui_shots.py PROJECT_DIR OUT_DIR [SAMPLES_DIR]
 
 PROJECT_DIR holds wyrd.toml and src/ (made by make_shots.py); it is run for real. Needs odin3,
 odin3-flow and VTR_ROOT as `wyrd run` does, and the odin3 Python package for the Simulate tab.
@@ -54,7 +54,18 @@ def grab(widget: QWidget, out: Path, name: str) -> None:
     print("shot", name)
 
 
-def main(project: Path, out: Path) -> int:
+def samples_shot(app: QApplication, win: MainWindow, out: Path, samples: Path) -> None:
+    win.open_project(samples)
+    wait(app, lambda: win.project is not None and win.project.name == "samples")
+    win.tabs.setCurrentWidget(win.report_view)
+    win.docks["Flow"].show()
+    win.docks["Flow"].raise_()
+    win.refresh_results()
+    pump(app, 1.0)
+    grab(win, out, "gui-samples")
+
+
+def main(project: Path, out: Path, samples: Path | None) -> int:
     out.mkdir(parents=True, exist_ok=True)
     app = QApplication([])
     settings = QSettings(str(project.parent / "gui.ini"), QSettings.Format.IniFormat)
@@ -72,6 +83,8 @@ def main(project: Path, out: Path) -> int:
     dialogs(app, win, out)
     run_flow(app, win, out)
     simulate(app, win, out, project)
+    if samples is not None:
+        samples_shot(app, win, out, samples)
     return 0
 
 
@@ -152,4 +165,5 @@ def simulate(app: QApplication, win: MainWindow, out: Path, project: Path) -> No
 
 
 if __name__ == "__main__":
-    sys.exit(main(Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve()))
+    extra = Path(sys.argv[3]).resolve() if len(sys.argv) > 3 else None
+    sys.exit(main(Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve(), extra))
