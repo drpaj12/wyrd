@@ -126,7 +126,7 @@ class _CompileTask(QRunnable):
     def run(self) -> None:
         try:
             session = BifrostSession.from_verilog(self.files, top=self.top, backend=self.backend)
-        except (SimError, ValueError, OSError) as e:
+        except Exception as e:  # any failure must reach the panel, or it stays busy forever
             self.signals.failed.emit(self.generation, e)
         else:
             self.signals.done.emit(self.generation, session)

@@ -278,6 +278,18 @@ class SimPanelTest(unittest.TestCase):
         self.assertIsNotNone(panel.session)
         self.assertTrue(panel.compile_button.isEnabled())
 
+    def test_unexpected_compile_error_frees_panel(self) -> None:
+        panel = self.opened().sim_panel
+        with mock.patch(
+            "wyrd.gui.simpanel.BifrostSession.from_verilog", side_effect=RuntimeError("boom")
+        ):
+            self.assertTrue(panel.compile())
+            self.assertTrue(panel.wait())
+        self.assertIsNone(panel.session)
+        self.assertFalse(panel.busy)
+        self.assertTrue(panel.compile_button.isEnabled())
+        self.assertEqual(panel.status_label.text(), "boom")
+
     def test_stale_compile_is_dropped(self) -> None:
         panel = self.opened().sim_panel
         self.assertTrue(panel.compile())
