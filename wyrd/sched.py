@@ -231,8 +231,8 @@ def run_all(
     """Run every run of the project; return run key to final status.
 
     Runs already `ok` are reused unless `force`. Smallest inputs go first. A step starts only
-    when its memory estimate fits the free budget. SIGINT or SIGTERM kills the running groups and marks
-    those runs `cancelled`; runs not yet started are left out of the result.
+    when its memory estimate fits the free budget. SIGINT or SIGTERM kills the running groups and
+    marks those runs `cancelled`; runs not yet started are left out of the result.
     """
     sched = _Scheduler(
         settings,
@@ -255,6 +255,6 @@ def run_all(
         with ThreadPoolExecutor(max_workers=settings.jobs) as pool:
             list(pool.map(sched.run_one, todo))
     finally:
-        for sig, old in previous.items():
-            signal.signal(sig, signal.SIG_DFL if old is None else old)
+        for number, old in previous.items():
+            signal.signal(number, signal.SIG_DFL if old is None else old)
     return dict(sched.results)

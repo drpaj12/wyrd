@@ -60,6 +60,9 @@ class FlowPanel(QWidget):
         self._tracker = FlowProgress()
         self._pending = b""
         self._can_run = False
+        self._token = 0
+        self._start_wait = False
+        self._armed_ms: int | None = None
         self._fp_clock = QElapsedTimer()
         self.term_ms = CANCEL_GRACE_MS
         self.close_term_ms = CLOSE_TERM_MS
@@ -108,6 +111,10 @@ class FlowPanel(QWidget):
             self.jobs_box.value(),
             self.budget_edit.text().strip(),
         )
+        self._token += 1
+        token = self._token
+        self._armed_ms = None
+        self._start_wait = False
         self.log.clear()
         self._tracker = FlowProgress()
         self._pending = b""
@@ -115,10 +122,10 @@ class FlowPanel(QWidget):
         self.status_label.setText("running")
         proc = QProcess(self)
         proc.setProcessChannelMode(QProcess.ProcessChannelMode.SeparateChannels)
-        proc.readyReadStandardOutput.connect(self._on_stdout)
-        proc.readyReadStandardError.connect(self._on_stderr)
-        proc.finished.connect(self._on_finished)
-        proc.errorOccurred.connect(lambda err: self._on_error(proc, err))
+        proc.readyReadStandardOutput.connect(lambda: self._on_stdout(proc, token))
+        proc.readyReadStandardError.connect(lambda: self._on_stderr(proc, token))
+        proc.finished.connect(lambda code, status: self._on_finished(proc, token, code, status))
+        proc.errorOccurred.connect(lambda err: self._on_error(proc, token, err))
         self.process = proc
         proc.setProgram(argv[0])
         proc.setArguments(argv[1:])
@@ -135,24 +142,42 @@ class FlowPanel(QWidget):
             self.progress.setRange(0, 1000)
             self.progress.setValue(int(fraction * 1000))
 
-    def _on_stdout(self) -> None:
-        if self.process is None:
+    def _current(self, proc: QProcess, token: int) -> bool:
+        """True when ``proc`` is the run started last; output of any other run is dropped."""
+        return token == self._token and proc is self.process
+
+    def reset(self) -> None:
+        """Back to idle with an empty log; no effect while a flow runs."""
+        if self.is_running():
             return
-        self._pending += bytes(self.process.readAllStandardOutput().data())
+        self.log.clear()
+        self.progress.setRange(0, 1000)
+        self.progress.setValue(0)
+        self.status_label.setText("idle")
+        self._sync()
+
+    def _on_stdout(self, proc: QProcess, token: int) -> None:
+        if not self._current(proc, token):
+            return
+        self._pending += bytes(proc.readAllStandardOutput().data())
         *complete, self._pending = self._pending.split(b"\n")
         for raw in complete:
             for line in _lines(raw) or [""]:
                 self._feed(line)
 
-    def _on_stderr(self) -> None:
-        if self.process is None:
+    def _on_stderr(self, proc: QProcess, token: int) -> None:
+        if not self._current(proc, token):
             return
-        for line in _lines(bytes(self.process.readAllStandardError().data())):
+        for line in _lines(bytes(proc.readAllStandardError().data())):
             self._append(f"stderr: {line}")
 
-    def _on_finished(self, code: int, status: QProcess.ExitStatus) -> None:
-        self._on_stdout()
-        self._on_stderr()
+    def _on_finished(
+        self, proc: QProcess, token: int, code: int, status: QProcess.ExitStatus
+    ) -> None:
+        if not self._current(proc, token):
+            return
+        self._on_stdout(proc, token)
+        self._on_stderr(proc, token)
         if self._pending:
             for line in _lines(self._pending):
                 self._feed(line)
@@ -164,7 +189,9 @@ class FlowPanel(QWidget):
         self._sync()
         self.finished.emit(code)
 
-    def _on_error(self, proc: QProcess, err: QProcess.ProcessError) -> None:
+    def _on_error(self, proc: QProcess, token: int, err: QProcess.ProcessError) -> None:
+        if not self._current(proc, token):
+            return
         if err not in (QProcess.ProcessError.FailedToStart, QProcess.ProcessError.Crashed):
             return
         text = f"Flow {self._error_word(err)}: {proc.errorString()}"
@@ -194,18 +221,32 @@ class FlowPanel(QWidget):
             return
         state = proc.state()
         if state == QProcess.ProcessState.Starting:
-            proc.started.connect(lambda: self._cancel(term_ms))
+            self._cancel_when_started(proc, term_ms)
             return
         pid = int(proc.processId())
         if state != QProcess.ProcessState.Running or pid <= 0:
             return
+        if self._armed_ms is not None and term_ms >= self._armed_ms:
+            return  # escalation already armed at least as short; do not stack timers
         try:
             os.kill(pid, signal.SIGINT)
         except ProcessLookupError:
             return
+        self._armed_ms = term_ms
         self.status_label.setText("cancelling")
         QTimer.singleShot(term_ms, proc, lambda: self._terminate(proc))
         QTimer.singleShot(term_ms + self.kill_ms, proc, lambda: self._kill(proc))
+
+    def _cancel_when_started(self, proc: QProcess, term_ms: int) -> None:
+        if self._start_wait:
+            return
+        self._start_wait = True
+        proc.started.connect(lambda: self._started_cancel(proc, term_ms))
+
+    def _started_cancel(self, proc: QProcess, term_ms: int) -> None:
+        self._start_wait = False
+        if proc is self.process:
+            self._cancel(term_ms)
 
     @staticmethod
     def _terminate(proc: QProcess) -> None:

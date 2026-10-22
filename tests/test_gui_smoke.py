@@ -148,8 +148,14 @@ class ShellTest(unittest.TestCase):
             mock.patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes),
         ):
             self.assertTrue(w.open_project(other))
-            self.assertEqual(w.project_dir, other)
+            self.assertEqual(w.project_dir, SAMPLES)  # not loaded until the flow finishes
             cancel.assert_called_once()
+        self.assertEqual(w.flow.status_label.text(), "stopping the current flow...")
+        self.assertFalse(w.flow.run_button.isEnabled())
+        self.assertFalse(w.open_project(SAMPLES))  # second switch refused while pending
+        w._on_flow_finished(0)
+        self.assertEqual(w.project_dir, other)
+        self.assertTrue(w.flow.run_button.isEnabled())
 
     def test_close_with_dirty_editor_asks(self) -> None:
         w = live_window(self.tmp)
@@ -166,6 +172,92 @@ class ShellTest(unittest.TestCase):
         ):
             self.assertTrue(w.close())
         self.assertIsNotNone(w.settings.value("geometry"))
+
+    def test_switch_project_while_flow_runs_real_process(self) -> None:
+        w = window(self.tmp)
+        w.open_project(SAMPLES)
+        argv = [sys.executable, "-c", OLD_RUN]
+        with mock.patch("wyrd.gui.flowpanel.run_argv", return_value=argv):
+            w.flow.start(self.tmp)
+        assert w.flow.process is not None
+        old_pid = int(w.flow.process.processId())
+        self.assertTrue(pump_until(lambda: "old-run-output" in w.flow.log.toPlainText()))
+        other = copy_project(self.tmp)
+        self.assertTrue(w.open_project(other))
+        self.assertEqual(w.project_dir, SAMPLES)
+        self.assertEqual(w.flow.status_label.text(), "stopping the current flow...")
+        self.assertFalse(w.flow.run_button.isEnabled())
+        self.assertFalse(w.open_project(SAMPLES))
+        self.assertTrue(pump_until(lambda: w.project_dir == other, 10000))
+        self.assertFalse(w.flow.is_running())
+        with self.assertRaises(ProcessLookupError):
+            os.kill(old_pid, 0)
+        for _ in range(10):
+            QCoreApplication.processEvents()
+        self.assertNotIn("old-run-output", w.flow.log.toPlainText())
+        self.assertEqual(w.messages.count(), 0)
+        self.assertEqual(w.flow.progress.value(), 0)
+        self.assertEqual(w.flow.status_label.text(), "idle")
+        self.assertTrue(w.flow.run_button.isEnabled())
+
+    def test_stale_run_is_ignored(self) -> None:
+        panel = FlowPanel()
+        argv = [sys.executable, "-c", STUB]
+        with mock.patch("wyrd.gui.flowpanel.run_argv", return_value=argv):
+            panel.start(self.tmp)
+            old, old_token = panel.process, panel._token
+            self.assertTrue(wait_for(panel.finished))
+            panel.start(self.tmp)
+        assert old is not None
+        codes: list[int] = []
+        panel.finished.connect(codes.append)
+        panel._on_stdout(old, old_token)
+        panel._on_finished(old, old_token, 0, QProcess.ExitStatus.NormalExit)
+        panel._on_error(old, old_token, QProcess.ProcessError.FailedToStart)
+        self.assertEqual(codes, [])
+        self.assertTrue(wait_for(panel.finished))
+        self.assertEqual(codes, [1])
+
+    def test_repeated_cancel_does_not_stack(self) -> None:
+        panel = FlowPanel()
+        argv = [sys.executable, "-c", SLEEPER]
+        with mock.patch("wyrd.gui.flowpanel.run_argv", return_value=argv):
+            panel.start(self.tmp)
+        pump_until(lambda: "started" in panel.log.toPlainText())
+        with (
+            mock.patch("wyrd.gui.flowpanel.QTimer.singleShot") as shot,
+            mock.patch("wyrd.gui.flowpanel.os.kill") as kill,
+        ):
+            panel.cancel()
+            panel.cancel()
+            panel.cancel()
+            self.assertEqual(shot.call_count, 2)
+            self.assertEqual(kill.call_count, 1)
+        panel.cancel_button.setEnabled(True)
+        panel.shutdown()  # a shorter escalation may still be added once
+        self.assertTrue(pump_until(lambda: not panel.is_running(), 8000))
+
+    def test_crash_error_shown_once(self) -> None:
+        w = window(self.tmp)
+        w.open_project(SAMPLES)
+        argv = [sys.executable, "-c", CRASHER]
+        with (
+            mock.patch("wyrd.gui.flowpanel.run_argv", return_value=argv),
+            mock.patch.object(w, "_show_error") as show,
+        ):
+            w.flow.start(self.tmp)
+            self.assertTrue(pump_until(lambda: not w.flow.is_running()))
+            for _ in range(10):
+                QCoreApplication.processEvents()
+        self.assertEqual(show.call_count, 1)
+
+    def test_close_stops_step_loads(self) -> None:
+        w = window(self.tmp)
+        w.open_project(SAMPLES)
+        self.assertTrue(w.close())
+        with mock.patch.object(w.messages, "set_messages") as put:
+            w._load_signals.done.emit(w._load_generation, [], [])
+            put.assert_not_called()
 
     def test_open_discard_prompt(self) -> None:
         w = live_window(self.tmp)
@@ -448,6 +540,18 @@ STUBBORN = (
     "print('ready', flush=True)\n"
     "time.sleep(60)\n"
 )
+OLD_RUN = (
+    "import sys, time\n"
+    "try:\n"
+    "    while True:\n"
+    "        print('old-run-output', flush=True)\n"
+    "        time.sleep(0.05)\n"
+    "except KeyboardInterrupt:\n"
+    "    print('late old-run-output', flush=True)\n"
+    "    time.sleep(0.5)\n"
+    "    print('later old-run-output', flush=True)\n"
+)
+CRASHER = "import os, signal\nprint('x', flush=True)\nos.kill(os.getpid(), signal.SIGKILL)\n"
 SLEEPER = "import time\nprint('started', flush=True)\ntime.sleep(30)\n"
 
 

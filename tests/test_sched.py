@@ -332,6 +332,11 @@ def _alive(pid: int) -> bool:
     return "State:\tZ" not in text
 
 
+def _reap(pid: int) -> None:
+    if _alive(pid):
+        os.kill(pid, signal.SIGKILL)
+
+
 class SigtermTest(unittest.TestCase):
     def test_sigterm_leaves_no_grandchild(self) -> None:
         tmp = tempfile.TemporaryDirectory()
@@ -348,7 +353,7 @@ class SigtermTest(unittest.TestCase):
                 break
             time.sleep(0.05)
         grandchild = int(pidfile.read_text(encoding="utf-8").strip())
-        self.addCleanup(lambda: _alive(grandchild) and os.kill(grandchild, signal.SIGKILL))
+        self.addCleanup(_reap, grandchild)
         proc.send_signal(signal.SIGTERM)
         self.assertEqual(proc.wait(timeout=20), 1)
         end = time.monotonic() + 5

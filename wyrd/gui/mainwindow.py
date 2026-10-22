@@ -37,6 +37,7 @@ from wyrd.project import ConfigError, Project, load_project
 from wyrd.settings import machine_path
 
 MAX_RECENT = 8
+LOAD_WAIT_MS = 2000
 TAB_NAMES = ("Source", "Report", "wyrd.toml")
 
 
@@ -64,6 +65,9 @@ class MainWindow(QMainWindow):
         self._init_proc: QProcess | None = None
         self._closing = False
         self._flow_error = ""
+        self._pending_project: Path | None = None
+        self._switch_actions: list[QAction] = []
+        self._loads_stopped = False
         self._build()
         self._restore()
 
@@ -95,6 +99,14 @@ class MainWindow(QMainWindow):
             self.refresh_results()
 
     def _on_flow_finished(self, _code: int) -> None:
+        pending, self._pending_project = self._pending_project, None
+        if pending is not None and not self._closing:
+            self._flow_error = ""
+            self._set_switching(False)
+            self.flow.reset()
+            self._load(pending)
+            return
+        self._set_switching(False)
         self.refresh_results()
         if self._flow_error:
             self._show_error(self._flow_error)
@@ -103,8 +115,14 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, self.close)
 
     def _on_flow_error(self, text: str) -> None:
+        """Remember the failure; the finished signal that always follows shows it once."""
         self._flow_error = text
-        self._show_error(text)
+
+    def _set_switching(self, switching: bool) -> None:
+        for act in self._switch_actions:
+            act.setEnabled(not switching)
+        self.recent_menu.setEnabled(not switching)
+        self.refresh_results()
 
     def _show_error(self, text: str) -> None:
         self.statusBar().showMessage(text)
@@ -136,6 +154,8 @@ class MainWindow(QMainWindow):
         self.tabs.setCurrentWidget(self.editor)
 
     def _run_flow(self) -> None:
+        if self._pending_project is not None:
+            return
         if self.project_dir is not None and self.project is not None:
             self.docks["Flow"].show()
             self.docks["Flow"].raise_()
@@ -185,8 +205,10 @@ class MainWindow(QMainWindow):
         bar = self.menuBar()
         file_menu = bar.addMenu("File")
         assert file_menu is not None
-        self._action(file_menu, "New Project...", self._new_project)
-        self._action(file_menu, "Open Project...", self._open_dialog, "Ctrl+O")
+        self._switch_actions = [
+            self._action(file_menu, "New Project...", self._new_project),
+            self._action(file_menu, "Open Project...", self._open_dialog, "Ctrl+O"),
+        ]
         file_menu.addMenu(self.recent_menu)
         file_menu.addSeparator()
         self._action(file_menu, "Save wyrd.toml", self.editor.save, "Ctrl+S")
@@ -194,7 +216,9 @@ class MainWindow(QMainWindow):
         project_menu = bar.addMenu("Project")
         assert project_menu is not None
         self.project_menu = project_menu
-        self._action(project_menu, "Run flow", self._run_flow, "Ctrl+R")
+        self._switch_actions.append(
+            self._action(project_menu, "Run flow", self._run_flow, "Ctrl+R")
+        )
         self._action(project_menu, "Cancel", self.flow.cancel, "Ctrl+.")
         self._action(project_menu, "Refresh results", self.refresh_results, "F5")
         self._action(project_menu, "Add design...", self._add_design_dialog)
@@ -243,6 +267,8 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, title, text)
 
     def open_project(self, path: Path) -> bool:
+        if self._pending_project is not None:
+            return False
         toml = path / "wyrd.toml"
         if not toml.is_file():
             self._warn("Open Project", f"No wyrd.toml in {path}")
@@ -251,9 +277,19 @@ class MainWindow(QMainWindow):
             return False
         if not self._confirm_discard():
             return False
-        self.flow.cancel()
-        self._load(path)
+        if self.flow.is_running():
+            self._stop_then_load(path)
+        else:
+            self._load(path)
         return True
+
+    def _stop_then_load(self, path: Path) -> None:
+        """Cancel the running flow; the project loads when the flow has finished."""
+        self._pending_project = path
+        self._set_switching(True)
+        self.statusBar().showMessage("stopping the current flow...")
+        self.flow.cancel()
+        self.flow.status_label.setText("stopping the current flow...")
 
     def _confirm_discard(self) -> bool:
         if self.silent or not self.editor.is_modified():
@@ -292,7 +328,7 @@ class MainWindow(QMainWindow):
             self.tabs.setCurrentWidget(self.editor)
 
     def refresh_results(self) -> None:
-        self.flow.set_can_run(self.project is not None)
+        self.flow.set_can_run(self.project is not None and self._pending_project is None)
         self.report_view.set_project_dir(self.project_dir)
 
     def _on_run_selected(self, run: RunInfo | None) -> None:
@@ -323,7 +359,7 @@ class MainWindow(QMainWindow):
             self.new_project(Path(chosen))
 
     def new_project(self, directory: Path) -> None:
-        if self._init_proc is not None:
+        if self._init_proc is not None or self._pending_project is not None:
             return
         proc = QProcess(self)
         proc.setProgram(sys.executable)
@@ -357,17 +393,29 @@ class MainWindow(QMainWindow):
         )
         return answer == QMessageBox.StandardButton.Yes
 
+    def _stop_loads(self) -> None:
+        """Drop queued step-log loads and wait briefly for running ones, then stop listening."""
+        if self._loads_stopped:
+            return
+        self._loads_stopped = True
+        self._load_generation += 1
+        self.pool.clear()
+        self.pool.waitForDone(LOAD_WAIT_MS)
+        self._load_signals.done.disconnect(self._on_messages_loaded)
+
     def closeEvent(self, event: QCloseEvent) -> None:
         if not self._closing:
             if not self._confirm_stop_flow() or not self._confirm_discard():
                 event.ignore()
                 return
             self._closing = True
+            self._pending_project = None
         if self.flow.is_running():
             self.flow.shutdown()
             event.ignore()
             return
         self.flow.stop_floorplan()
+        self._stop_loads()
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("windowState", self.saveState())
         self.settings.sync()
