@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from wyrd.gui.weakslot import weak
 from wyrd.guimodel.floorplan import FloorplanPlan
 from wyrd.guimodel.flowcmd import FlowProgress, exit_text, run_argv
 
@@ -122,10 +123,12 @@ class FlowPanel(QWidget):
         self.status_label.setText("running")
         proc = QProcess(self)
         proc.setProcessChannelMode(QProcess.ProcessChannelMode.SeparateChannels)
-        proc.readyReadStandardOutput.connect(lambda: self._on_stdout(proc, token))
-        proc.readyReadStandardError.connect(lambda: self._on_stderr(proc, token))
-        proc.finished.connect(lambda code, status: self._on_finished(proc, token, code, status))
-        proc.errorOccurred.connect(lambda err: self._on_error(proc, token, err))
+        on_stdout, on_stderr = weak(self._on_stdout), weak(self._on_stderr)
+        on_finished, on_error = weak(self._on_finished), weak(self._on_error)
+        proc.readyReadStandardOutput.connect(lambda: on_stdout(proc, token))
+        proc.readyReadStandardError.connect(lambda: on_stderr(proc, token))
+        proc.finished.connect(lambda code, status: on_finished(proc, token, code, status))
+        proc.errorOccurred.connect(lambda err: on_error(proc, token, err))
         self.process = proc
         proc.setProgram(argv[0])
         proc.setArguments(argv[1:])
@@ -234,14 +237,15 @@ class FlowPanel(QWidget):
             return
         self._armed_ms = term_ms
         self.status_label.setText("cancelling")
-        QTimer.singleShot(term_ms, proc, lambda: self._terminate(proc))
-        QTimer.singleShot(term_ms + self.kill_ms, proc, lambda: self._kill(proc))
+        QTimer.singleShot(term_ms, proc, lambda: FlowPanel._terminate(proc))
+        QTimer.singleShot(term_ms + self.kill_ms, proc, lambda: FlowPanel._kill(proc))
 
     def _cancel_when_started(self, proc: QProcess, term_ms: int) -> None:
         if self._start_wait:
             return
         self._start_wait = True
-        proc.started.connect(lambda: self._started_cancel(proc, term_ms))
+        started_cancel = weak(self._started_cancel)
+        proc.started.connect(lambda: started_cancel(proc, term_ms))
 
     def _started_cancel(self, proc: QProcess, term_ms: int) -> None:
         self._start_wait = False
@@ -275,9 +279,14 @@ class FlowPanel(QWidget):
         proc = QProcess(self)
         proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         proc.setWorkingDirectory(str(plan.cwd))
-        proc.readyReadStandardOutput.connect(lambda: self._fp_output(proc))
-        proc.finished.connect(lambda code, _st: self._fp_finished(proc, code))
-        proc.errorOccurred.connect(lambda err: self._fp_error(proc, err))
+        fp_output, fp_finished, fp_error = (
+            weak(self._fp_output),
+            weak(self._fp_finished),
+            weak(self._fp_error),
+        )
+        proc.readyReadStandardOutput.connect(lambda: fp_output(proc))
+        proc.finished.connect(lambda code, _st: fp_finished(proc, code))
+        proc.errorOccurred.connect(lambda err: fp_error(proc, err))
         self.floorplan_process = proc
         self._append(f"floorplan ({plan.mode}): {plan.program} {' '.join(plan.args)}")
         self._fp_clock.start()
