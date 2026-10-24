@@ -3,7 +3,9 @@
 Experiment runner for Odin III flows (W1 of Wyrd III). Python 3.11+, no runtime dependencies.
 
 Wyrd III is part of **Yggdrasil III** (the project / world tree), the suite of Odin III
-(<https://github.com/drpaj12/odin3>), Wyrd III, Loki III (<https://github.com/drpaj12/loki>) and Midgard III. Midgard III,
+(<https://github.com/drpaj12/odin3>), Wyrd III, Loki III (<https://github.com/drpaj12/loki>), Verdandi III
+(<https://github.com/drpaj12/verdandiIII>), The Norns III (<https://github.com/drpaj12/nornsIII>, whose experiments run
+through Wyrd III) and Midgard III. Midgard III,
 also known as Verilog Town, is the game Wyrd III hosts (W4), after the original verilogTown (Jamieson, Grace,
 Mizuno, Zhang, ASEE 2017).
 
@@ -26,6 +28,10 @@ Start at the Yggdrasil III hub; every manual links to the others.
 - Tutorials (PDF): [command line](https://drpaj12.github.io/wyrd/wyrd-tutorial.pdf) and
   [GUI](https://drpaj12.github.io/wyrd/wyrd-gui-tutorial.pdf).
 - [Loki III manual](https://drpaj12.github.io/loki/).
+- [Verdandi III manual](https://drpaj12.github.io/verdandiIII/).
+- [The Norns III](https://github.com/drpaj12/nornsIII) (repository; plan and paper under `docs/`).
+- [Set up the whole suite](https://drpaj12.github.io/YggdrasilIII/getting-started.html) on a clean Linux or
+  Windows machine, and [drive it with Claude Code](https://drpaj12.github.io/YggdrasilIII/ai-agent.html).
 
 Sources: manual `docs/user/` (`pip install -r requirements-docs.txt`, then
 `sphinx-build -W -b html docs/user build/docs`); tutorials `docs/tutorial/` and `docs/tutorial-gui/`

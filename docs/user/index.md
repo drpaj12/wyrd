@@ -24,7 +24,8 @@ A second PDF tutorial does everything in the graphical interface, with a figure 
 
 The other Yggdrasil III manuals are linked in the sidebar: the
 [hub](https://drpaj12.github.io/YggdrasilIII/), [Odin III](https://drpaj12.github.io/odin3/) and
-[Loki III](https://drpaj12.github.io/loki/).
+[Loki III](https://drpaj12.github.io/loki/), with [Verdandi III](https://drpaj12.github.io/verdandiIII/) beside them.
+The Norns III runs its placement experiments through Wyrd III: <https://github.com/drpaj12/nornsIII>.
 
 ```{toctree}
 :maxdepth: 2
