@@ -66,6 +66,27 @@ more inputs, so adders mapped to hard `adder` (carry chain) cells do not count a
 run_dir), `steps` (key, n, step, argv, exit_code, wall_s, peak_mem_bytes) and `metrics` (key, step,
 name, value, unit). You can query it with any SQLite tool; Wyrd reads it read-only for the commands below.
 
+## Timing attribution
+
+Set `timing_attr = true` on the `odin3-flow` step (needs `target = "vtr"` and `vpr = true`), or
+`timing_paths = N` (VPR reports and Odin III attributes N setup paths; implies `timing_attr`):
+
+```toml
+steps = [{ use = "odin3-flow", target = "vtr", vpr = true, timing_attr = true, timing_paths = 50 }]
+```
+
+The step passes `--timing-attr` and `--timing-paths N`, and records the metrics `timing.fmax_mhz`,
+`timing.cpd_ns` and `timing.attributed` (1 when `timing/attribution.json` was usable, else 0), so
+`wyrd table` shows them. The file is `<step dir>/out/timing/attribution.json`.
+
+```bash
+wyrd timing KEY [--project DIR] [--top N]
+```
+
+prints Fmax and CPD, the critical path in order and the top N statements (default 10). KEY is a run
+key prefix as for `wyrd script`. Exit code 2 when the run has no attribution or the file cannot be
+read. The GUI shows the same in the Timing dock ({doc}`gui`).
+
 ## Status, table, compare, script
 
 ```bash

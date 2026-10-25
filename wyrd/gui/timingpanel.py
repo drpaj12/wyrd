@@ -142,6 +142,8 @@ class TimingPanel(QWidget):
             cells = [str(row + 1), percent(e.share), f"{e.delay_ns:.3f}", where, e.module]
             _set_row(self.path, row, [*cells, e.word or "-"])
             self._path_targets.append((e.file, e.line))
+        self.statements.resizeColumnsToContents()
+        self.path.resizeColumnsToContents()
 
     def _open(self, file: str | None, line: int | None) -> None:
         if file is None or line is None:
