@@ -73,7 +73,11 @@ critical path delay, the statements that set the critical path ranked by share (
 Source tab at that line. The Source tab then shows a heat margin with a percentage per line; the
 dock chooses its scope: *Critical path* (share of the critical path delay) or *Top paths* (share of
 the delay of the worst N paths). The view is read-only. A run without an attribution, or with a file
-Wyrd cannot read (an unknown `schema_version`, bad JSON), shows a plain message instead.
+Wyrd cannot read (an unknown `schema_version`, bad JSON, over 64 MiB), shows a plain message instead;
+when the flow left a `timing.log`, the message gives its text. Source files are looked up only
+inside the project directory and the design directories, using the `designs` and `source_cwd`
+recorded in `timing/inputs.json` first; a bare file name matches only when exactly one file has
+it. The Timing dock warns when you select a line of a file that is newer than the attribution.
 
 ![Timing dock and heat margin](images/timing-view.png)
 

@@ -80,6 +80,8 @@ class MainWindow(QMainWindow):
         self.pool = QThreadPool(self)
         self._load_signals = LoadSignals(self)
         self._load_generation = 0
+        self._roots_key: tuple[Path | None, int] | None = None
+        self._roots: list[Path] = []
         self._init_proc: QProcess | None = None
         self._closing = False
         self._flow_error = ""
@@ -401,19 +403,24 @@ class MainWindow(QMainWindow):
 
     def _on_run_selected(self, run: RunInfo | None) -> None:
         self._load_generation += 1
+        generation = self._load_generation
         if run is None or self.project_dir is None:
             self.messages.clear()
             self.timing.set_run(None, [])
             return
         self.timing.set_run(run.run_dir, self._timing_roots())
-        task = LoadTask(self._load_generation, run.run_dir, self._load_signals)
+        task = LoadTask(generation, run.run_dir, self._load_signals)
         self.pool.start(task)
 
     def _timing_roots(self) -> list[Path]:
-        roots = [self.project_dir] if self.project_dir is not None else []
-        if self.project is not None:
-            roots += [f.parent for d in self.project.designs.values() for f in d.files]
-        return roots
+        """Project directory and design directories, computed once per project and cached."""
+        key = (self.project_dir, id(self.project))
+        if self._roots_key != key:
+            roots = [self.project_dir] if self.project_dir is not None else []
+            if self.project is not None:
+                roots += [f.parent for d in self.project.designs.values() for f in d.files]
+            self._roots_key, self._roots = key, roots
+        return list(self._roots)
 
     def _on_messages_loaded(
         self, generation: int, messages: list[Message], step_search: list[Path]

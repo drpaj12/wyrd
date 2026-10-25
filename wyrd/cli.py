@@ -88,6 +88,12 @@ def _err(msg: str) -> int:
     return 2
 
 
+def _fail(msg: str) -> int:
+    """A run or file that exists but is not usable: exit 1 (2 stays for usage and config errors)."""
+    print(f"wyrd: {msg}", file=sys.stderr)
+    return 1
+
+
 def _init(directory: str) -> int:
     target = Path(directory) / "wyrd.toml"
     if target.exists():
@@ -239,19 +245,28 @@ def _script(args: argparse.Namespace) -> int:
 
 
 def _timing(args: argparse.Namespace) -> int:
+    if args.top < 1:
+        return _err("--top must be at least 1")
     rows = _rows(args.project)
     if rows is None:
         return 2
     run = _find_run(rows, args.key)
     if isinstance(run, str):
         return _err(run)
-    path = timing.find_attribution(Path(str(run["run_dir"])))
+    if run["status"] != "ok":
+        return _fail(f"run {str(run['key'])[:12]} has status {run['status']}, not ok")
+    run_dir = Path(str(run["run_dir"]))
+    path = timing.find_attribution(run_dir)
     if path is None:
-        return _err("no timing attribution for this run (use odin3-flow with timing_attr = true)")
+        reason = timing.missing_reason(run_dir)
+        return _err(
+            "no timing attribution for this run: "
+            + (reason or "use odin3-flow with timing_attr = true")
+        )
     try:
         att = timing.load_attribution(path)
     except timing.TimingError as e:
-        return _err(str(e))
+        return _fail(str(e))
     print("\n".join(timing.summary_lines(att, args.top)))
     return 0
 

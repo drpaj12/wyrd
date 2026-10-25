@@ -8,6 +8,8 @@ from wyrd.model import Metric, RunSpec
 from wyrd.settings import Settings
 from wyrd.steps import arch_xml, finite_number, need_vtr_root, read_json_object, tool_path
 
+DEFAULT_TARGET = "vtr"
+
 
 class FlowStep:
     name = "odin3-flow"
@@ -20,7 +22,8 @@ class FlowStep:
         self.is_vpr = vpr
         self.timing_paths = _timing_paths(self.args)
         self.timing_attr = _flag(self.args, "timing_attr") or self.timing_paths is not None
-        if self.timing_attr and not (self.is_vpr and self.args.get("target", "vtr") == "vtr"):
+        target = self.args.get("target", DEFAULT_TARGET)
+        if self.timing_attr and not (self.is_vpr and target == DEFAULT_TARGET):
             raise ValueError("step 'odin3-flow': timing_attr needs target = \"vtr\" and vpr = true")
         self.tools: tuple[str, ...] = ("odin3_flow", "odin3") + (("vpr",) if self.is_vpr else ())
 
@@ -30,7 +33,7 @@ class FlowStep:
         argv = [tool_path(settings, "odin3_flow"), *[str(f) for f in run.design.files]]
         if run.design.top:
             argv += ["--top", run.design.top]
-        argv += ["--target", str(self.args.get("target", "vtr"))]
+        argv += ["--target", str(self.args.get("target", DEFAULT_TARGET))]
         argv += ["--arch", str(arch_xml(settings, run.arch))]
         argv.append("--vpr" if self.is_vpr else "--no-vpr")
         if self.timing_attr:
@@ -52,10 +55,16 @@ def attribution_path(step_dir: Path) -> Path:
 
 
 def timing_metrics(step_dir: Path) -> list[Metric]:
-    """Fmax and CPD from attribution.json; `timing.attributed` is 1 when the file is usable."""
+    """Fmax and CPD from attribution.json; `timing.attributed` is 1 when the file is usable.
+
+    0 means the file is missing or has no `timing` object or an unknown `schema_version`. It is
+    rare: odin3-flow exits 1 when its timing step fails, so the scheduler marks that run failed
+    (finish_step) and never calls `collect`. Malformed JSON raises ValueError, which also fails
+    the run.
+    """
     data = read_json_object(attribution_path(step_dir))
     timing = data.get("timing") if data is not None else None
-    if not isinstance(timing, dict) or data is None or data.get("schema_version") != 1:
+    if not isinstance(timing, dict) or data is None or not _is_schema_one(data):
         return [Metric("timing.attributed", 0.0)]
     out = [Metric("timing.attributed", 1.0)]
     for key, unit in (("fmax_mhz", "MHz"), ("cpd_ns", "ns")):
@@ -63,6 +72,11 @@ def timing_metrics(step_dir: Path) -> list[Metric]:
         if number is not None:
             out.append(Metric(f"timing.{key}", number, unit))
     return out
+
+
+def _is_schema_one(data: dict[str, object]) -> bool:
+    version = data.get("schema_version")
+    return type(version) is int and version == 1
 
 
 def _flag(args: dict[str, object], key: str) -> bool:

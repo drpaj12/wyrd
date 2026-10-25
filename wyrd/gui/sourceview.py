@@ -100,10 +100,8 @@ class HeatTextEdit(QPlainTextEdit):
             if share is not None and block.isVisible():
                 painter.fillRect(0, top, self.heat_width(), height, heat_color(share))
                 painter.setPen(Qt.GlobalColor.black)
-                painter.drawText(
-                    0, top, self.heat_width() - 3, height,
-                    Qt.AlignmentFlag.AlignRight, f"{share * 100:.0f}%",
-                )  # fmt: skip
+                cell = QRect(0, top, self.heat_width() - 3, height)
+                painter.drawText(cell, Qt.AlignmentFlag.AlignRight, f"{share * 100:.0f}%")
             top += round(self.blockBoundingRect(block).height())
             block = block.next()
         painter.end()
@@ -134,15 +132,17 @@ class SourceView(QWidget):
 
     def open_file(self, path: Path, line: int | None = None) -> bool:
         self.path_label.setText(str(path))
-        self.path = path
         self._set_highlight(Path("-"))
         try:
             content = read_limited(path)
         except (OSError, ValueError) as e:
             reason = e.strerror if isinstance(e, OSError) and e.strerror else str(e)
+            self.path = None
+            self.text.set_heat({})
             self.text.setPlainText(f"Cannot show {path}: {reason}")
             self.text.setExtraSelections([])
             return False
+        self.path = path
         self._set_highlight(path)
         self.text.setPlainText(content)
         self.text.setExtraSelections([])

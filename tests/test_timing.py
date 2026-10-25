@@ -13,6 +13,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from tests.test_steps import _settings
 from wyrd.guimodel import timing
@@ -84,13 +85,15 @@ class ModelTest(unittest.TestCase):
         self.assertEqual(timing.resolve_source("bm_DL_BCD_adder.v", [DATA]), src)
         self.assertEqual(timing.resolve_source("elsewhere/bm_DL_BCD_adder.v", [DATA]), src)
         self.assertIsNone(timing.resolve_source("nope.v", [DATA]))
-        self.assertEqual(timing.resolve_source(str(src), []), src)
+        self.assertEqual(timing.resolve_source(str(src), [DATA]), src)
+        self.assertIsNone(timing.resolve_source(str(src), []))  # outside every root
 
     def test_file_shares(self) -> None:
         shares = timing.critical_line_shares(self.att)
-        got = timing.file_shares(shares, DATA / "bm_DL_BCD_adder.v", [DATA])
+        resolver = timing.SourceResolver([DATA])
+        got = timing.file_shares(shares, DATA / "bm_DL_BCD_adder.v", resolver)
         self.assertEqual(sorted(got), [15, 16, 19])
-        self.assertEqual(timing.file_shares(shares, DATA / "other.v", [DATA]), {})
+        self.assertEqual(timing.file_shares(shares, DATA / "other.v", resolver), {})
 
     def test_summary_lines(self) -> None:
         text = "\n".join(timing.summary_lines(self.att))
@@ -130,6 +133,96 @@ class ModelTest(unittest.TestCase):
             step = run / "01-odin3-flow"
             shutil.copytree(DATA / "out", step / "out")
             self.assertEqual(timing.find_attribution(run), step / "out/timing/attribution.json")
+
+
+class RobustModelTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = Path(self._tmp.name)
+
+    def test_step_order_is_numeric(self) -> None:
+        run = self.tmp / "run"
+        for n in (2, 10, 1):
+            shutil.copytree(DATA / "out", run / f"{n}-odin3-flow" / "out")
+        want = run / "10-odin3-flow/out/timing/attribution.json"
+        self.assertEqual(timing.find_attribution(run), want)
+
+    def test_missing_reason_uses_last_step(self) -> None:
+        run = self.tmp / "run"
+        self.assertIsNone(timing.missing_reason(run))
+        for n, text in ((2, "old failure\n"), (10, "no paths parsed\n")):
+            log = run / f"{n}-odin3-flow" / "out" / "timing" / "timing.log"
+            log.parent.mkdir(parents=True)
+            log.write_text(text, encoding="utf-8")
+        self.assertEqual(timing.missing_reason(run), "no paths parsed")
+        log.write_text("ok\n", encoding="utf-8")
+        self.assertIn("says ok", timing.missing_reason(run) or "")
+
+    def test_oversized_file(self) -> None:
+        big = self.tmp / "attribution.json"
+        big.write_text("{}" + " " * 200, encoding="utf-8")
+        limit = mock.patch.object(timing, "MAX_ATTRIBUTION_BYTES", 100)
+        with limit, self.assertRaisesRegex(TimingError, "over the 100 byte limit"):
+            timing.load_attribution(big)
+
+    def test_schema_version_must_be_int(self) -> None:
+        for version in (True, 1.0, "1", None):
+            data = _raw()
+            data["schema_version"] = version
+            with self.assertRaises(TimingError, msg=repr(version)):
+                timing.parse(data)
+
+    def test_non_object_elements_are_skipped(self) -> None:
+        data = _raw()
+        for key in ("spans", "modules", "words", "paths"):
+            value = data[key]
+            assert isinstance(value, list)
+            data[key] = [5, None, *value]
+        crit = data["critical_path"]
+        assert isinstance(crit, dict) and isinstance(crit["spans"], list)
+        crit["spans"] = ["x", *crit["spans"]]
+        paths = data["paths"]
+        assert isinstance(paths, list) and isinstance(paths[2], dict)
+        paths[2]["nodes"] = [7, *paths[2]["nodes"]]
+        got, want = timing.parse(data), timing.load_attribution(ATTR)
+        self.assertEqual(got, want)
+
+    def test_same_named_files_are_not_guessed(self) -> None:
+        for sub in ("a", "b"):
+            (self.tmp / sub).mkdir()
+            (self.tmp / sub / "x.v").write_text("//\n", encoding="utf-8")
+        roots = [self.tmp / "a", self.tmp / "b"]
+        self.assertIsNone(timing.resolve_source("other/x.v", roots))
+        self.assertEqual(timing.resolve_source("x.v", roots[:1]), self.tmp / "a" / "x.v")
+        hints = timing.SourceHints((), (self.tmp / "b" / "x.v",))
+        self.assertEqual(timing.resolve_source("b/x.v", roots, hints), self.tmp / "b" / "x.v")
+
+    def test_inputs_json_prefers_recorded_designs(self) -> None:
+        for sub in ("a", "b"):
+            (self.tmp / sub).mkdir()
+            (self.tmp / sub / "x.v").write_text("//\n", encoding="utf-8")
+        out = self.tmp / "b" / "run" / "out"
+        (out / "timing").mkdir(parents=True)
+        inputs = {"source_cwd": "odin3", "designs": [str(self.tmp / "b" / "x.v")]}
+        (out / "timing" / "inputs.json").write_text(json.dumps(inputs), encoding="utf-8")
+        hints = timing.source_hints(out / "timing" / "attribution.json")
+        self.assertEqual(hints.designs, (self.tmp / "b" / "x.v",))
+        roots = [self.tmp / "a", self.tmp / "b"]
+        self.assertEqual(timing.resolve_source("x.v", roots, hints), self.tmp / "b" / "x.v")
+        moved = timing.resolve_source("/gone/elsewhere/x.v", roots, hints)
+        self.assertEqual(moved, self.tmp / "b" / "x.v")
+
+    def test_paths_are_confined_to_roots(self) -> None:
+        (self.tmp / "in").mkdir()
+        (self.tmp / "in" / "x.v").write_text("//\n", encoding="utf-8")
+        (self.tmp / "secret.v").write_text("//\n", encoding="utf-8")
+        roots = [self.tmp / "in"]
+        self.assertIsNone(timing.resolve_source("../secret.v", roots))
+        self.assertIsNone(timing.resolve_source(str(self.tmp / "secret.v"), roots))
+        self.assertIsNone(timing.resolve_source("", roots))
+        inside = timing.resolve_source(str(self.tmp / "in" / "x.v"), roots)
+        self.assertEqual(inside, roots[0] / "x.v")
 
 
 def _run(args: dict[str, object]) -> RunSpec:
@@ -195,6 +288,10 @@ class FlowOptionTest(unittest.TestCase):
             target.write_text(json.dumps({"schema_version": 2, "timing": {}}), encoding="utf-8")
             self.assertEqual([m.name for m in timing_metrics(step_dir)], ["timing.attributed"])
             self.assertEqual(timing_metrics(step_dir)[0].value, 0.0)
+            for version in (True, 1.0):
+                body: dict[str, object] = {"schema_version": version, "timing": {}}
+                target.write_text(json.dumps(body), encoding="utf-8")
+                self.assertEqual(timing_metrics(step_dir)[0].value, 0.0, msg=repr(version))
 
 
 if __name__ == "__main__":

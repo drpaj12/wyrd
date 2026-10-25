@@ -91,6 +91,28 @@ class TimingPanelTest(unittest.TestCase):
         self.assertFalse(self.panel.has_attribution())
         self.assertEqual(self.panel.statements.rowCount(), 0)
 
+    def test_missing_attribution_shows_timing_log(self) -> None:
+        run_dir = project(self.tmp, with_attribution=False)
+        log = run_dir / "0-odin3-flow" / "out" / "timing" / "timing.log"
+        log.parent.mkdir(parents=True)
+        log.write_text("VPR report has no setup paths\n", encoding="utf-8")
+        self.panel.set_run(run_dir, [])
+        self.assertIn("VPR report has no setup paths", self.panel.header.text())
+        self.assertNotIn("timing_attr = true", self.panel.header.text())
+
+    def test_stale_source_warns(self) -> None:
+        run_dir = project(self.tmp)
+        src = self.tmp / "proj" / SOURCE
+        att = run_dir / "0-odin3-flow" / "out" / "timing" / "attribution.json"
+        os.utime(att, (1_000_000, 1_000_000))
+        self.panel.set_run(run_dir, [self.tmp / "proj"])
+        self.panel.statements.selectRow(0)
+        self.assertIn("changed after the timing run", self.panel.note.text())
+        os.utime(src, (900_000, 900_000))
+        self.panel.statements.clearSelection()
+        self.panel.statements.selectRow(1)
+        self.assertEqual(self.panel.note.text(), "")
+
     def test_bad_attribution(self) -> None:
         run_dir = project(self.tmp)
         path = run_dir / "0-odin3-flow" / "out" / "timing" / "attribution.json"
@@ -124,6 +146,18 @@ class HeatMarginTest(unittest.TestCase):
         self.assertFalse(view.grab().isNull())  # paints the margin
         view.set_heat({})
         self.assertEqual(view.text.heat_width(), 0)
+
+
+@unittest.skipUnless(HAVE_QT, "PySide6 not installed")
+class SourceViewFailureTest(unittest.TestCase):
+    def test_failed_read_clears_path_and_heat(self) -> None:
+        view = SourceView()
+        self.addCleanup(dispose, view)
+        self.assertTrue(view.open_file(DATA / SOURCE))
+        view.set_heat({15: 0.5})
+        self.assertFalse(view.open_file(DATA / "missing.v"))
+        self.assertIsNone(view.path)
+        self.assertEqual(view.text.heat, {})
 
 
 @unittest.skipUnless(HAVE_QT, "PySide6 not installed")

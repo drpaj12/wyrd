@@ -27,6 +27,7 @@ NO_ATTR = (
     "No timing attribution for this run. "
     'Use step { use = "odin3-flow", timing_attr = true } and run the flow.'
 )
+NO_ATTR_PREFIX = "No timing attribution for this run; the timing step reported: "
 SCOPES = ("Critical path", "Top paths")
 DEFAULT_TOP = 10
 
@@ -68,6 +69,8 @@ class TimingPanel(QWidget):
         self.top_n.setPrefix("N = ")
         self._build()
         self._att: Attribution | None = None
+        self._att_path: Path | None = None
+        self._resolver = timing.SourceResolver([])
         self._roots: list[Path] = []
         self._statement_targets: list[tuple[str, int]] = []
         self._path_targets: list[tuple[str | None, int | None]] = []
@@ -98,6 +101,8 @@ class TimingPanel(QWidget):
         """Show the attribution of the run in ``run_dir`` (None clears); never raises."""
         self._roots = list(roots)
         self._att = None
+        self._att_path = None
+        self._resolver = timing.SourceResolver(self._roots)
         self.note.setText("")
         self._clear_tables()
         if run_dir is None:
@@ -115,7 +120,8 @@ class TimingPanel(QWidget):
     def _load(self, run_dir: Path) -> None:
         found = timing.find_attribution(run_dir)
         if found is None:
-            self.header.setText(NO_ATTR)
+            reason = timing.missing_reason(run_dir)
+            self.header.setText(NO_ATTR if reason is None else f"{NO_ATTR_PREFIX}{reason}")
             return
         try:
             att = timing.load_attribution(found)
@@ -123,6 +129,8 @@ class TimingPanel(QWidget):
             self.header.setText(f"Timing attribution cannot be shown: {e}")
             return
         self._att = att
+        self._att_path = found
+        self._resolver = timing.SourceResolver(self._roots, timing.source_hints(found))
         self._fill(att)
 
     def _fill(self, att: Attribution) -> None:
@@ -148,12 +156,23 @@ class TimingPanel(QWidget):
     def _open(self, file: str | None, line: int | None) -> None:
         if file is None or line is None:
             return
-        found = timing.resolve_source(file, self._roots)
+        found = self._resolver.resolve(file)
         if found is None:
             self.note.setText(f"Cannot find {file} on disk.")
             return
-        self.note.setText("")
+        self.note.setText(self._stale_note(found))
         self.location_activated.emit(found, line)
+
+    def _stale_note(self, source: Path) -> str:
+        if self._att_path is None:
+            return ""
+        try:
+            newer = source.stat().st_mtime > self._att_path.stat().st_mtime
+        except OSError:
+            return ""
+        if not newer:
+            return ""
+        return f"Warning: {source.name} was changed after the timing run; line numbers may be off."
 
     def _statement_selected(self) -> None:
         row = self.statements.currentRow()
@@ -177,4 +196,4 @@ class TimingPanel(QWidget):
             shares = timing.top_line_shares(self._att, self.top_n.value())
         else:
             shares = timing.critical_line_shares(self._att)
-        return timing.file_shares(shares, path, self._roots)
+        return timing.file_shares(shares, path, self._resolver)

@@ -215,8 +215,32 @@ class TimingCliTest(CliBase):
         out.mkdir(parents=True)
         (out / "attribution.json").write_text('{"schema_version": 7}', encoding="utf-8")
         code, _, err = wyrd("timing", key[:8], "--project", str(root))
-        self.assertEqual((code, "schema_version 7" in err), (2, True))
+        self.assertEqual((code, "schema_version 7" in err), (1, True))
         self.assertEqual(wyrd("timing", "zzzzzzzz", "--project", str(root))[0], 2)
+
+    def test_timing_top_below_one(self) -> None:
+        root = self.tmp / "p"
+        key = self.seed(root, 10)
+        for top in ("0", "-3"):
+            code, _, err = wyrd("timing", key[:8], "--project", str(root), "--top", top)
+            self.assertEqual((code, "--top" in err), (2, True))
+
+    def test_timing_failure_reason(self) -> None:
+        root = self.tmp / "p"
+        key = self.seed(root, 10)
+        log = root / "runs" / key[:12] / "0-odin3-flow" / "out" / "timing" / "timing.log"
+        log.parent.mkdir(parents=True)
+        log.write_text("no critical path in the report\n", encoding="utf-8")
+        code, _, err = wyrd("timing", key[:8], "--project", str(root))
+        self.assertEqual((code, "no critical path in the report" in err), (2, True))
+
+    def test_timing_run_not_ok(self) -> None:
+        root = self.tmp / "p"
+        key = self.seed(root, 10, status="fail")
+        step = root / "runs" / key[:12] / "0-odin3-flow"
+        shutil.copytree(Path(__file__).parent / "data" / "timing" / "out", step / "out")
+        code, out, err = wyrd("timing", key[:8], "--project", str(root))
+        self.assertEqual((code, out, "status fail" in err), (1, "", True))
 
 
 class RobustnessTest(CliBase):

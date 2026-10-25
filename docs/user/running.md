@@ -79,13 +79,22 @@ The step passes `--timing-attr` and `--timing-paths N`, and records the metrics 
 `timing.cpd_ns` and `timing.attributed` (1 when `timing/attribution.json` was usable, else 0), so
 `wyrd table` shows them. The file is `<step dir>/out/timing/attribution.json`.
 
+`timing.attributed` = 0 means the step ran but `attribution.json` is missing, has no `timing`
+object or has a `schema_version` other than 1. It is rare. If `odin3-flow` cannot attribute the
+paths it writes the reason to `<step dir>/out/timing/timing.log` and exits 1; Wyrd then marks the
+whole run `fail` (the step exit code) and records no metrics for it. A malformed
+`attribution.json` also fails the run. `wyrd timing` and the Timing dock show the `timing.log` text
+when there is no attribution.
+
 ```bash
 wyrd timing KEY [--project DIR] [--top N]
 ```
 
 prints Fmax and CPD, the critical path in order and the top N statements (default 10). KEY is a run
-key prefix as for `wyrd script`. Exit code 2 when the run has no attribution or the file cannot be
-read. The GUI shows the same in the Timing dock ({doc}`gui`).
+key prefix as for `wyrd script`. `--top` must be at least 1. Exit codes: 0 printed; 1 the run is
+not `ok`, or `attribution.json` exists but cannot be used (corrupt, over 64 MiB, unknown
+`schema_version`); 2 usage errors: bad `--top`, unknown or ambiguous KEY, or the run has no
+attribution (the message includes `timing.log` when there is one). The GUI shows the same in the Timing dock ({doc}`gui`).
 
 ## Status, table, compare, script
 
