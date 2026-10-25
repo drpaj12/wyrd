@@ -195,6 +195,30 @@ class ScriptTest(CliBase):
         self.assertEqual((code, "ambiguous" in err), (2, True))
 
 
+class TimingCliTest(CliBase):
+    def test_timing_summary(self) -> None:
+        root = self.tmp / "p"
+        key = self.seed(root, 10)
+        step = root / "runs" / key[:12] / "0-odin3-flow"
+        shutil.copytree(Path(__file__).parent / "data" / "timing" / "out", step / "out")
+        code, out, _ = wyrd("timing", key[:8], "--project", str(root), "--top", "2")
+        self.assertEqual(code, 0)
+        self.assertIn("Fmax 216.48 MHz", out)
+        self.assertIn("bm_DL_BCD_adder.v:15", out)
+
+    def test_timing_errors(self) -> None:
+        root = self.tmp / "p"
+        key = self.seed(root, 10)
+        code, _, err = wyrd("timing", key[:8], "--project", str(root))
+        self.assertEqual((code, "no timing attribution" in err), (2, True))
+        out = root / "runs" / key[:12] / "0-odin3-flow" / "out" / "timing"
+        out.mkdir(parents=True)
+        (out / "attribution.json").write_text('{"schema_version": 7}', encoding="utf-8")
+        code, _, err = wyrd("timing", key[:8], "--project", str(root))
+        self.assertEqual((code, "schema_version 7" in err), (2, True))
+        self.assertEqual(wyrd("timing", "zzzzzzzz", "--project", str(root))[0], 2)
+
+
 class RobustnessTest(CliBase):
     def test_run_prints_each_run_once(self) -> None:
         root = self.init_project()
