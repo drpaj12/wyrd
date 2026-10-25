@@ -31,6 +31,7 @@ from wyrd.gui.settingsdialog import SettingsDialog
 from wyrd.gui.simpanel import SimPanel
 from wyrd.gui.sourceview import SourceView
 from wyrd.gui.stepload import LoadSignals, LoadTask
+from wyrd.gui.timingpanel import TimingPanel
 from wyrd.gui.weakslot import weak
 from wyrd.guimodel.floorplan import FloorplanPlan
 from wyrd.guimodel.logparse import Message
@@ -71,6 +72,7 @@ class MainWindow(QMainWindow):
         self.messages = MessagesPane()
         self.report_view = ReportView()
         self.flow = FlowPanel()
+        self.timing = TimingPanel()
         self.editor = TomlEditor(silent)
         self.sim_panel = SimPanel(sim_backend)
         self.docks: dict[str, QDockWidget] = {}
@@ -102,6 +104,8 @@ class MainWindow(QMainWindow):
         self.project_tree.file_activated.connect(self.show_source)
         self.messages.location_activated.connect(self.show_source)
         self.sim_panel.location_activated.connect(self.show_source)
+        self.timing.location_activated.connect(self.show_source)
+        self.timing.heat_changed.connect(self._refresh_heat)
         self.report_view.run_selected.connect(self._on_run_selected)
         self.report_view.floorplan_requested.connect(self._on_floorplan)
         self.flow.run_requested.connect(self._run_flow)
@@ -214,14 +218,22 @@ class MainWindow(QMainWindow):
 
     def show_source(self, path: Path, line: int | None = None) -> None:
         self.source_view.open_file(path, line)
+        self._refresh_heat()
         self.tabs.setCurrentWidget(self.source_view)
+
+    def _refresh_heat(self) -> None:
+        path = self.source_view.path
+        self.source_view.set_heat(self.timing.heat_for(path) if path is not None else {})
+
+    def _dock_widget(self, name: str) -> QWidget:
+        return {"Messages": self.messages, "Flow": self.flow, "Timing": self.timing}[name]
 
     def _build_docks(self) -> None:
         previous: QDockWidget | None = None
-        for name in ("Messages", "Flow"):
+        for name in ("Messages", "Flow", "Timing"):
             dock = QDockWidget(name, self)
             dock.setObjectName(f"dock-{name.lower()}")
-            dock.setWidget(self.messages if name == "Messages" else self.flow)
+            dock.setWidget(self._dock_widget(name))
             self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, dock)
             if previous is not None:
                 self.tabifyDockWidget(previous, dock)
@@ -391,9 +403,17 @@ class MainWindow(QMainWindow):
         self._load_generation += 1
         if run is None or self.project_dir is None:
             self.messages.clear()
+            self.timing.set_run(None, [])
             return
+        self.timing.set_run(run.run_dir, self._timing_roots())
         task = LoadTask(self._load_generation, run.run_dir, self._load_signals)
         self.pool.start(task)
+
+    def _timing_roots(self) -> list[Path]:
+        roots = [self.project_dir] if self.project_dir is not None else []
+        if self.project is not None:
+            roots += [f.parent for d in self.project.designs.values() for f in d.files]
+        return roots
 
     def _on_messages_loaded(
         self, generation: int, messages: list[Message], step_search: list[Path]
