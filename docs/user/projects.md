@@ -70,7 +70,7 @@ steps = [{ use = "odin3-flow", target = "vtr", vpr = true }]
 
 | `use` | What it runs | Arguments |
 |---|---|---|
-| `odin3-flow` | the `odin3-flow` script: Odin III, then ABC mapping, then VPR | `target` (default `"vtr"`), `vpr` (`true`, the default, or `false`) |
+| `odin3-flow` | the `odin3-flow` script: Odin III, then ABC mapping, then VPR | `target` (default `"vtr"`), `vpr` (`true`, the default, or `false`), `timing_attr`, `timing_paths` |
 | `odin3` | the `odin3` binary | `argv`: the command words |
 | `vpr` | the `vpr` binary of `vtr_root` | `argv` |
 | `abc` | the `abc` binary of `vtr_root` | `argv` |

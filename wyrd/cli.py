@@ -1,4 +1,4 @@
-"""Command line: `wyrd init | run | status | table | compare | script | config | sim`."""
+"""Command line: `wyrd init | run | status | table | compare | script | timing | config | sim`."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from wyrd import report, settings
+from wyrd.guimodel import timing
 from wyrd.preflight import ProjectLocked, acquire_lock, preflight
 from wyrd.project import ConfigError, Project, load_project
 from wyrd.sched import run_all
@@ -85,6 +86,12 @@ arch = ["k6_frac_N10_frac_chain_mem32K_40nm"]
 def _err(msg: str) -> int:
     print(f"wyrd: {msg}", file=sys.stderr)
     return 2
+
+
+def _fail(msg: str) -> int:
+    """A run or file that exists but is not usable: exit 1 (2 stays for usage and config errors)."""
+    print(f"wyrd: {msg}", file=sys.stderr)
+    return 1
 
 
 def _init(directory: str) -> int:
@@ -237,6 +244,33 @@ def _script(args: argparse.Namespace) -> int:
     return 0
 
 
+def _timing(args: argparse.Namespace) -> int:
+    if args.top < 1:
+        return _err("--top must be at least 1")
+    rows = _rows(args.project)
+    if rows is None:
+        return 2
+    run = _find_run(rows, args.key)
+    if isinstance(run, str):
+        return _err(run)
+    if run["status"] != "ok":
+        return _fail(f"run {str(run['key'])[:12]} has status {run['status']}, not ok")
+    run_dir = Path(str(run["run_dir"]))
+    path = timing.find_attribution(run_dir)
+    if path is None:
+        reason = timing.missing_reason(run_dir)
+        return _err(
+            "no timing attribution for this run: "
+            + (reason or "use odin3-flow with timing_attr = true")
+        )
+    try:
+        att = timing.load_attribution(path)
+    except timing.TimingError as e:
+        return _fail(str(e))
+    print("\n".join(timing.summary_lines(att, args.top)))
+    return 0
+
+
 def _sim_backend() -> Backend:
     from wyrd.bifrost import default_backend
 
@@ -352,6 +386,9 @@ def _parser() -> argparse.ArgumentParser:
     _with_format(compare)
     script = _with_project(sub.add_parser("script", help="write replay.sh for a run"))
     script.add_argument("key", help="run key or a prefix of at least 6 characters")
+    tim = _with_project(sub.add_parser("timing", help="critical-path attribution of a run"))
+    tim.add_argument("key", help="run key or a prefix of at least 6 characters")
+    tim.add_argument("--top", type=int, default=10, metavar="N", help="statements to list")
     sim = sub.add_parser("sim", help="simulate Verilog files cycle by cycle (needs wyrd[sim])")
     sim.add_argument("files", nargs="+")
     sim.add_argument("--top")
@@ -380,6 +417,7 @@ def main(argv: list[str] | None = None) -> int:
         "table": _table,
         "compare": _compare,
         "script": _script,
+        "timing": _timing,
         "sim": _sim,
     }
     return handlers[args.command](args)

@@ -16,7 +16,7 @@ A step-by-step PDF tutorial does everything below in the interface, with a figur
   steps) and Archs. Double-click a file to open it in the Source tab.
 - **Tabs** (centre): *Source*, *Report*, *wyrd.toml* and *Simulate*. When `wyrd.toml` has an error only the
   *wyrd.toml* tab is enabled.
-- **Messages** and **Flow** (bottom docks, tabbed; View menu shows or hides them).
+- **Messages**, **Flow** and **Timing** (bottom docks, tabbed; View menu shows or hides them).
 
 ### Source
 
@@ -63,6 +63,23 @@ and for every run a *Summary*, one node per *Step n: tool* with its log files, a
   as its tooltip, when `vpr_gui` is set to a file that does not exist.
 
 Project > Refresh results (F5) re-reads `wyrd.db`; it also happens after each flow run.
+
+### Timing
+
+For a run whose `odin3-flow` step has `timing_attr = true` (see {doc}`running`), the **Timing** dock
+shows the critical-path attribution of Odin III (`timing/attribution.json`): a header with Fmax and the
+critical path delay, the statements that set the critical path ranked by share (share, delay,
+`file:line`, module, word), and the critical path in order. Selecting a row opens the file in the
+Source tab at that line. The Source tab then shows a heat margin with a percentage per line; the
+dock chooses its scope: *Critical path* (share of the critical path delay) or *Top paths* (share of
+the delay of the worst N paths). The view is read-only. A run without an attribution, or with a file
+Wyrd cannot read (an unknown `schema_version`, bad JSON, over 64 MiB), shows a plain message instead;
+when the flow left a `timing.log`, the message gives its text. Source files are looked up only
+inside the project directory and the design directories, using the `designs` and `source_cwd`
+recorded in `timing/inputs.json` first; a bare file name matches only when exactly one file has
+it. The Timing dock warns when you select a line of a file that is newer than the attribution.
+
+![Timing dock and heat margin](images/timing-view.png)
 
 ## Menus
 

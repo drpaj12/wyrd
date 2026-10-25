@@ -8,6 +8,8 @@ from wyrd.model import Metric, RunSpec
 from wyrd.settings import Settings
 from wyrd.steps import arch_xml, finite_number, need_vtr_root, read_json_object, tool_path
 
+DEFAULT_TARGET = "vtr"
+
 
 class FlowStep:
     name = "odin3-flow"
@@ -18,6 +20,11 @@ class FlowStep:
         if not isinstance(vpr, bool):
             raise ValueError(f"step 'odin3-flow': args.vpr must be true or false, got {vpr!r}")
         self.is_vpr = vpr
+        self.timing_paths = _timing_paths(self.args)
+        self.timing_attr = _flag(self.args, "timing_attr") or self.timing_paths is not None
+        target = self.args.get("target", DEFAULT_TARGET)
+        if self.timing_attr and not (self.is_vpr and target == DEFAULT_TARGET):
+            raise ValueError("step 'odin3-flow': timing_attr needs target = \"vtr\" and vpr = true")
         self.tools: tuple[str, ...] = ("odin3_flow", "odin3") + (("vpr",) if self.is_vpr else ())
 
     def command(
@@ -26,15 +33,68 @@ class FlowStep:
         argv = [tool_path(settings, "odin3_flow"), *[str(f) for f in run.design.files]]
         if run.design.top:
             argv += ["--top", run.design.top]
-        argv += ["--target", str(self.args.get("target", "vtr"))]
+        argv += ["--target", str(self.args.get("target", DEFAULT_TARGET))]
         argv += ["--arch", str(arch_xml(settings, run.arch))]
         argv.append("--vpr" if self.is_vpr else "--no-vpr")
+        if self.timing_attr:
+            argv.append("--timing-attr")
+        if self.timing_paths is not None:
+            argv += ["--timing-paths", str(self.timing_paths)]
         argv += ["--out", str(step_dir / "out")]
         return argv, {"VTR_ROOT": str(need_vtr_root(settings))}
 
     def collect(self, step_dir: Path) -> list[Metric]:
         data = read_json_object(step_dir / "out" / "summary.json")
-        return _flatten(data, "") if data is not None else []
+        metrics = _flatten(data, "") if data is not None else []
+        return metrics + timing_metrics(step_dir) if self.timing_attr else metrics
+
+
+def attribution_path(step_dir: Path) -> Path:
+    """Where `odin3-flow --timing-attr` leaves attribution.json for the step in `step_dir`."""
+    return step_dir / "out" / "timing" / "attribution.json"
+
+
+def timing_metrics(step_dir: Path) -> list[Metric]:
+    """Fmax and CPD from attribution.json; `timing.attributed` is 1 when the file is usable.
+
+    0 means the file is missing or has no `timing` object or an unknown `schema_version`. It is
+    rare: odin3-flow exits 1 when its timing step fails, so the scheduler marks that run failed
+    (finish_step) and never calls `collect`. Malformed JSON raises ValueError, which also fails
+    the run.
+    """
+    data = read_json_object(attribution_path(step_dir))
+    timing = data.get("timing") if data is not None else None
+    if not isinstance(timing, dict) or data is None or not _is_schema_one(data):
+        return [Metric("timing.attributed", 0.0)]
+    out = [Metric("timing.attributed", 1.0)]
+    for key, unit in (("fmax_mhz", "MHz"), ("cpd_ns", "ns")):
+        number = finite_number(timing.get(key))
+        if number is not None:
+            out.append(Metric(f"timing.{key}", number, unit))
+    return out
+
+
+def _is_schema_one(data: dict[str, object]) -> bool:
+    version = data.get("schema_version")
+    return type(version) is int and version == 1
+
+
+def _flag(args: dict[str, object], key: str) -> bool:
+    value = args.get(key, False)
+    if not isinstance(value, bool):
+        raise ValueError(f"step 'odin3-flow': args.{key} must be true or false, got {value!r}")
+    return value
+
+
+def _timing_paths(args: dict[str, object]) -> int | None:
+    value = args.get("timing_paths")
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(
+            f"step 'odin3-flow': args.timing_paths must be a positive integer, got {value!r}"
+        )
+    return value
 
 
 def _unit(name: str) -> str:
