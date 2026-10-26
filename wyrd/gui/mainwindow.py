@@ -27,6 +27,7 @@ from wyrd.gui.flowpanel import FlowPanel
 from wyrd.gui.messages import MessagesPane
 from wyrd.gui.projecttree import ProjectTree
 from wyrd.gui.reportview import ReportView
+from wyrd.gui.schematicpanel import SchematicPanel
 from wyrd.gui.settingsdialog import SettingsDialog
 from wyrd.gui.simpanel import SimPanel
 from wyrd.gui.sourceview import SourceView
@@ -73,6 +74,7 @@ class MainWindow(QMainWindow):
         self.report_view = ReportView()
         self.flow = FlowPanel()
         self.timing = TimingPanel()
+        self.schematic = SchematicPanel()
         self.editor = TomlEditor(silent)
         self.sim_panel = SimPanel(sim_backend)
         self.docks: dict[str, QDockWidget] = {}
@@ -228,11 +230,17 @@ class MainWindow(QMainWindow):
         self.source_view.set_heat(self.timing.heat_for(path) if path is not None else {})
 
     def _dock_widget(self, name: str) -> QWidget:
-        return {"Messages": self.messages, "Flow": self.flow, "Timing": self.timing}[name]
+        docks: dict[str, QWidget] = {
+            "Messages": self.messages,
+            "Flow": self.flow,
+            "Timing": self.timing,
+            "Schematic": self.schematic,
+        }
+        return docks[name]
 
     def _build_docks(self) -> None:
         previous: QDockWidget | None = None
-        for name in ("Messages", "Flow", "Timing"):
+        for name in ("Messages", "Flow", "Timing", "Schematic"):
             dock = QDockWidget(name, self)
             dock.setObjectName(f"dock-{name.lower()}")
             dock.setWidget(self._dock_widget(name))
@@ -407,8 +415,10 @@ class MainWindow(QMainWindow):
         if run is None or self.project_dir is None:
             self.messages.clear()
             self.timing.set_run(None, [])
+            self.schematic.set_run(None)
             return
         self.timing.set_run(run.run_dir, self._timing_roots())
+        self.schematic.set_run(run.run_dir)
         task = LoadTask(generation, run.run_dir, self._load_signals)
         self.pool.start(task)
 

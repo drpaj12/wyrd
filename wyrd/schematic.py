@@ -101,6 +101,11 @@ def _modules(netlist: Netlist) -> dict[str, object]:
     return _dict(netlist.get("modules"), "modules")
 
 
+def modules_dict(netlist: Netlist) -> dict[str, Module]:
+    """Module name to module object."""
+    return {n: _module(netlist, n) for n in _modules(netlist)}
+
+
 def _module(netlist: Netlist, name: str) -> Module:
     mods = _modules(netlist)
     if name not in mods:
