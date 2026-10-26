@@ -8,3 +8,8 @@ build/
 dist/
 vpr_stdout.log
 .docs-venv/
+
+# runtime output of the sample runner (wyrd.db, its lock and run dirs)
+samples/runs/
+samples/wyrd.db*
+samples/.wyrd.lock
