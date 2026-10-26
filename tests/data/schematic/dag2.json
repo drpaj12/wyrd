@@ -1,0 +1,669 @@
+{
+  "creator": "Odin III",
+  "odin3_version": 1,
+  "modules": {
+    "bm_dag2_mod": {
+      "attributes": {
+        "top": "00000000000000000000000000000001",
+        "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:4.1-42.10"
+      },
+      "ports": {
+        "clock": {
+          "direction": "input",
+          "bits": [ 2 ]
+        },
+        "reset_n": {
+          "direction": "input",
+          "bits": [ 3 ]
+        },
+        "a_in": {
+          "direction": "input",
+          "bits": [ 4, 5 ]
+        },
+        "b_in": {
+          "direction": "input",
+          "bits": [ 6, 7 ]
+        },
+        "c_in": {
+          "direction": "input",
+          "bits": [ 8 ]
+        },
+        "d_in": {
+          "direction": "input",
+          "bits": [ 9 ]
+        },
+        "out0": {
+          "direction": "output",
+          "bits": [ 10, 11 ]
+        },
+        "out1": {
+          "direction": "output",
+          "bits": [ 12 ]
+        }
+      },
+      "cells": {
+        "top_a": {
+          "hide_name": 0,
+          "type": "a",
+          "parameters": {
+          },
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:33.3-33.35"
+          },
+          "port_directions": {
+            "clock": "input",
+            "a_in": "input",
+            "b_in": "input",
+            "out": "output"
+          },
+          "connections": {
+            "clock": [ 2 ],
+            "a_in": [ 4, 5 ],
+            "b_in": [ 6, 7 ],
+            "out": [ 13, 14 ]
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "bm_dag2_mod",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:33.3-33.35" ]
+          }
+        },
+        "top_b": {
+          "hide_name": 0,
+          "type": "b",
+          "parameters": {
+          },
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:34.3-34.35"
+          },
+          "port_directions": {
+            "clock": "input",
+            "a_in": "input",
+            "b_in": "input",
+            "out": "output"
+          },
+          "connections": {
+            "clock": [ 2 ],
+            "a_in": [ 4, 5 ],
+            "b_in": [ 6, 7 ],
+            "out": [ 15, 16 ]
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "bm_dag2_mod",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:34.3-34.35" ]
+          }
+        },
+        "$c11": {
+          "hide_name": 1,
+          "type": "$and",
+          "parameters": {
+            "A_SIGNED": "00000000000000000000000000000000",
+            "B_SIGNED": "00000000000000000000000000000000",
+            "A_WIDTH": "00000000000000000000000000000010",
+            "B_WIDTH": "00000000000000000000000000000010",
+            "Y_WIDTH": "00000000000000000000000000000010"
+          },
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:38.10-38.25"
+          },
+          "port_directions": {
+            "A": "input",
+            "B": "input",
+            "Y": "output"
+          },
+          "connections": {
+            "A": [ 13, 14 ],
+            "B": [ 15, 16 ],
+            "Y": [ 19, 20 ]
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "bm_dag2_mod",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:38.10-38.25" ]
+          }
+        },
+        "$c12": {
+          "hide_name": 1,
+          "type": "$and",
+          "parameters": {
+            "A_SIGNED": "00000000000000000000000000000000",
+            "B_SIGNED": "00000000000000000000000000000000",
+            "A_WIDTH": "00000000000000000000000000000001",
+            "B_WIDTH": "00000000000000000000000000000001",
+            "Y_WIDTH": "00000000000000000000000000000001"
+          },
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:39.10-39.21"
+          },
+          "port_directions": {
+            "A": "input",
+            "B": "input",
+            "Y": "output"
+          },
+          "connections": {
+            "A": [ 8 ],
+            "B": [ 9 ],
+            "Y": [ 21 ]
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "bm_dag2_mod",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:39.10-39.21" ]
+          }
+        },
+        "$c14": {
+          "hide_name": 1,
+          "type": "$dff",
+          "parameters": {
+            "WIDTH": "00000000000000000000000000000010",
+            "CLK_POLARITY": "00000000000000000000000000000001"
+          },
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:36.1-40.4"
+          },
+          "port_directions": {
+            "CLK": "input",
+            "D": "input",
+            "Q": "output"
+          },
+          "connections": {
+            "CLK": [ 2 ],
+            "D": [ 19, 20 ],
+            "Q": [ 10, 11 ]
+          },
+          "odin3_prov": {
+            "kind": "DERIVED",
+            "hier": "",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:36.1-40.4" ]
+          }
+        },
+        "$c15": {
+          "hide_name": 1,
+          "type": "$dff",
+          "parameters": {
+            "WIDTH": "00000000000000000000000000000001",
+            "CLK_POLARITY": "00000000000000000000000000000001"
+          },
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:36.1-40.4"
+          },
+          "port_directions": {
+            "CLK": "input",
+            "D": "input",
+            "Q": "output"
+          },
+          "connections": {
+            "CLK": [ 2 ],
+            "D": [ 21 ],
+            "Q": [ 12 ]
+          },
+          "odin3_prov": {
+            "kind": "DERIVED",
+            "hier": "",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:36.1-40.4" ]
+          }
+        }
+      },
+      "netnames": {
+        "clock": {
+          "hide_name": 0,
+          "bits": [ 2 ],
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:14.1-14.13"
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "bm_dag2_mod",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:14.1-14.13" ]
+          }
+        },
+        "reset_n": {
+          "hide_name": 0,
+          "bits": [ 3 ],
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:15.1-15.16"
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "bm_dag2_mod",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:15.1-15.16" ]
+          }
+        },
+        "a_in": {
+          "hide_name": 0,
+          "bits": [ 4, 5 ],
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:17.1-17.24"
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "bm_dag2_mod",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:17.1-17.24" ]
+          }
+        },
+        "b_in": {
+          "hide_name": 0,
+          "bits": [ 6, 7 ],
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:18.1-18.24"
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "bm_dag2_mod",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:18.1-18.24" ]
+          }
+        },
+        "c_in": {
+          "hide_name": 0,
+          "bits": [ 8 ],
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:19.1-19.12"
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "bm_dag2_mod",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:19.1-19.12" ]
+          }
+        },
+        "d_in": {
+          "hide_name": 0,
+          "bits": [ 9 ],
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:20.1-20.12"
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "bm_dag2_mod",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:20.1-20.12" ]
+          }
+        },
+        "out0": {
+          "hide_name": 0,
+          "bits": [ 10, 11 ],
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:22.1-22.25"
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "bm_dag2_mod",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:22.1-22.25" ]
+          }
+        },
+        "out1": {
+          "hide_name": 0,
+          "bits": [ 12 ],
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:23.1-23.14"
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "bm_dag2_mod",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:23.1-23.14" ]
+          }
+        },
+        "temp_a": {
+          "hide_name": 0,
+          "bits": [ 13, 14 ],
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:28.18-28.24"
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "bm_dag2_mod",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:28.18-28.24" ]
+          }
+        },
+        "temp_b": {
+          "hide_name": 0,
+          "bits": [ 15, 16 ],
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:29.18-29.24"
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "bm_dag2_mod",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:29.18-29.24" ]
+          }
+        },
+        "temp_c": {
+          "hide_name": 0,
+          "bits": [ 17 ],
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:30.6-30.12"
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "bm_dag2_mod",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:30.6-30.12" ]
+          }
+        },
+        "temp_d": {
+          "hide_name": 0,
+          "bits": [ 18 ],
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:31.6-31.12"
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "bm_dag2_mod",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:31.6-31.12" ]
+          }
+        }
+      },
+      "odin3_prov": {
+        "kind": "SOURCE",
+        "hier": "bm_dag2_mod",
+        "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:4.1-42.10" ]
+      }
+    },
+    "a": {
+      "attributes": {
+        "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:45.1-61.10"
+      },
+      "ports": {
+        "clock": {
+          "direction": "input",
+          "bits": [ 2 ]
+        },
+        "a_in": {
+          "direction": "input",
+          "bits": [ 3, 4 ]
+        },
+        "b_in": {
+          "direction": "input",
+          "bits": [ 5, 6 ]
+        },
+        "out": {
+          "direction": "output",
+          "bits": [ 7, 8 ]
+        }
+      },
+      "cells": {
+        "$c5": {
+          "hide_name": 1,
+          "type": "$and",
+          "parameters": {
+            "A_SIGNED": "00000000000000000000000000000000",
+            "B_SIGNED": "00000000000000000000000000000000",
+            "A_WIDTH": "00000000000000000000000000000010",
+            "B_WIDTH": "00000000000000000000000000000010",
+            "Y_WIDTH": "00000000000000000000000000000010"
+          },
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:58.9-58.20"
+          },
+          "port_directions": {
+            "A": "input",
+            "B": "input",
+            "Y": "output"
+          },
+          "connections": {
+            "A": [ 3, 4 ],
+            "B": [ 5, 6 ],
+            "Y": [ 9, 10 ]
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "a",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:58.9-58.20" ]
+          }
+        },
+        "$c7": {
+          "hide_name": 1,
+          "type": "$dff",
+          "parameters": {
+            "WIDTH": "00000000000000000000000000000010",
+            "CLK_POLARITY": "00000000000000000000000000000001"
+          },
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:56.1-59.4"
+          },
+          "port_directions": {
+            "CLK": "input",
+            "D": "input",
+            "Q": "output"
+          },
+          "connections": {
+            "CLK": [ 2 ],
+            "D": [ 9, 10 ],
+            "Q": [ 7, 8 ]
+          },
+          "odin3_prov": {
+            "kind": "DERIVED",
+            "hier": "",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:56.1-59.4" ]
+          }
+        }
+      },
+      "netnames": {
+        "clock": {
+          "hide_name": 0,
+          "bits": [ 2 ],
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:50.1-50.13"
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "a",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:50.1-50.13" ]
+          }
+        },
+        "a_in": {
+          "hide_name": 0,
+          "bits": [ 3, 4 ],
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:51.1-51.24"
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "a",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:51.1-51.24" ]
+          }
+        },
+        "b_in": {
+          "hide_name": 0,
+          "bits": [ 5, 6 ],
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:52.1-52.24"
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "a",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:52.1-52.24" ]
+          }
+        },
+        "out": {
+          "hide_name": 0,
+          "bits": [ 7, 8 ],
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:53.1-53.27"
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "a",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:53.1-53.27" ]
+          }
+        }
+      },
+      "odin3_prov": {
+        "kind": "SOURCE",
+        "hier": "a",
+        "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:45.1-61.10" ]
+      }
+    },
+    "b": {
+      "attributes": {
+        "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:64.1-83.10"
+      },
+      "ports": {
+        "clock": {
+          "direction": "input",
+          "bits": [ 2 ]
+        },
+        "a_in": {
+          "direction": "input",
+          "bits": [ 3, 4 ]
+        },
+        "b_in": {
+          "direction": "input",
+          "bits": [ 5, 6 ]
+        },
+        "out": {
+          "direction": "output",
+          "bits": [ 7, 8 ]
+        }
+      },
+      "cells": {
+        "my_a": {
+          "hide_name": 0,
+          "type": "a",
+          "parameters": {
+          },
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:76.3-76.32"
+          },
+          "port_directions": {
+            "clock": "input",
+            "a_in": "input",
+            "b_in": "input",
+            "out": "output"
+          },
+          "connections": {
+            "clock": [ 2 ],
+            "a_in": [ 3, 4 ],
+            "b_in": [ 5, 6 ],
+            "out": [ 9, 10 ]
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "b",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:76.3-76.32" ]
+          }
+        },
+        "$c6": {
+          "hide_name": 1,
+          "type": "$xor",
+          "parameters": {
+            "A_SIGNED": "00000000000000000000000000000000",
+            "B_SIGNED": "00000000000000000000000000000000",
+            "A_WIDTH": "00000000000000000000000000000010",
+            "B_WIDTH": "00000000000000000000000000000010",
+            "Y_WIDTH": "00000000000000000000000000000010"
+          },
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:80.9-80.20"
+          },
+          "port_directions": {
+            "A": "input",
+            "B": "input",
+            "Y": "output"
+          },
+          "connections": {
+            "A": [ 3, 4 ],
+            "B": [ 9, 10 ],
+            "Y": [ 11, 12 ]
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "b",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:80.9-80.20" ]
+          }
+        },
+        "$c8": {
+          "hide_name": 1,
+          "type": "$dff",
+          "parameters": {
+            "WIDTH": "00000000000000000000000000000010",
+            "CLK_POLARITY": "00000000000000000000000000000001"
+          },
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:78.1-81.4"
+          },
+          "port_directions": {
+            "CLK": "input",
+            "D": "input",
+            "Q": "output"
+          },
+          "connections": {
+            "CLK": [ 2 ],
+            "D": [ 11, 12 ],
+            "Q": [ 7, 8 ]
+          },
+          "odin3_prov": {
+            "kind": "DERIVED",
+            "hier": "",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:78.1-81.4" ]
+          }
+        }
+      },
+      "netnames": {
+        "clock": {
+          "hide_name": 0,
+          "bits": [ 2 ],
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:69.1-69.13"
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "b",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:69.1-69.13" ]
+          }
+        },
+        "a_in": {
+          "hide_name": 0,
+          "bits": [ 3, 4 ],
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:70.1-70.24"
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "b",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:70.1-70.24" ]
+          }
+        },
+        "b_in": {
+          "hide_name": 0,
+          "bits": [ 5, 6 ],
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:71.1-71.24"
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "b",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:71.1-71.24" ]
+          }
+        },
+        "out": {
+          "hide_name": 0,
+          "bits": [ 7, 8 ],
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:73.1-73.24"
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "b",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:73.1-73.24" ]
+          }
+        },
+        "temp": {
+          "hide_name": 0,
+          "bits": [ 9, 10 ],
+          "attributes": {
+            "src": "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:72.18-72.22"
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "b",
+            "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:72.18-72.22" ]
+          }
+        }
+      },
+      "odin3_prov": {
+        "kind": "SOURCE",
+        "hier": "b",
+        "hdl": [ "odin3/tests/micro/verilog/micro/bm_dag2_mod.v:64.1-83.10" ]
+      }
+    }
+  }
+}
