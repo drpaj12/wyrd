@@ -66,15 +66,29 @@ class ModuleInfo:
     top: bool
 
 
-def find_tools(env: dict[str, str] | None = None) -> Tools | None:
-    """Locate netlistsvg and node: $WYRD_NETLISTSVG / $WYRD_NODE, else PATH. None when absent."""
-    e = os.environ if env is None else env
-    svg = e.get("WYRD_NETLISTSVG") or shutil.which("netlistsvg", path=e.get("PATH"))
-    node = e.get("WYRD_NODE") or shutil.which("node", path=e.get("PATH"))
-    if not svg or not node:
+def _usable(candidate: str | None) -> Path | None:
+    """The resolved executable, or None for a missing file or a Windows one (/mnt/, .exe, .cmd)."""
+    if not candidate:
         return None
-    paths = (Path(svg), Path(node))
-    return Tools(*paths) if all(p.is_file() for p in paths) else None
+    try:
+        path = Path(candidate).resolve()
+    except (OSError, RuntimeError):
+        return None
+    text = str(path)
+    if text.startswith("/mnt/") or text.lower().endswith((".exe", ".cmd", ".bat")):
+        return None
+    return path if path.is_file() and os.access(path, os.X_OK) else None
+
+
+def find_tools(env: dict[str, str] | None = None) -> Tools | None:
+    """Locate netlistsvg and node: $WYRD_NETLISTSVG / $WYRD_NODE, else PATH. None when absent.
+
+    Each candidate is resolved and must be a Linux executable (not under /mnt/, not .exe/.cmd).
+    """
+    e = os.environ if env is None else env
+    svg = _usable(e.get("WYRD_NETLISTSVG") or shutil.which("netlistsvg", path=e.get("PATH")))
+    node = _usable(e.get("WYRD_NODE") or shutil.which("node", path=e.get("PATH")))
+    return Tools(svg, node) if svg is not None and node is not None else None
 
 
 def _dict(value: object, what: str) -> dict[str, object]:
@@ -89,7 +103,7 @@ def load_netlist(path: Path) -> Netlist:
         if path.stat().st_size > MAX_NETLIST_BYTES:
             raise SchematicError(f"{path.name} is larger than {MAX_NETLIST_BYTES >> 20} MB")
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as e:
+    except (OSError, ValueError, RecursionError, MemoryError) as e:
         raise SchematicError(f"cannot read {path.name}: {e}") from e
     top = _dict(data, "the file")
     if not isinstance(top.get("modules"), dict) or not top["modules"]:
@@ -167,13 +181,20 @@ def _dir(cell: dict[str, object], port: str) -> str:
 
 
 def _split(cell: dict[str, object]) -> tuple[list[int], list[int]]:
-    """Integer input bits and output bits of a cell (constants are strings and are skipped)."""
+    """Integer input bits and output bits of a cell (constants are strings and are skipped).
+
+    An inout port counts as both an input and an output.
+    """
     ins: list[int] = []
     outs: list[int] = []
     conns = _dict(cell.get("connections", {}), "connections")
     for port, bits in conns.items():
-        target = outs if _dir(cell, port) == "output" else ins
-        target.extend(b for b in _bits(bits) if isinstance(b, int))
+        ints = [b for b in _bits(bits) if isinstance(b, int)]
+        direction = _dir(cell, port)
+        if direction != "output":
+            ins.extend(ints)
+        if direction in ("output", "inout"):
+            outs.extend(ints)
     return ins, outs
 
 
@@ -201,9 +222,14 @@ def seeds_of_net(mod: Module, net: str) -> list[str]:
     return found
 
 
+def _same_file(f: str, file: str) -> bool:
+    """`f` is `file` or ends with it at a path boundary (`a.v` does not match `data.v`)."""
+    return f == file or f.endswith("/" + file)
+
+
 def _covers(src: str, file: str, line: int) -> bool:
     m = _SRC.match(src)
-    if m is None or not m["file"].endswith(file):
+    if m is None or not _same_file(m["file"], file):
         return False
     first = int(m["l1"])
     last = int(m["l2"]) if m["l2"] else first
@@ -273,19 +299,23 @@ def cone_view(
 ) -> tuple[Netlist, bool]:
     """A module made of the fan-in cone of `seeds`; bits made outside become input ports.
 
-    Output ports: the seed cells' outputs. Returns the netlist and whether the cone was cut at
+    Output ports: the outputs of the seed cells that fit within `max_cells`; seeds beyond the limit
+    are dropped and flag the cut. Returns the netlist and whether the cone was cut at
     `max_cells` (cells beyond the cut show up as input ports).
     """
     mod = _module(netlist, name)
     cells = _cells(mod)
     keep, cut = fanin(mod, seeds, max_cells)
+    cells_kept = set(keep)
     made, read = _used_bits(cells, keep)
     labels = _labels(mod)
     ports: dict[str, object] = {}
     for bit in sorted(read - made):
         key, port = _port("input", bit, labels)
         ports[key] = port
-    for seed in seeds:
+    shown_seeds = [x for x in seeds if x in cells_kept]
+    cut = cut or len(shown_seeds) < len(set(seeds))
+    for seed in shown_seeds:
         for bit in _split(cells[seed])[1]:
             key, port = _port("output", bit, labels)
             ports[key] = port
@@ -331,18 +361,23 @@ def render(
     """Run netlistsvg on `view`, writing `out_svg`; ToolMissing when it is not installed."""
     if tools is None:
         raise ToolMissing(INSTALL_HINT)
-    src = work_dir / "view.json"
-    src.write_text(json.dumps(view), encoding="utf-8")
+    src = work_dir / f"{out_svg.stem}.json"
+    try:
+        src.write_text(json.dumps(view), encoding="utf-8")
+    except (OSError, ValueError, RecursionError, MemoryError) as e:
+        raise SchematicError(f"cannot write {src.name}: {e}") from e
     env = dict(os.environ)
     env["PATH"] = str(tools.node.parent) + os.pathsep + env.get("PATH", "")
-    argv = [str(tools.netlistsvg), str(src), "-o", str(out_svg)]
+    argv = [str(tools.node), str(tools.netlistsvg), str(src), "-o", str(out_svg)]
     try:
         done = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired as e:
         raise SchematicError(f"netlistsvg took more than {timeout} s; show a smaller part") from e
     except OSError as e:
         raise ToolMissing(f"cannot run netlistsvg: {e}. {INSTALL_HINT}") from e
-    if done.returncode != 0 or not out_svg.is_file():
+    if done.returncode == 0 and not out_svg.is_file():
+        raise SchematicError("netlistsvg wrote no output file")
+    if done.returncode != 0:
         raise SchematicError(
             f"netlistsvg failed (exit {done.returncode}): {_error_line(done.stderr)}"
         )

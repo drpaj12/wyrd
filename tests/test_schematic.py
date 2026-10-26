@@ -1,5 +1,6 @@
 """Schematic back end (Qt-free). Fixtures: tests/data/schematic (Odin III write_json output)."""
 
+import copy
 import json
 import stat
 import tempfile
@@ -66,6 +67,9 @@ class NetlistTest(unittest.TestCase):
                 sch.load_netlist(bad)
             with self.assertRaises(sch.SchematicError):
                 sch.load_netlist(Path(t) / "missing.json")
+            bad.write_text("[" * 200000, encoding="utf-8")
+            with self.assertRaises(sch.SchematicError):
+                sch.load_netlist(bad)
 
 
 class ConeTest(unittest.TestCase):
@@ -102,6 +106,40 @@ class ConeTest(unittest.TestCase):
         ins = [p["bits"][0] for p in sub["ports"].values() if p["direction"] == "input"]
         self.assertFalse(set(ins) & made)
 
+    def test_seeds_of_line_matches_on_path_boundary(self) -> None:
+        mod: sch.Module = {
+            "cells": {
+                "c1": {"attributes": {"src": "dir/data.v:5.1-5.9"}},
+                "c2": {"attributes": {"src": "a.v:5.1-5.9"}},
+            }
+        }
+        self.assertEqual(sch.seeds_of_line(mod, "a.v", 5), ["c2"])
+        self.assertEqual(sch.seeds_of_line(mod, "data.v", 5), ["c1"])
+        self.assertEqual(sch.seeds_of_line(mod, "dir/data.v", 5), ["c1"])
+
+    def test_inout_is_input_and_output(self) -> None:
+        cell = {"port_directions": {"IO": "inout", "A": "input"}, "connections": {"IO": [3], "A": [4]}}
+        self.assertEqual(sch._split(cell), ([3, 4], [3]))
+
+    def test_seeds_beyond_limit_dropped_and_flagged(self) -> None:
+        view, cut = sch.cone_view(self.dag, "bm_dag2_mod", ["$c14", "$c15"], max_cells=1)
+        self.assertTrue(cut)
+        sub = modules_of(view)["bm_dag2_mod"]
+        self.assertEqual(list(sub["cells"]), ["$c14"])
+        made = {b for c in sub["cells"].values() for b in sch._split(c)[1]}
+        outs = [p["bits"][0] for p in sub["ports"].values() if p["direction"] == "output"]
+        self.assertTrue(outs)
+        self.assertTrue(set(outs) <= made)
+
+    def test_views_do_not_mutate_the_netlist(self) -> None:
+        before = copy.deepcopy(self.dag)
+        sch.module_view(self.dag, "bm_dag2_mod")
+        sch.module_view(self.dag, "a")
+        sch.cone_view(self.dag, "bm_dag2_mod", ["$c14", "$c15"])
+        sch.cone_view(self.dag, "bm_dag2_mod", ["$c14", "$c15"], max_cells=2)
+        sch._wrap(self.dag, "a", sch._module(self.dag, "a"))
+        self.assertEqual(self.dag, before)
+
     def test_cone_cut(self) -> None:
         view, cut = sch.cone_view(self.dag, "bm_dag2_mod", ["$c14", "$c15"], max_cells=2)
         self.assertTrue(cut)
@@ -128,7 +166,7 @@ class RenderTest(unittest.TestCase):
         out = self.dir / "o.svg"
         sch.render(self.mux, out, fake_tool(self.dir), self.dir)
         self.assertTrue(out.read_text(encoding="utf-8").startswith("<svg"))
-        self.assertEqual(json.loads((self.dir / "view.json").read_text()), self.mux)
+        self.assertEqual(json.loads((self.dir / "o.json").read_text()), self.mux)
 
     def test_tool_failure(self) -> None:
         with self.assertRaises(sch.SchematicError) as cm:
@@ -139,7 +177,35 @@ class RenderTest(unittest.TestCase):
         self.assertIsNone(sch.find_tools({"PATH": str(self.dir)}))
         tool = fake_tool(self.dir)
         env = {"WYRD_NETLISTSVG": str(tool.netlistsvg), "WYRD_NODE": "/bin/sh"}
-        self.assertEqual(sch.find_tools(env), tool)
+        found = sch.find_tools(env)
+        assert found is not None
+        self.assertEqual(found.netlistsvg, tool.netlistsvg.resolve())
+        self.assertEqual(found.node, Path("/bin/sh").resolve())
+
+    def test_find_tools_rejects_windows_and_non_executable(self) -> None:
+        tool = fake_tool(self.dir)
+        win = {"PATH": "/mnt/c/Program Files/nodejs", "WYRD_NETLISTSVG": str(tool.netlistsvg)}
+        self.assertIsNone(sch.find_tools(win))
+        for bad in ("/mnt/c/x/node", str(self.dir / "node.exe"), str(self.dir / "n.cmd")):
+            env = {"WYRD_NETLISTSVG": str(tool.netlistsvg), "WYRD_NODE": bad}
+            self.assertIsNone(sch.find_tools(env))
+        plain = self.dir / "plain"
+        plain.write_text("x", encoding="utf-8")
+        plain.chmod(0o644)
+        env = {"WYRD_NETLISTSVG": str(plain), "WYRD_NODE": "/bin/sh"}
+        self.assertIsNone(sch.find_tools(env))
+
+    def test_runs_found_node(self) -> None:
+        """The node program is argv[0]; the script need not be executable or have a shebang."""
+        script = self.dir / "nsvg.js"
+        script.write_text(f'cp "{DATA / "mux.svg"}" "$3"\n', encoding="utf-8")
+        out = self.dir / "o.svg"
+        sch.render(self.mux, out, sch.Tools(script, Path("/bin/sh")), self.dir)
+        self.assertTrue(out.is_file())
+
+    def test_write_error_is_schematic_error(self) -> None:
+        with self.assertRaises(sch.SchematicError):
+            sch.render(self.mux, self.dir / "o.svg", fake_tool(self.dir), self.dir / "missing")
 
     def test_find_netlist(self) -> None:
         self.assertIsNone(sch.find_netlist(self.dir))
