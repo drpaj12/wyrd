@@ -18,7 +18,7 @@ from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
-MAX_NETLIST_BYTES = 256 * 1024 * 1024
+MAX_NETLIST_BYTES = 64 * 1024 * 1024
 DEFAULT_MAX_CELLS = 300
 RENDER_TIMEOUT_S = 120
 INSTALL_HINT = (

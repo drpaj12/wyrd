@@ -118,7 +118,10 @@ class ConeTest(unittest.TestCase):
         self.assertEqual(sch.seeds_of_line(mod, "dir/data.v", 5), ["c1"])
 
     def test_inout_is_input_and_output(self) -> None:
-        cell = {"port_directions": {"IO": "inout", "A": "input"}, "connections": {"IO": [3], "A": [4]}}
+        cell = {
+            "port_directions": {"IO": "inout", "A": "input"},
+            "connections": {"IO": [3], "A": [4]},
+        }
         self.assertEqual(sch._split(cell), ([3, 4], [3]))
 
     def test_seeds_beyond_limit_dropped_and_flagged(self) -> None:
