@@ -13,6 +13,7 @@
 | PySide6 / Qt | software | The GUI toolkit |  | https://doc.qt.io/qtforpython-6/ |
 | pygame-ce | software | Window, input and drawing for Midgard III (W4) |  | https://pyga.me |
 | Creepster | font | Title and menu font of Midgard III (W4) | Font Diner, Inc (2011). |  |
+| netlistsvg | software | Optional schematic drawing (Node.js) for the Schematic panel; not bundled | N. Turley (2020). | https://github.com/nturley/netlistsvg |
 | GTKWave | software | External waveform viewer opened from the Simulate tab |  | https://gtkwave.sourceforge.net |
 | verilogTown | paper | The Verilog teaching game, ported as Midgard III (W4) | P. Jamieson, L. Grace, N. Mizuno, B. Zhang (2017). verilogTown - Improving Students Learning Hardware Description Language Design - Verilog - with a Video Game. ASEE Annual Conference and Exposition. |  |
 | GraphCrunch | paper | Graph analysis background | T. Milenkovic, J. Lai, N. Przulj (2008). GraphCrunch: a tool for large network analyses. BMC Bioinformatics 9:70. |  |

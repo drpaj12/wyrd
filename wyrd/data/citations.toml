@@ -105,6 +105,16 @@ license = "SIL OFL 1.1"
 role = "Title and menu font of Midgard III (W4)"
 
 [[item]]
+id = "netlistsvg"
+name = "netlistsvg"
+kind = "software"
+authors = "N. Turley"
+year = 2020
+url = "https://github.com/nturley/netlistsvg"
+license = "MIT"
+role = "Optional schematic drawing (Node.js) for the Schematic panel; not bundled"
+
+[[item]]
 id = "gtkwave"
 name = "GTKWave"
 kind = "software"

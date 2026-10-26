@@ -50,6 +50,21 @@ The Floorplan button re-runs VPR with its graphics enabled for the selected run,
 built with Qt6 graphics; when VPR exits early the Flow log says so. Credits for the tools and
 papers Wyrd builds on are in `docs/CITATIONS.md` and the About dialog.
 
+### Schematic panel (optional)
+
+The Schematic dock (next to Timing) draws a module, or the fan-in cone of a net or of an HDL
+line (`file.v:LINE`, through the `src` attributes Odin III writes), from a Yosys-schema JSON
+netlist: `odin3 -p "read_verilog top.v; proc; write_json top.json"`. Odin III's `write_json` output
+feeds netlistsvg directly. Drawing is done by [netlistsvg](https://github.com/nturley/netlistsvg)
+(N. Turley, MIT licence, version 1.0.2 tested), an optional Node.js program run as a subprocess;
+it is not bundled or vendored. Without it Wyrd works as before and the panel shows how to install:
+
+    npm install --ignore-scripts netlistsvg      # in any directory
+    export WYRD_NETLISTSVG=<dir>/node_modules/.bin/netlistsvg   # and WYRD_NODE if node is not on PATH
+
+A module with more than `max cells` (default 300) cells is not drawn; pick a smaller module or a
+cone. Measured limits are in `docs/specs/2026-10-26-schematic-view.md`.
+
 ## Simulation (`wyrd[sim]`)
 
     pip install -e ".[sim]"      # Odin III 1.0.3 or later; odin3 is not on PyPI, install its release wheel
