@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import math
 import re
 from collections import Counter
 from dataclasses import dataclass
@@ -21,6 +22,13 @@ CATEGORICAL_KEYS = ("construct", "word", "inst", "class")
 NUMERIC_KEYS = ("crit", "pcrit")
 KEYS = CATEGORICAL_KEYS + NUMERIC_KEYS
 NONE_LABEL = "(none)"
+MAX_FILE_BYTES = 64 * 1024 * 1024  # on disk
+MAX_JSON_BYTES = 64 * 1024 * 1024  # after decompression
+MAX_ATOMS = 2_000_000
+MAX_CLBS = 100_000
+MAX_CLB_ATOMS = 10_000
+MAX_STRING = 4096
+MAX_GRID = 1000
 RUN_NAME = re.compile(r"^(?P<arm>[A-Za-z0-9]+)\.s(?P<seed>\d+)\.json(?:\.gz)?$")
 SAMPLE_NAME = re.compile(r"^(?P<design>.+)\.(?P<arm>[A-Za-z0-9]+)\.s(?P<seed>\d+)\.json(?:\.gz)?$")
 
@@ -62,6 +70,9 @@ class Atlas:
     chan_width: float | None
     clbs: tuple[Clb, ...]
     atoms: tuple[Atom, ...]
+    dup_atoms: int = (
+        0  # placed atoms whose name repeats an earlier placed atom (excluded from diffs)
+    )
 
     def clb_by_id(self) -> dict[int, Clb]:
         return {c.id: c for c in self.clbs}
@@ -78,8 +89,8 @@ def _num(d: dict[str, object], key: str, where: str) -> float | None:
     v = d.get(key)
     if v is None:
         return None
-    if isinstance(v, bool) or not isinstance(v, int | float):
-        raise AtlasError(f"{where}: '{key}' is not a number")
+    if isinstance(v, bool) or not isinstance(v, int | float) or not math.isfinite(v):
+        raise AtlasError(f"{where}: '{key}' is not a finite number")
     return float(v)
 
 
@@ -96,7 +107,14 @@ def _str(d: dict[str, object], key: str, where: str, optional: bool = False) -> 
         return None
     if not isinstance(v, str):
         raise AtlasError(f"{where}: '{key}' is not a string")
+    if len(v) > MAX_STRING:
+        raise AtlasError(f"{where}: '{key}' is longer than {MAX_STRING} characters")
     return v
+
+
+def _text(d: dict[str, object], key: str, where: str) -> str:
+    """An optional string field: absent or null reads as ''."""
+    return str(_str(d, key, where, optional=True) or "")
 
 
 def _dict(v: object, where: str) -> dict[str, object]:
@@ -114,9 +132,9 @@ def _parse_atom(raw: object, i: int) -> Atom:
     return Atom(
         name=str(_str(d, "name", where)),
         kind=str(_str(d, "kind", where)),
-        cls=str(_str(d, "class", where)),
-        construct=str(_str(d, "construct", where)),
-        inst=str(_str(d, "inst", where)),
+        cls=_text(d, "class", where),
+        construct=_text(d, "construct", where),
+        inst=_text(d, "inst", where),
         word=_str(d, "word", where, optional=True),
         bit=bit,
         crit=_num(d, "crit", where),
@@ -133,6 +151,8 @@ def _parse_clb(raw: object, i: int, n_atoms: int) -> Clb:
     members = d.get("atoms")
     if not isinstance(members, list):
         raise AtlasError(f"{where}: 'atoms' is not a list")
+    if len(members) > MAX_CLB_ATOMS:
+        raise AtlasError(f"{where}: more than {MAX_CLB_ATOMS} atoms")
     for m in members:
         if isinstance(m, bool) or not isinstance(m, int) or not 0 <= m < n_atoms:
             raise AtlasError(f"{where}: atom index {m!r} out of range")
@@ -146,14 +166,15 @@ def _check_unique(clbs: list[Clb], grid: tuple[int, int]) -> None:
     for c in clbs:
         if c.id in seen_id:
             raise AtlasError(f"duplicate CLB id {c.id}")
-        if (c.x, c.y) in seen_xy:
+        if c.type == "clb" and (c.x, c.y) in seen_xy:  # io tiles hold several blocks
             raise AtlasError(f"two CLBs at ({c.x}, {c.y})")
         if not (0 <= c.x < grid[0] and 0 <= c.y < grid[1]):
             raise AtlasError(
                 f"CLB {c.id} at ({c.x}, {c.y}) is outside the {grid[0]}x{grid[1]} grid"
             )
         seen_id.add(c.id)
-        seen_xy.add((c.x, c.y))
+        if c.type == "clb":
+            seen_xy.add((c.x, c.y))
         for a in c.atoms:
             if a in held:
                 raise AtlasError(f"atom {a} is in more than one CLB")
@@ -168,12 +189,15 @@ def parse_atlas(data: object) -> Atlas:
         not isinstance(grid_raw, list)
         or len(grid_raw) != 2
         or any(isinstance(g, bool) or not isinstance(g, int) or g < 1 for g in grid_raw)
+        or any(g > MAX_GRID for g in grid_raw)
     ):
-        raise AtlasError("'grid' is not [width, height] of positive integers")
+        raise AtlasError(f"'grid' is not [width, height] of integers in 1..{MAX_GRID}")
     grid = (int(grid_raw[0]), int(grid_raw[1]))
     atoms_raw, clbs_raw = d.get("atoms"), d.get("clbs")
     if not isinstance(atoms_raw, list) or not isinstance(clbs_raw, list):
         raise AtlasError("'atoms' and 'clbs' must be lists")
+    if len(atoms_raw) > MAX_ATOMS or len(clbs_raw) > MAX_CLBS:
+        raise AtlasError(f"more than {MAX_ATOMS} atoms or {MAX_CLBS} CLBs")
     atoms = [_parse_atom(a, i) for i, a in enumerate(atoms_raw)]
     clbs = [_parse_clb(c, i, len(atoms)) for i, c in enumerate(clbs_raw)]
     _check_unique(clbs, grid)
@@ -187,21 +211,42 @@ def parse_atlas(data: object) -> Atlas:
         chan_width=_num(d, "chan_width", "atlas"),
         clbs=tuple(clbs),
         atoms=tuple(atoms),
+        dup_atoms=_count_dups(atoms, clbs),
     )
+
+
+def _count_dups(atoms: list[Atom], clbs: list[Clb]) -> int:
+    names = [atoms[i].name for c in clbs for i in c.atoms]
+    return len(names) - len(set(names))
+
+
+def _read_json(path: Path) -> object:
+    """Decode the file with size caps (disk and decompressed) before parsing."""
+    try:
+        if path.stat().st_size > MAX_FILE_BYTES:
+            raise AtlasError(f"{path.name}: file is larger than {MAX_FILE_BYTES >> 20} MB")
+        opener = gzip.open if path.suffix == ".gz" else open
+        with opener(path, "rb") as f:
+            raw = f.read(MAX_JSON_BYTES + 1)
+    except (OSError, EOFError, ValueError) as e:  # gzip.BadGzipFile included
+        raise AtlasError(f"{path.name}: cannot read: {e}") from e
+    if len(raw) > MAX_JSON_BYTES:
+        raise AtlasError(f"{path.name}: more than {MAX_JSON_BYTES >> 20} MB of JSON")
+    try:
+        return json.loads(raw)
+    except (ValueError, RecursionError, MemoryError) as e:  # JSONDecodeError is a ValueError
+        raise AtlasError(f"{path.name}: cannot read: {type(e).__name__}: {e}") from e
 
 
 def load_atlas(path: Path) -> Atlas:
     """Read an atlas file (.json or .json.gz); raises AtlasError on any problem."""
-    try:
-        opener = gzip.open if path.suffix == ".gz" else open
-        with opener(path, "rt", encoding="utf-8") as f:
-            data = json.load(f)
-    except (OSError, EOFError, ValueError) as e:  # gzip.BadGzipFile and JSONDecodeError included
-        raise AtlasError(f"{path.name}: cannot read: {e}") from e
+    data = _read_json(path)
     try:
         return parse_atlas(data)
     except AtlasError as e:
         raise AtlasError(f"{path.name}: {e}") from e
+    except (RecursionError, MemoryError) as e:
+        raise AtlasError(f"{path.name}: too large or deep: {type(e).__name__}") from e
 
 
 # ---------------------------------------------------------------- finding runs
@@ -221,6 +266,20 @@ def _run_of(path: Path, design: str | None) -> RunFile | None:
         return None if m is None else RunFile(m["design"], m["arm"], int(m["seed"]), path)
     m = RUN_NAME.match(path.name)
     return None if m is None else RunFile(design, m["arm"], int(m["seed"]), path)
+
+
+def run_of_path(path: Path) -> RunFile | None:
+    """Design, arm and seed of one file from its name (and `<design>/atlas/` folder), or None."""
+    if path.parent.name == "atlas":
+        return _run_of(path, path.parent.parent.name)
+    return _run_of(path, None)
+
+
+def sibling_runs(path: Path) -> list[RunFile]:
+    """Runs next to a file: the whole runs root for `<root>/<design>/atlas/<file>`, else only
+    the file's own folder (nothing above it is listed)."""
+    base = path.parent.parent.parent if path.parent.name == "atlas" else path.parent
+    return find_runs(base)
 
 
 def find_runs(root: Path) -> list[RunFile]:
@@ -439,11 +498,14 @@ def hover_text(atlas: Atlas, clb: Clb, limit: int = 12) -> str:
 
 # ---------------------------------------------------------------- difference
 
+DIFF_MATES = "co-membership"
+DIFF_POSITION = "position changed"
+
 
 def moved_atoms(a: Atlas, b: Atlas) -> dict[str, tuple[tuple[int, int], tuple[int, int]]]:
     """Atoms (matched by name) held by a CLB in both runs at different coordinates:
     name -> (position in `a`, position in `b`). CLB ids differ between runs, so positions are
-    compared."""
+    compared. This is position change, not clustering change (see `mate_changes`)."""
     pos_a = _atom_positions(a)
     pos_b = _atom_positions(b)
     return {n: (pos_a[n], p) for n, p in pos_b.items() if n in pos_a and pos_a[n] != p}
@@ -457,27 +519,68 @@ def _atom_positions(atlas: Atlas) -> dict[str, tuple[int, int]]:
     return out
 
 
-def moved_share(atlas: Atlas, moved: set[str]) -> dict[int, float]:
-    """CLB id -> share of its atoms whose name is in `moved` (CLBs with no atoms: 0)."""
+def _mates(atlas: Atlas) -> dict[str, frozenset[str]]:
+    """Placed atom name -> names of the other atoms in its CLB (first occurrence of a name)."""
+    out: dict[str, frozenset[str]] = {}
+    for c in atlas.clbs:
+        names = [atlas.atoms[i].name for i in c.atoms]
+        for n in names:
+            if n not in out:
+                out[n] = frozenset(m for m in names if m != n)
+    return out
+
+
+def mate_changes(a: Atlas, b: Atlas) -> dict[str, float]:
+    """Clustering change of atoms (matched by name) placed in both runs: name -> 1 - Jaccard of
+    its CLB-mate sets (mates restricted to atoms placed in both runs); 0 when unchanged. All
+    common atoms are keys."""
+    ma, mb = _mates(a), _mates(b)
+    common = set(ma) & set(mb)
+    out: dict[str, float] = {}
+    for n in common:
+        sa, sb = ma[n] & common, mb[n] & common
+        union = sa | sb
+        out[n] = 1.0 - len(sa & sb) / len(union) if union else 0.0
+    return out
+
+
+def score_share(atlas: Atlas, scores: dict[str, float]) -> dict[int, float]:
+    """CLB id -> mean score (0..1) of its atoms; atoms with no score count 0 (no atoms: 0)."""
     return {
-        c.id: (sum(1 for i in c.atoms if atlas.atoms[i].name in moved) / len(c.atoms))
+        c.id: sum(scores.get(atlas.atoms[i].name, 0.0) for i in c.atoms) / len(c.atoms)
         if c.atoms
         else 0.0
         for c in atlas.clbs
     }
 
 
-def diff_colours(atlas: Atlas, moved: set[str]) -> dict[int, str]:
-    """Fill colours for difference mode: share of the CLB's atoms that were elsewhere before."""
-    share = moved_share(atlas, moved)
+def moved_share(atlas: Atlas, moved: set[str]) -> dict[int, float]:
+    """CLB id -> share of its atoms whose name is in `moved` (CLBs with no atoms: 0)."""
+    return score_share(atlas, dict.fromkeys(moved, 1.0))
+
+
+def score_colours(atlas: Atlas, scores: dict[str, float]) -> dict[int, str]:
+    """Fill colours for difference mode from per-atom scores (mean per CLB, light to dark)."""
+    share = score_share(atlas, scores)
     return {c.id: EMPTY_COLOUR if not c.atoms else ramp_colour(share[c.id]) for c in atlas.clbs}
 
 
-def diff_summary(a: Atlas, b: Atlas) -> str:
-    moved = moved_atoms(a, b)
+def diff_colours(atlas: Atlas, moved: set[str]) -> dict[int, str]:
+    """Fill colours for position mode: share of the CLB's atoms that were elsewhere before."""
+    return score_colours(atlas, dict.fromkeys(moved, 1.0))
+
+
+def diff_summary(a: Atlas, b: Atlas, mode: str = DIFF_MATES) -> str:
+    """One line: how many common atoms changed, in the given mode; names excluded atoms."""
     common = len(set(_atom_positions(a)) & set(_atom_positions(b)))
-    pct = f"{len(moved) / common:.0%}" if common else "n/a"
-    return (
-        f"{a.arm} s{a.seed} -> {b.arm} s{b.seed}: {len(moved)} of {common} common atoms sit in a "
-        f"different CLB ({pct})."
-    )
+    if mode == DIFF_POSITION:
+        n = len(moved_atoms(a, b))
+        what = "sit in a different CLB position"
+    else:
+        n = sum(1 for v in mate_changes(a, b).values() if v > 0)
+        what = "have different CLB-mates"
+    pct = f"{n / common:.0%}" if common else "n/a"
+    dups = a.dup_atoms + b.dup_atoms
+    note = f" {dups} atoms excluded (duplicate names)." if dups else ""
+    head = f"{a.arm} s{a.seed} -> {b.arm} s{b.seed} ({mode})"
+    return f"{head}: {n} of {common} common atoms {what} ({pct}).{note}"
