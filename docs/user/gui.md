@@ -16,7 +16,7 @@ A step-by-step PDF tutorial does everything below in the interface, with a figur
   steps) and Archs. Double-click a file to open it in the Source tab.
 - **Tabs** (centre): *Source*, *Report*, *wyrd.toml* and *Simulate*. When `wyrd.toml` has an error only the
   *wyrd.toml* tab is enabled.
-- **Messages**, **Flow** and **Timing** (bottom docks, tabbed; View menu shows or hides them).
+- **Messages**, **Flow**, **Timing**, **Schematic** and **Atlas** (bottom docks, tabbed; View menu shows or hides them).
 
 ### Source
 
