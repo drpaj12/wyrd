@@ -268,9 +268,14 @@ def _run_of(path: Path, design: str | None) -> RunFile | None:
     return None if m is None else RunFile(design, m["arm"], int(m["seed"]), path)
 
 
+def _in_runs_root(path: Path) -> bool:
+    """`<root>/<design>/atlas/<arm>.s<seed>.json[.gz]` (a flat sample folder may be named atlas)."""
+    return path.parent.name == "atlas" and RUN_NAME.match(path.name) is not None
+
+
 def run_of_path(path: Path) -> RunFile | None:
     """Design, arm and seed of one file from its name (and `<design>/atlas/` folder), or None."""
-    if path.parent.name == "atlas":
+    if _in_runs_root(path):
         return _run_of(path, path.parent.parent.name)
     return _run_of(path, None)
 
@@ -278,7 +283,7 @@ def run_of_path(path: Path) -> RunFile | None:
 def sibling_runs(path: Path) -> list[RunFile]:
     """Runs next to a file: the whole runs root for `<root>/<design>/atlas/<file>`, else only
     the file's own folder (nothing above it is listed)."""
-    base = path.parent.parent.parent if path.parent.name == "atlas" else path.parent
+    base = path.parent.parent.parent if _in_runs_root(path) else path.parent
     return find_runs(base)
 
 

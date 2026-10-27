@@ -114,17 +114,60 @@ class AtlasPanelTest(unittest.TestCase):
         p.clear_button.click()
         self.assertIsNone(p.selected_value())
 
-    def test_side_by_side_and_diff(self) -> None:
+    def test_side_by_side_seed_fallback_warns(self) -> None:
         self.load("diffeq1.stock.s1.json.gz")
         p = self.panel
         p.mode.setCurrentIndex(1)
         self.assertTrue(wait(p, lambda: p.request()))
         self.assertFalse(p.view_b.isHidden())
-        self.assertIsNotNone(p.atlas_b)
         self.assertEqual(p.atlas_b.arm if p.atlas_b else "", "h1")  # seed 1 absent: first seed
+        self.assertIn("WARNING", p.label_b.text())
+        self.assertIn("WARNING", p.info.text())
+
+    def test_diff_needs_same_seed(self) -> None:
+        self.load("diffeq1.stock.s1.json.gz")
+        p = self.panel
         p.mode.setCurrentIndex(2)
-        self.assertTrue(wait(p, lambda: p.request()))
-        self.assertIn("common atoms", p.info.text())
+        p.request()
+        self.assertIsNone(p.atlas_b)
+        self.assertIn("no B file", p.label_b.text())
+        self.assertEqual(len(p.view_b.items_by_clb), 0)
+
+    def test_diff_modes_same_seed(self) -> None:
+        with tempfile.TemporaryDirectory() as t:
+            for arm, src in (("stock", "diffeq1.stock.s1"), ("h1", "diffeq1.stock.s1")):
+                (Path(t) / f"diffeq1.{arm}.s1.json.gz").write_bytes(
+                    (DATA / f"{src}.json.gz").read_bytes()
+                )
+            self.assertTrue(wait(self.panel, lambda: self.panel.scan(Path(t))))
+            p = self.panel
+            p.mode.setCurrentIndex(2)
+            self.assertTrue(wait(p, lambda: p.request()))
+            self.assertIn("co-membership", p.info.text())
+            self.assertIn("0 of", p.info.text())
+            p.mode.setCurrentIndex(3)
+            self.assertTrue(wait(p, lambda: p.request()))
+            self.assertIn("position changed", p.info.text())
+
+    def test_open_file_does_not_glob_above(self) -> None:
+        with tempfile.TemporaryDirectory() as t:
+            sub = Path(t) / "a" / "b" / "c"
+            sub.mkdir(parents=True)
+            (Path(t) / "x.stock.s9.json").write_bytes(b"{}")
+            f = sub / "d.stock.s1.json.gz"
+            f.write_bytes((DATA / "diffeq1.stock.s1.json.gz").read_bytes())
+            self.assertTrue(wait(self.panel, lambda: self.panel.open_file(f)))
+            self.assertEqual([r.design for r in self.panel.runs], ["d"])
+
+    def test_cache_key_follows_file_change(self) -> None:
+        with tempfile.TemporaryDirectory() as t:
+            f = Path(t) / "d.stock.s1.json.gz"
+            f.write_bytes((DATA / "diffeq1.stock.s1.json.gz").read_bytes())
+            self.assertTrue(wait(self.panel, lambda: self.panel.open_file(f)))
+            first = len(self.panel.atlas_a.clbs) if self.panel.atlas_a else 0
+            f.write_bytes((DATA / "ch_intrinsics.stock.s1.json.gz").read_bytes())
+            self.assertTrue(wait(self.panel, lambda: self.panel.request()))
+            self.assertNotEqual(len(self.panel.atlas_a.clbs) if self.panel.atlas_a else 0, first)
 
     def test_scan_run_dir(self) -> None:
         with tempfile.TemporaryDirectory() as t:

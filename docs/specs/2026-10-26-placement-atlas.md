@@ -30,9 +30,13 @@ of the 200 reported paths get 0). Samples are under `tests/data/atlas/` (MIT, wi
 - Colour keys: categorical (`construct`, `word`, `inst`, `class`): a CLB takes its most common
   value (ties alphabetical), colours are by rank of the value's CLB spread; numeric (`crit`,
   `pcrit`): the maximum over the CLB's atoms on a light-yellow to dark-red ramp. Grey = no label.
-- Difference: atoms are matched by name; one counts as moved when the (x, y) of its CLB differs
-  between the two runs (CLB ids are not comparable across runs). B's CLBs are shaded by the share
-  of their atoms that moved.
+- Difference: atoms are matched by name (a repeated name keeps its first placement; repeats are
+  counted at load and reported in the summary as excluded). Two modes. Co-membership (default
+  for stock vs hindsight): per atom, 1 - Jaccard of its CLB-mate name sets, mates restricted to
+  atoms placed in both runs; it measures clustering change. Position changed: the (x, y) of the
+  atom's CLB differs (CLB ids are not comparable across runs); it measures placement change, so
+  swapping two whole CLBs shows here but not in co-membership. B's CLBs are shaded by the mean
+  per-atom score.
 
 ## Panel (`wyrd/gui/atlaspanel.py`)
 
@@ -41,8 +45,11 @@ schematic panel's pattern) with a token for stale results and a small cache of l
 Views: A only, A | B side by side, Difference. Value list: click to outline that value's CLBs and
 fade the others (categorical keys). Hover text: CLB type, id, position, and for each atom (first 12)
 name, kind, class, word and bit, construct, instance, crit, pcrit. Selecting a different arm toggles
-stock against hindsight for the same design and seed (B falls back to its first seed when it has
-none for A's seed; hindsight rounds are run from a chosen source seed).
+stock against hindsight for the same design and seed (side by side: B falls back to its first seed
+when it has none for A's seed, with a WARNING on the B label and the info line; a difference view
+needs B at A's seed and shows "no B file" otherwise; hindsight rounds are run from a chosen source
+seed). Opening a file takes design, arm and seed from its name and lists only its folder (the
+runs root for `<design>/atlas/`). Scan lists names on the GUI thread; files load on the worker.
 
 ## Measured (2026-10-26, WSL2, PySide6 6.12.0, offscreen, `tools/atlas_bench.py`)
 
@@ -60,4 +67,9 @@ below one frame at 60 Hz; the grid is at most about 30 x 30 so scale is not a li
 
 - `crit` is null in hindsight arms; the key greys those CLBs.
 - Only logic-CLB atlases exist so far (io/mem/mult types are drawn but not yet seen in data).
+  Several blocks may share an io tile, so only type `clb` must have a unique (x, y). Multi-tile
+  mem/mult blocks are placed at one (x, y) and drawn as one cell.
+- Loader caps: file 64 MB, 64 MB decompressed JSON, 2M atoms, 100k CLBs, 10k atoms per CLB, 4096
+  characters per string, grid at most 1000 x 1000; all numbers must be finite. Violations are
+  reported as an atlas error, never raised. `construct`, `inst`, `class` and `crit` may be absent.
 - No VPR or network is used; the panel only reads files.

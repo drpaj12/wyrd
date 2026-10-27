@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QRect, QRectF, QRunnable, Qt, QThreadPool, Signal
@@ -28,12 +29,20 @@ from wyrd import atlas
 from wyrd.atlas import Atlas, AtlasError, RunFile
 
 CELL = 22
-MODES = ("A only", "A | B side by side", "Difference (B vs A)")
+MODES = (
+    "A only",
+    "A | B side by side",
+    "Difference: co-membership",
+    "Difference: position changed",
+)
+DIFF_FIRST = 2  # modes from here on are difference views
+NO_B = "no B file"
 NO_ATLAS = (
     "No atlas loaded. Open a Norns round-7 atlas file (.json.gz) or give the Norns run dir "
     "(runs/r7) and press Scan."
 )
 CACHE_LIMIT = 8
+CacheKey = tuple[Path, int, int]  # path, mtime_ns, size
 
 
 class GridView(QGraphicsView):
@@ -49,6 +58,7 @@ class GridView(QGraphicsView):
         self.atlas: Atlas | None = None
         self.extra: dict[int, str] = {}
         self.items_by_clb: dict[int, QGraphicsRectItem] = {}
+        self._clbs: dict[int, atlas.Clb] = {}
 
     def show_atlas(
         self,
@@ -61,6 +71,7 @@ class GridView(QGraphicsView):
         self.atlas = a
         self.extra = extra or {}
         self.items_by_clb = {}
+        self._clbs = a.clb_by_id() if a is not None else {}
         scene = self.scene()
         scene.clear()
         if a is None:
@@ -102,7 +113,7 @@ class GridView(QGraphicsView):
         """Hover text of a CLB (empty when unknown)."""
         if self.atlas is None:
             return ""
-        clb = self.atlas.clb_by_id().get(clb_id)
+        clb = self._clbs.get(clb_id)
         if clb is None:
             return ""
         extra = self.extra.get(clb_id, "")
@@ -133,11 +144,16 @@ class _Signals(QObject):
 
 
 class _LoadTask(QRunnable):
-    def __init__(self, token: int, role: str, path: Path, signals: _Signals) -> None:
+    def __init__(
+        self, token: int, role: str, path: Path, signals: _Signals, current: Callable[[], int]
+    ) -> None:
         super().__init__()
         self.token, self.role, self.path, self.signals = token, role, path, signals
+        self.current = current
 
     def run(self) -> None:
+        if self.token != self.current():  # a newer request replaced this one while it queued
+            return
         t0 = time.perf_counter()
         try:
             a = atlas.load_atlas(self.path)
@@ -165,9 +181,11 @@ class AtlasPanel(QWidget):
         self.atlas_b: Atlas | None = None
         self.last_load_s = 0.0
         self.last_draw_s = 0.0
-        self._cache: dict[Path, Atlas] = {}
+        self.b_note = ""
+        self._cache: dict[CacheKey, Atlas] = {}
         self._token = 0
-        self._pending: dict[str, Path] = {}
+        self._pending: dict[str, CacheKey] = {}
+        self._single_path: Path | None = None
         self._paths: dict[str, Path] = {}
         self._load_s = 0.0
         self._pool = QThreadPool(self)
@@ -274,7 +292,8 @@ class AtlasPanel(QWidget):
 
     def scan(self, root: Path) -> int:
         """List the designs, arms and seeds under a run dir (or a folder of samples); returns
-        the number of atlas files found and selects the first one."""
+        the number of atlas files found and selects the first one. The directory listing runs on
+        the GUI thread (names only, no file is read); the atlas files load on the worker."""
         self.runs = atlas.find_runs(root)
         if not self.runs:
             self.status.setText(f"No atlas files found under {root}.")
@@ -287,30 +306,32 @@ class AtlasPanel(QWidget):
         return len(self.runs)
 
     def open_file(self, path: Path) -> None:
-        """Load one file as A (and list its sibling runs so B and the seed can be chosen)."""
-        self.runs = []
-        for base in (path.parent.parent.parent, path.parent):
-            self.runs = atlas.find_runs(base)
-            if any(r.path == path for r in self.runs):
-                break
+        """Load one file as A and list its sibling runs so B and the seed can be chosen. Design,
+        arm and seed come from the file name; only the file's own folder is listed (the runs
+        root when the file sits in `<design>/atlas/`), and the file itself loads on the worker."""
+        self.runs = atlas.sibling_runs(path)
         match = next((r for r in self.runs if r.path == path), None)
         if match is None:
-            self.runs = [*self.runs, *self._single(path)]
-            match = next((r for r in self.runs if r.path == path), None)
+            match = atlas.run_of_path(path)
+            if match is not None:
+                self.runs = [*self.runs, match]
         if match is None:
-            self._paths = {"a": path}
+            self._single_path = path  # name not in the run format: listed once it has loaded
+            self.runs = []
             self._begin(path, None)
             return
+        self._single_path = None
         self._fill_designs(match.design, match.arm, match.seed)
         self.request()
 
-    @staticmethod
-    def _single(path: Path) -> list[RunFile]:
-        try:
-            a = atlas.load_atlas(path)
-        except AtlasError:
-            return []
-        return [RunFile(a.design, a.arm, a.seed, path)]
+    def _list_single(self) -> None:
+        """After a file with an unparsable name loaded: list it from its content."""
+        a, path = self.atlas_a, self._single_path
+        if a is None or path is None:
+            return
+        self._single_path = None
+        self.runs = [RunFile(a.design, a.arm, a.seed, path)]
+        self._fill_designs(a.design, a.arm, a.seed)
 
     def _fill_designs(self, design: str, arm: str | None = None, seed: int | None = None) -> None:
         self.design.blockSignals(True)
@@ -344,18 +365,25 @@ class AtlasPanel(QWidget):
         self.request()
 
     def _paths_wanted(self) -> dict[str, Path]:
-        """Role -> file for A and (if the view needs it) B; B uses the same seed, else its
-        first seed."""
+        """Role -> file for A and (if the view needs it) B. B uses A's seed; a difference view
+        needs it (no B otherwise); side by side falls back to B's first seed, `b_note` says so."""
         design = self.design.currentText()
         seed = int(self.seed.currentText()) if self.seed.currentText() else 0
+        self.b_note = ""
         out: dict[str, Path] = {}
         a = atlas.path_of(self.runs, design, self.arm_a.currentText(), seed)
         if a is not None:
             out["a"] = a
-        if self.mode.currentIndex() > 0:
+        mode = self.mode.currentIndex()
+        if mode > 0:
             arm_b = self.arm_b.currentText()
             seeds = atlas.seeds_of(self.runs, design, arm_b)
-            b_seed = seed if seed in seeds else (seeds[0] if seeds else seed)
+            b_seed = seed
+            if seed not in seeds and seeds and mode < DIFF_FIRST:
+                b_seed = seeds[0]
+                self.b_note = f"WARNING: B has no seed {seed}; showing seed {b_seed}"
+            elif seed not in seeds:
+                self.b_note = f"no B file at seed {seed} (a difference needs the same seed)"
             b = atlas.path_of(self.runs, design, arm_b, b_seed)
             if b is not None:
                 out["b"] = b
@@ -373,19 +401,32 @@ class AtlasPanel(QWidget):
         self._paths = wanted
         self._begin(wanted["a"], wanted.get("b"))
 
+    @staticmethod
+    def _key(path: Path) -> CacheKey:
+        try:
+            st = path.stat()
+        except OSError:
+            return (path, 0, 0)  # the load reports the problem
+        return (path, st.st_mtime_ns, st.st_size)
+
     def _begin(self, a: Path, b: Path | None) -> None:
         self._token += 1
         self._load_s = 0.0
         self._pending = {}
-        self.atlas_a = self._cache.get(a)
-        self.atlas_b = self._cache.get(b) if b is not None else None
-        for role, path in (("a", a), ("b", b)):
-            if path is not None and path not in self._cache:
-                self._pending[role] = path
-                self._pool.start(_LoadTask(self._token, role, path, self._signals))
+        keys = {"a": self._key(a)}
+        if b is not None:
+            keys["b"] = self._key(b)
+        self.atlas_a = self._cache.get(keys["a"])
+        self.atlas_b = self._cache.get(keys["b"]) if "b" in keys else None
+        for role, key in keys.items():
+            if key not in self._cache:
+                self._pending[role] = key
+                self._pool.start(
+                    _LoadTask(self._token, role, key[0], self._signals, lambda: self._token)
+                )
         if self._pending:
             self.status.setText(
-                "Loading " + ", ".join(p.name for p in self._pending.values()) + "..."
+                "Loading " + ", ".join(k[0].name for k in self._pending.values()) + "..."
             )
         else:
             self._render()
@@ -393,12 +434,12 @@ class AtlasPanel(QWidget):
     def _on_loaded(self, token: int, role: str, a: object, seconds: float) -> None:
         if token != self._token or not isinstance(a, Atlas):
             return
-        path = self._pending.pop(role, None)
-        if path is None:
+        key = self._pending.pop(role, None)
+        if key is None:
             return
         if len(self._cache) >= CACHE_LIMIT:
             self._cache.pop(next(iter(self._cache)))
-        self._cache[path] = a
+        self._cache[key] = a
         self._load_s += seconds
         if role == "a":
             self.atlas_a = a
@@ -441,6 +482,7 @@ class AtlasPanel(QWidget):
 
     def _render(self) -> None:
         self.last_load_s = self._load_s
+        self._list_single()
         self._fill_values()
         self.redraw()
         self.finished.emit(self.atlas_a is not None)
@@ -465,13 +507,16 @@ class AtlasPanel(QWidget):
             return
         self.view_b.setVisible(mode != 0)
         self.label_b.setVisible(mode != 0)
-        if mode == 2 and b is not None:
-            self._draw_diff(a, b)
+        if mode >= DIFF_FIRST and b is not None:
+            self._draw_diff(a, b, mode)
         else:
             self._draw_one(self.view_a, self.label_a, a, key)
             if mode == 1 and b is not None:
                 self._draw_one(self.view_b, self.label_b, b, key)
-            self.info.setText(atlas.summary_text(a))
+                self._note_b()
+            elif mode != 0:
+                self._clear_b()
+            self.info.setText(atlas.summary_text(a) + (f"\n{self.b_note}" if self.b_note else ""))
         self.view_a.render_check()
         if mode != 0:
             self.view_b.render_check()
@@ -481,18 +526,43 @@ class AtlasPanel(QWidget):
             f"draw {self.last_draw_s * 1000:.0f} ms."
         )
 
+    def _clear_b(self) -> None:
+        self.view_b.show_atlas(None, {}, set())
+        self.label_b.setText(self.b_note or NO_B)
+
+    def _note_b(self) -> None:
+        if self.b_note:
+            self.label_b.setText(f"{self.label_b.text()}  [{self.b_note}]")
+
     def _draw_one(self, view: GridView, label: QLabel, a: Atlas, key: str) -> None:
         label.setText(f"{a.arm} seed {a.seed}  CPD {_ns(a.cpd_ns)}  WL {_num(a.wirelength)}")
         view.show_atlas(a, atlas.clb_colours(a, key), self._highlight(a))
 
-    def _draw_diff(self, a: Atlas, b: Atlas) -> None:
-        moved = atlas.moved_atoms(a, b)
-        names = set(moved)
+    def _draw_diff(self, a: Atlas, b: Atlas, mode: int) -> None:
+        by_position = mode == DIFF_FIRST + 1
+        if by_position:
+            moved = atlas.moved_atoms(a, b)
+            scores = dict.fromkeys(moved, 1.0)
+            extra = {c.id: _moved_lines(b, c, moved) for c in b.clbs}
+            what, summary = "moved atoms", atlas.DIFF_POSITION
+        else:
+            scores = atlas.mate_changes(a, b)
+            extra = {c.id: _mate_lines(b, c, scores) for c in b.clbs}
+            what, summary = "changed CLB-mates", atlas.DIFF_MATES
         self._draw_one(self.view_a, self.label_a, a, self.key.currentText())
-        self.label_b.setText(f"{b.arm} seed {b.seed}: CLBs shaded by share of moved atoms")
-        extra = {c.id: _moved_lines(b, c, moved) for c in b.clbs}
-        self.view_b.show_atlas(b, atlas.diff_colours(b, names), self._highlight(b), extra)
-        self.info.setText(atlas.diff_summary(a, b))
+        self.label_b.setText(f"{b.arm} seed {b.seed}: CLBs shaded by share of {what}")
+        colours = atlas.score_colours(b, scores)
+        self.view_b.show_atlas(b, colours, self._highlight(b), extra)
+        self.info.setText(atlas.diff_summary(a, b, summary))
+
+
+def _mate_lines(b: Atlas, clb: atlas.Clb, scores: dict[str, float]) -> str:
+    lines = [
+        f"mates changed: {b.atoms[i].name} (distance {scores[b.atoms[i].name]:.2f})"
+        for i in clb.atoms
+        if scores.get(b.atoms[i].name, 0.0) > 0
+    ]
+    return "\n".join(lines[:8])
 
 
 def _moved_lines(
