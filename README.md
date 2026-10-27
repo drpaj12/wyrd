@@ -65,6 +65,20 @@ it is not bundled or vendored. Without it Wyrd works as before and the panel sho
 A module with more than `max cells` (default 300) cells is not drawn; pick a smaller module or a
 cone. Measured limits are in `docs/specs/2026-10-26-schematic-view.md`.
 
+### Atlas panel (placement atlas)
+
+The Atlas dock (next to Schematic) draws a Norns round-7 placement on the device grid, one square
+per CLB, with the HDL labels carried by the VPR atoms. Open an atlas file (the
+*Open atlas file...* button in the dock, `<arm>.s<seed>.json.gz`), or type the Norns run dir (`runs/r7`) and press Scan;
+the Design, A, Seed and B boxes list what the file names offer. Colour by `construct`, `word`,
+`inst` or the N17 `class` (each CLB takes its most common value) or by `crit` / `pcrit` (the
+largest value in the CLB). Click a value in the list to outline the CLBs that hold it and fade the
+rest. Hover a CLB for its atoms and labels. View `A | B side by side` shows two arms of one design
+(B uses A's seed, else its first seed); `Difference (B vs A)` shades B's CLBs by the share of atoms
+that sat in a different CLB in A, and the hover text names where they came from. Data source: Norns
+round 7, VPR runs with VTR (Rose et al., FPGA 2012) and VTR 9 (Elgammal et al., TRETS 2025), commit
+3c9a4d23b2. Spec and measured load/draw time: `docs/specs/2026-10-26-placement-atlas.md`.
+
 ## Simulation (`wyrd[sim]`)
 
     pip install -e ".[sim]"      # Odin III 1.0.3 or later; odin3 is not on PyPI, install its release wheel

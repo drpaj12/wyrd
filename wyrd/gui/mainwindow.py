@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 from wyrd.bifrost import Backend
 from wyrd.gui.about import AboutDialog
 from wyrd.gui.adddesign import AddDesignDialog
+from wyrd.gui.atlaspanel import AtlasPanel
 from wyrd.gui.editor import TomlEditor
 from wyrd.gui.flowpanel import FlowPanel
 from wyrd.gui.messages import MessagesPane
@@ -75,6 +76,7 @@ class MainWindow(QMainWindow):
         self.flow = FlowPanel()
         self.timing = TimingPanel()
         self.schematic = SchematicPanel()
+        self.atlas = AtlasPanel()
         self.editor = TomlEditor(silent)
         self.sim_panel = SimPanel(sim_backend)
         self.docks: dict[str, QDockWidget] = {}
@@ -235,12 +237,13 @@ class MainWindow(QMainWindow):
             "Flow": self.flow,
             "Timing": self.timing,
             "Schematic": self.schematic,
+            "Atlas": self.atlas,
         }
         return docks[name]
 
     def _build_docks(self) -> None:
         previous: QDockWidget | None = None
-        for name in ("Messages", "Flow", "Timing", "Schematic"):
+        for name in ("Messages", "Flow", "Timing", "Schematic", "Atlas"):
             dock = QDockWidget(name, self)
             dock.setObjectName(f"dock-{name.lower()}")
             dock.setWidget(self._dock_widget(name))
