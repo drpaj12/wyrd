@@ -10,7 +10,8 @@ ROOT = Path(__file__).parent.parent
 ASSETS = ROOT / "wyrd" / "midgard" / "assets"
 ZIP = Path(
     os.environ.get(
-        "MIDGARD_ZIP", "/home/jamiespa/odin3-ws/ODIN_III_v2_EXAMPLES/verilogTown-master.zip"
+        "MIDGARD_ZIP",
+        str(Path.home() / "odin3-ws/ODIN_III_v2_EXAMPLES/verilogTown-master.zip"),
     )
 )
 P = "verilogTown-master/"
