@@ -34,7 +34,7 @@ from wyrd.gui.settingsdialog import SettingsDialog
 from wyrd.gui.simpanel import SimPanel
 from wyrd.gui.sourceview import SourceView
 from wyrd.gui.stepload import LoadSignals, LoadTask
-from wyrd.gui.timingpanel import TimingPanel
+from wyrd.gui.timingpanel import MODE_BOTH, MODE_HOT, MODE_MARGIN, TimingPanel
 from wyrd.gui.weakslot import weak
 from wyrd.guimodel.floorplan import FloorplanPlan
 from wyrd.guimodel.logparse import Message
@@ -116,6 +116,7 @@ class MainWindow(QMainWindow):
         self.sim_panel.location_activated.connect(self.show_source)
         self.timing.location_activated.connect(self.show_source)
         self.timing.heat_changed.connect(self._refresh_heat)
+        self.source_view.text.heat_clicked.connect(self._on_heat_click)
         self.report_view.run_selected.connect(self._on_run_selected)
         self.report_view.floorplan_requested.connect(self._on_floorplan)
         self.flow.run_requested.connect(self._run_flow)
@@ -233,7 +234,29 @@ class MainWindow(QMainWindow):
 
     def _refresh_heat(self) -> None:
         path = self.source_view.path
-        self.source_view.set_heat(self.timing.heat_for(path) if path is not None else {})
+        mode = self.timing.display_mode()
+        if path is None:
+            self.source_view.set_heat({})
+            self.source_view.set_file_heat(None)
+            return
+        margin = mode in (MODE_MARGIN, MODE_BOTH)
+        self.source_view.set_heat(self.timing.heat_for(path) if margin else {})
+        fh = None
+        if mode in (MODE_HOT, MODE_BOTH):
+            fh = self.timing.file_heat_for(path, self.source_view.text.toPlainText())
+        scope = self.timing.heat_scope()
+        theta = scope.theta if scope.kind == "near" else None
+        model = self.timing.heat_model()
+        self.source_view.set_file_heat(fh, theta, model.notes if model is not None else None)
+
+    def _on_heat_click(self, line: int, col: int) -> None:
+        fh = self.source_view.text.file_heat
+        if fh is None:
+            return
+        r = fh.range_at(line, col)
+        paths = r.paths if r is not None else fh.line_paths.get(line, ())
+        label = f"{r.word} (line {line})" if r is not None else f"line {line}"
+        self.timing.show_paths(label, paths)
 
     def _dock_widget(self, name: str) -> QWidget:
         docks: dict[str, QWidget] = {
