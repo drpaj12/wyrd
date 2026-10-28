@@ -122,7 +122,10 @@ PANELS: dict[str, tuple[str, str, str, str]] = {
         "A list of circuits on the left and tabs on the right: Summary, Design, Run, Compare, "
         "Plot, Structures, Timing. Each tab has its own About header.",
         "The store is opened read only: Wyrd never changes it. Start with File > Open Mímir "
-        "store, then read the Summary tab.",
+        "store, then read the Summary tab. Click a circuit; the Current design line above the tabs "
+        "names it. To see the colour of its HDL (red = slowest, blue = spare time) press Show "
+        "HDL heat (hot/cold) beside that line; it is grey, with a tooltip, when the circuit "
+        "has no timing. List entries marked 'timing' carry it.",
     ),
 }
 

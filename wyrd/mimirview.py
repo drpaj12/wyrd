@@ -336,6 +336,15 @@ class _ExploreMixin:
         return [(str(r[0]), f"{r[1]} / {r[4]} / {r[2]} / seed {r[3]}  [{str(r[0])[:8]}]")
                 for r in rows]  # fmt: skip
 
+    def timing_design_sources(self) -> set[tuple[str, str]]:
+        """(source, design) of every run that has a timing_run row."""
+        if not self.has_timing():
+            return set()
+        rows = self._query(
+            "SELECT DISTINCT r.source, r.design FROM timing_run t JOIN run r ON r.run_id = t.run_id"
+        )
+        return {(str(a), str(b)) for a, b in rows}
+
     def timing_run(self, run_id: str) -> TimingRunInfo:
         have = {str(r[1]) for r in self._query("PRAGMA table_info(timing_run)")}
         cols = tuple(c for c in TIMING_RUN_COLUMNS if c in have)

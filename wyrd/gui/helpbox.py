@@ -27,6 +27,7 @@ class HelpBox(QWidget):
         self.toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         kind = "panel" if panel else "tab"
         self.toggle.setToolTip(f"Show or hide the explanation of this {kind}")
+        self.toggle.setMinimumHeight(self.toggle.sizeHint().height())  # never squeezed to nothing
         self.label = QLabel(self._html(tab, panel))
         self.label.setWordWrap(True)
         self.label.setTextFormat(Qt.TextFormat.RichText)
@@ -37,6 +38,7 @@ class HelpBox(QWidget):
         policy = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         policy.setHeightForWidth(True)  # the wrapped text needs more height when narrow
         self.setSizePolicy(policy)
+        self.setMinimumHeight(self.toggle.minimumHeight())
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(2)
@@ -46,11 +48,15 @@ class HelpBox(QWidget):
         self._apply(self._stored())
 
     def hasHeightForWidth(self) -> bool:
-        return True
+        return not self.label.isHidden()  # collapsed: only the button, a fixed height
 
     def heightForWidth(self, w: int) -> int:
         lay = self.layout()
-        return lay.totalHeightForWidth(w) if lay is not None else -1
+        if lay is None:
+            return -1
+        # Qt answers -1 when nothing in the layout wraps (collapsed); a parent layout then gives
+        # the box height 0 and the toggle button vanishes. Always answer at least the button row.
+        return max(lay.totalHeightForWidth(w), lay.sizeHint().height(), self.minimumHeight())
 
     @staticmethod
     def _html(tab: str, panel: bool) -> str:
