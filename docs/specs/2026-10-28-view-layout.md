@@ -19,7 +19,7 @@ View > "Maximise current panel" (F11, Ctrl+Shift+M) toggles. Maximising saves th
 hides every other panel and shows the current one alone; the same action restores. Double-click on
 a dock title bar or on a dock tab does the same for that dock (on a floating dock the title
 double-click keeps the Qt default: re-dock). The current panel is the dock holding the keyboard
-focus, else the dock last given focus, else the first visible dock. Closing while maximised saves
+focus, else the dock last given focus, else the dock under the mouse, else the largest dock shown (the current tab of a tab group; hidden tabs do not count). Closing while maximised saves
 the layout from before the maximise.
 
 ## Presets
@@ -34,14 +34,16 @@ at the bottom and hidden, so View can reopen them.
 - Mimir explorer: Mimir left (large), Source right (secondary); rest hidden.
 - Everything tabbed: all eleven docks in one tab group.
 
-View > Layout lists the presets; View > "Reset layout" applies the default preset.
+View > Layout lists the presets with a check mark on the active one (cleared when the user moves
+docks; stored as `layout/preset`); View > "Reset layout" applies the default preset.
 
 ## Save and restore
 
 On close the window stores `layout/state` = `saveState(LAYOUT_VERSION)` and `layout/version`
 = LAYOUT_VERSION in `QSettings`, plus geometry. At start the state is restored only when the stored
 version equals LAYOUT_VERSION and `restoreState` accepts it; otherwise the default preset applies.
-The older `windowState` key is ignored (its docks differ).
+The older `windowState` key is ignored (its docks differ). After a restore, a floating dock whose
+frame is not inside any screen is moved onto the primary screen (`ViewLayout.ensure_on_screen`).
 
 ## Inside the panels
 
@@ -52,8 +54,9 @@ the full text in the tooltip.
 
 ## Zoom
 
-View > Zoom in / out / reset (Ctrl+= or Ctrl++, Ctrl+-, Ctrl+0) changes a point-size offset
-(`view/zoom`, clamped to -4..+20) applied to the source view, the editor and every table and tree.
+View > Zoom in / out / reset (Ctrl+=, Ctrl++, Ctrl+Shift+=, Ctrl+-, Ctrl+0; also Ctrl+wheel over a
+text or table) changes a point-size offset (`view/zoom`, clamped to -4..+20) applied to every
+plain-text editor, table, list and tree in the docks (not buttons, labels, menus, About headers).
 The offset is saved when it changes and applied at start.
 
 ## Tooltips

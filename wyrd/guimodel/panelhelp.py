@@ -33,12 +33,14 @@ PANELS: dict[str, tuple[str, str, str, str]] = {
         "see a colour bar (blue to red) with a theta line, coloured words, small strips under "
         "buses, and dotted underlines.",
         "Red means critical: the signal lies on a path that limits the clock speed. Blue means "
-        "not critical: lots of spare time. The criticality (crit) runs from 0 (blue) to 1 (red). "
-        "Theta is the near-critical threshold (0.90, 0.95 or 0.99): paths with crit at least "
-        "theta count as near-critical. A bit strip under a bus word has one small box per bit, "
-        "most significant bit first, each coloured by that bit's crit. A dotted underline means "
-        "the colour was found by matching the name on that line, so it is a good guess, not a "
-        "certain link.",
+        "not critical: lots of spare time. The criticality (crit) is how close a path is to "
+        "being the slowest one: 0 (blue) has lots of spare time, 1 (red) is the slowest. Theta "
+        "is the near-critical threshold (0.90, 0.95 or 0.99): paths with crit at least theta "
+        "count as near-critical. A bit strip under a bus word has one small box per bit, most "
+        "significant bit first (the MSB first box in the Timing panel changes that), each "
+        "coloured by that bit's crit. A dotted underline marks a bit whose index is unknown; "
+        "such a bit is grey. Separately: the columns of a word are always found by matching its "
+        "name on the line.",
     ),
     ls.REPORT: (
         "The results of the runs of your project: one tree entry per run and, for the selected "
@@ -89,9 +91,12 @@ PANELS: dict[str, tuple[str, str, str, str]] = {
         "Find the signals, lines and modules that set the speed of the chip.",
         "A summary, a table of paths and objects, and controls that choose how the Source "
         "panel is coloured (by margin, hot/cold, or both) and which paths count.",
-        "Slack is the spare time of a path: negative means the path is too slow. Crit is "
-        "1 minus slack divided by the clock period, so 1 is the slowest. Near-critical means "
-        "crit is at least theta. Click a coloured word in the Source panel to list its paths.",
+        "Slack is the spare time of a path: negative means the path is too slow. Crit is how "
+        "close a path is to being the slowest one: 1 is the slowest, 0 has lots of spare time. "
+        "It is 1 - slack / (the largest required time of its clock pair); when the worst slack "
+        "is negative, all slacks are shifted so that the worst is 0. Near-critical means crit "
+        "is at least theta. MSB first (a setting here) chooses the bit order of the bit strips. "
+        "Click a coloured word in the Source panel to list its paths.",
     ),
     ls.SCHEMATIC: (
         "A drawing of the gates and wires of one module of a synthesised netlist.",
@@ -141,7 +146,10 @@ def build_guide() -> str:
         "fast the circuit is, and what a Mímir store knows. Every part of the window is a "
         "panel. Each panel has an About header with the four parts below. View > Panels shows "
         "or hides a panel, View > Layout chooses a layout, F11 makes one panel fill the "
-        "window, and Ctrl+= / Ctrl+- / Ctrl+0 change the text size."
+        "window, and zoom changes the size of the text in the code and text editors, logs, tables, "
+        "lists and trees of every panel (Ctrl+= or Ctrl+Shift+= bigger, Ctrl+- smaller, Ctrl+0 "
+        "normal, or hold Ctrl and turn the mouse wheel over a text or table). Buttons, labels, "
+        "menus and the About headers keep their size."
     )
     chapters = "\n\n".join(_chapter(n) for n in ls.PANELS)
     return f"{intro}\n\n## The panels\n\n{chapters}\n\n{mimirhelp.GUIDE.strip()}\n"

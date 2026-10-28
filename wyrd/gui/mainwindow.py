@@ -319,6 +319,7 @@ class MainWindow(QMainWindow):
         paths = r.paths if r is not None else fh.line_paths.get(line, ())
         label = f"{r.word} (line {line})" if r is not None else f"line {line}"
         self.timing.show_paths(label, paths)
+        self.show_panel(self.timing)
 
     def _panel_widgets(self) -> dict[str, QWidget]:
         return {
@@ -380,7 +381,7 @@ class MainWindow(QMainWindow):
         act = QAction(text, self)
         if keys:
             act.setShortcut(QKeySequence(keys))
-        act.triggered.connect(slot)
+        act.triggered.connect(lambda _checked=False: slot())  # triggered(bool) would pass a flag
         menu.addAction(act)
         return act
 

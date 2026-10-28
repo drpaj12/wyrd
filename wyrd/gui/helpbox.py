@@ -30,9 +30,13 @@ class HelpBox(QWidget):
         self.label = QLabel(self._html(tab, panel))
         self.label.setWordWrap(True)
         self.label.setTextFormat(Qt.TextFormat.RichText)
-        self.label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        label_policy = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        label_policy.setHeightForWidth(True)  # setSizePolicy would otherwise drop what wordWrap set
+        self.label.setSizePolicy(label_policy)
         self.body = self.label
-        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        policy = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        policy.setHeightForWidth(True)  # the wrapped text needs more height when narrow
+        self.setSizePolicy(policy)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(2)
@@ -40,6 +44,13 @@ class HelpBox(QWidget):
         lay.addWidget(self.label)
         self.toggle.toggled.connect(self._toggled)
         self._apply(self._stored())
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, w: int) -> int:
+        lay = self.layout()
+        return lay.totalHeightForWidth(w) if lay is not None else -1
 
     @staticmethod
     def _html(tab: str, panel: bool) -> str:

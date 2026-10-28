@@ -23,10 +23,10 @@ STOPS: tuple[tuple[float, tuple[int, int, int]], ...] = (
 )
 DECL_KEYWORDS = r"input|output|inout|wire|reg|logic"
 LEGEND_NOTE = (
-    "Token columns are derived by name match; bits are shown MSB first. "
+    "Token columns are always found by name match. Bits are shown MSB first (a setting). "
     "A token with more characters than bits gives the extra characters to the leading segments; "
     "a token with fewer characters than bits shows a bit strip under it and the maximum crit. "
-    "A dotted underline marks a bit that is unknown."
+    "A dotted underline marks a bit whose index is unknown (grey)."
 )
 UNKNOWN_BIT = -1
 UNKNOWN_CRIT = -1.0

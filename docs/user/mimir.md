@@ -61,8 +61,10 @@ click a run in its Runs table to see exactly how the run was made (Run tab).
 ### 3. The Timing tab
 
 Pick a run. The summary line gives the clock period (CPD), the worst slack and how many of the
-reported paths were used. Criticality (crit) is 1 minus slack divided by the clock period: 1.0 is
-the slowest path, 0 has plenty of spare time. A path is near-critical when its crit is at least
+reported paths were used. Criticality (crit) is how close a path is to being the slowest one: 1.0
+is the slowest, 0 has plenty of spare time. It is 1 - slack / (the largest required time of the
+clock pair of the path); when the worst slack is negative, all slacks are shifted so that the
+worst is 0. A path is near-critical when its crit is at least
 theta (0.90, 0.95 or 0.99). The histogram shows how many paths fall in each crit range; the
 table lists the most critical HDL objects, with a bit strip for buses.
 
@@ -85,7 +87,12 @@ on a whole line says the line is on a near-critical path. For a bus such as `D_O
 name is split into one coloured piece per bit, most significant bit first: a name of 6 letters
 for 3 bits gives 2 letters per bit. When the name is shorter than the number of bits, a bit
 strip under the name shows each bit and the name keeps the highest crit. A dotted underline
-marks a bit that is unknown. Hover a token to see its crit and every bit.
+marks a bit whose index is unknown; such a bit is grey. Hover a token to see its crit and every
+bit.
+
+The token columns are always found by matching the name of the word on the line (the store
+links a word to a line, not to a column). The Timing panel setting "MSB first" chooses whether
+the bits run from the most or the least significant bit.
 
 ### 6. Example: mkPktMerge
 

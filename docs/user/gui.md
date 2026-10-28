@@ -17,12 +17,16 @@ buttons to float (detach) or close it, and **View > Panels** to bring a closed o
 fixed central area, so any panel, such as Mímir, can fill the window on its own.
 
 - **Maximise**: View > Maximise current panel (F11 or Ctrl+Shift+M), or double-click a dock title or
-  tab. The same again restores. The current panel is the one with the keyboard focus.
+  tab. The same again restores. The current panel is the one with the keyboard
+  focus, else the last one focused, else the one under the mouse, else the largest panel shown.
 - **Layouts** (View > Layout): *Project* (default), *Timing + source*, *Mímir explorer*,
-  *Everything tabbed*, and **Reset layout**. The last layout is saved on quit and restored; a saved
-  layout from another version is ignored.
-- **Zoom**: View > Zoom in / out / reset (Ctrl+=, Ctrl+-, Ctrl+0) changes the text size of the source
-  view, the editor, tables and trees. The size is remembered.
+  *Everything tabbed*, and **Reset layout**. The active layout has a check mark; it is cleared when you move a dock. The last layout is
+  saved on quit and restored; a saved layout from another version is ignored. A detached (floating)
+  panel that would open off every screen is brought back onto the main screen.
+- **Zoom**: View > Zoom in / out / reset (Ctrl+= or Ctrl+Shift+=, Ctrl+-, Ctrl+0), or Ctrl+wheel over
+  a text or table, changes the size of the text in code and text editors, logs, tables, lists and
+  trees of every panel. Buttons, labels, menus and the About headers keep their size. The size is
+  remembered.
 - **About headers**: each panel starts with a collapsible About header (what it shows, why use it,
   what you will see, how to read it). Its state is remembered; View > About headers shows or hides
   all. Help > Wyrd guide holds the same text.
@@ -135,7 +139,7 @@ The same data is on the command line: `wyrd mimir` (see `running.md`). Spec:
 <!-- wyrd-guide:begin -->
 ## Wyrd guide
 
-Wyrd is a window onto your project: its files, its runs, what the tools said, how fast the circuit is, and what a Mímir store knows. Every part of the window is a panel. Each panel has an About header with the four parts below. View > Panels shows or hides a panel, View > Layout chooses a layout, F11 makes one panel fill the window, and Ctrl+= / Ctrl+- / Ctrl+0 change the text size.
+Wyrd is a window onto your project: its files, its runs, what the tools said, how fast the circuit is, and what a Mímir store knows. Every part of the window is a panel. Each panel has an About header with the four parts below. View > Panels shows or hides a panel, View > Layout chooses a layout, F11 makes one panel fill the window, and zoom changes the size of the text in the code and text editors, logs, tables, lists and trees of every panel (Ctrl+= or Ctrl+Shift+= bigger, Ctrl+- smaller, Ctrl+0 normal, or hold Ctrl and turn the mouse wheel over a text or table). Buttons, labels, menus and the About headers keep their size.
 
 ## The panels
 
@@ -157,7 +161,7 @@ Wyrd is a window onto your project: its files, its runs, what the tools said, ho
 
 **What you will see.** The file name, the code, and a margin with a share per line. With hot/cold on you also see a colour bar (blue to red) with a theta line, coloured words, small strips under buses, and dotted underlines.
 
-**How to read it.** Red means critical: the signal lies on a path that limits the clock speed. Blue means not critical: lots of spare time. The criticality (crit) runs from 0 (blue) to 1 (red). Theta is the near-critical threshold (0.90, 0.95 or 0.99): paths with crit at least theta count as near-critical. A bit strip under a bus word has one small box per bit, most significant bit first, each coloured by that bit's crit. A dotted underline means the colour was found by matching the name on that line, so it is a good guess, not a certain link.
+**How to read it.** Red means critical: the signal lies on a path that limits the clock speed. Blue means not critical: lots of spare time. The criticality (crit) is how close a path is to being the slowest one: 0 (blue) has lots of spare time, 1 (red) is the slowest. Theta is the near-critical threshold (0.90, 0.95 or 0.99): paths with crit at least theta count as near-critical. A bit strip under a bus word has one small box per bit, most significant bit first (the MSB first box in the Timing panel changes that), each coloured by that bit's crit. A dotted underline marks a bit whose index is unknown; such a bit is grey. Separately: the columns of a word are always found by matching its name on the line.
 
 ### Report
 
@@ -217,7 +221,7 @@ Wyrd is a window onto your project: its files, its runs, what the tools said, ho
 
 **What you will see.** A summary, a table of paths and objects, and controls that choose how the Source panel is coloured (by margin, hot/cold, or both) and which paths count.
 
-**How to read it.** Slack is the spare time of a path: negative means the path is too slow. Crit is 1 minus slack divided by the clock period, so 1 is the slowest. Near-critical means crit is at least theta. Click a coloured word in the Source panel to list its paths.
+**How to read it.** Slack is the spare time of a path: negative means the path is too slow. Crit is how close a path is to being the slowest one: 1 is the slowest, 0 has lots of spare time. It is 1 - slack / (the largest required time of its clock pair); when the worst slack is negative, all slacks are shifted so that the worst is 0. Near-critical means crit is at least theta. MSB first (a setting here) chooses the bit order of the bit strips. Click a coloured word in the Source panel to list its paths.
 
 ### Schematic
 
@@ -267,8 +271,10 @@ click a run in its Runs table to see exactly how the run was made (Run tab).
 ### 3. The Timing tab
 
 Pick a run. The summary line gives the clock period (CPD), the worst slack and how many of the
-reported paths were used. Criticality (crit) is 1 minus slack divided by the clock period: 1.0 is
-the slowest path, 0 has plenty of spare time. A path is near-critical when its crit is at least
+reported paths were used. Criticality (crit) is how close a path is to being the slowest one: 1.0
+is the slowest, 0 has plenty of spare time. It is 1 - slack / (the largest required time of the
+clock pair of the path); when the worst slack is negative, all slacks are shifted so that the
+worst is 0. A path is near-critical when its crit is at least
 theta (0.90, 0.95 or 0.99). The histogram shows how many paths fall in each crit range; the
 table lists the most critical HDL objects, with a bit strip for buses.
 
@@ -291,7 +297,12 @@ on a whole line says the line is on a near-critical path. For a bus such as `D_O
 name is split into one coloured piece per bit, most significant bit first: a name of 6 letters
 for 3 bits gives 2 letters per bit. When the name is shorter than the number of bits, a bit
 strip under the name shows each bit and the name keeps the highest crit. A dotted underline
-marks a bit that is unknown. Hover a token to see its crit and every bit.
+marks a bit whose index is unknown; such a bit is grey. Hover a token to see its crit and every
+bit.
+
+The token columns are always found by matching the name of the word on the line (the store
+links a word to a line, not to a column). The Timing panel setting "MSB first" chooses whether
+the bits run from the most or the least significant bit.
 
 ### 6. Example: mkPktMerge
 
