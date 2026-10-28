@@ -12,6 +12,7 @@ import unittest
 from pathlib import Path
 
 from tests.test_heat import BUS_SRC, bus_model
+from wyrd.guimodel import heat, heatview
 
 HAVE_QT = importlib.util.find_spec("PySide6") is not None
 
@@ -22,7 +23,6 @@ if HAVE_QT:
     from wyrd.gui.mainwindow import MainWindow
     from wyrd.gui.sourceview import SourceView
     from wyrd.gui.timingpanel import TimingPanel
-    from wyrd.guimodel import heat, heatview
 
     def setUpModule() -> None:
         qapp()
