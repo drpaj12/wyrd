@@ -7,7 +7,7 @@ collapsed state of each header is kept in ``HelpBox.settings`` (set by the main 
 from __future__ import annotations
 
 from PySide6.QtCore import QSettings, Qt
-from PySide6.QtWidgets import QLabel, QScrollArea, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QScrollArea, QSizePolicy, QToolButton, QVBoxLayout, QWidget
 
 from wyrd.guimodel import mimirhelp, panelhelp
 
@@ -36,6 +36,7 @@ class HelpBox(QWidget):
         self.body.setWidgetResizable(True)
         self.body.setFrameShape(QScrollArea.Shape.NoFrame)
         self.body.setMaximumHeight(BODY_MAX_HEIGHT)
+        self.body.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         self.body.setWidget(self.label)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)

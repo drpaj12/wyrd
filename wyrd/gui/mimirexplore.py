@@ -122,6 +122,15 @@ class StructuresTab(QWidget):
         self._design_changed()
 
     def select_design(self, name: str) -> None:
+        """Show one design; say so in plain words when the store has no structures for it."""
+        if self.view is None:
+            return
+        if self.design.findText(name) < 0:
+            self.pane.full_query = None
+            self.pane.set_table(Table("", (), []))
+            self.chart.set_points([], "", "")
+            self.status.setText(f"no structure data for {name} in this store")
+            return
         self.design.setCurrentText(name)
         self._design_changed()
 
@@ -164,6 +173,7 @@ class TimingTab(QWidget):
     """Per run: slack histogram, near-critical objects; across runs: counts against area."""
 
     heat_requested = Signal(object)  # a HeatModel from the run's timing_object rows
+    run_changed = Signal(str)  # the user picked a run in the combo
     KEYS = ("truns", "tdata", "tscatter", "tmetrics", "trows")
 
     def __init__(self, submit: Submit) -> None:
@@ -171,6 +181,8 @@ class TimingTab(QWidget):
         self._submit = submit
         self.view: MimirView | None = None
         self._run_ids: list[str] = []
+        self._all_runs: list[tuple[str, str]] = []
+        self._design = ""
         self.run = QComboBox()
         self.kind = QComboBox()
         self.kind.addItems(OBJECT_KINDS)
@@ -205,7 +217,7 @@ class TimingTab(QWidget):
             "Number of paths per criticality range, from 0 (spare time) to 1 (slowest path)."
         )
         self.go.setToolTip("Plot one dot per run: area on x, near-critical paths on y.")
-        self.run.activated.connect(self.reload)
+        self.run.activated.connect(self._picked)
         self.kind.activated.connect(self.reload)
         self.go.clicked.connect(self.plot)
         self.open_button.clicked.connect(self._open_clicked)
@@ -219,6 +231,8 @@ class TimingTab(QWidget):
         self.view = view
         _fill(self.run, [])
         self._run_ids = []
+        self._all_runs = []
+        self._design = ""
         self.pane.full_query = None
         self.pane.set_table(Table("", (), []))
         self.hist.set_counts([])
@@ -231,16 +245,41 @@ class TimingTab(QWidget):
     def _runs(self, result: object) -> None:
         assert isinstance(result, tuple)
         runs, metrics = result
-        self._run_ids = [r for r, _ in runs]
+        self._all_runs = list(runs)
         if not runs:
             self.summary.setText(NO_TIMING)
             return
-        _fill(self.run, [label for _, label in runs])
+        self._fill_runs()
         area = [m for m in metrics if is_area(m)]
         _fill(self.x_metric, area or list(metrics))
         note = "" if area else "No LUT/CLB records in this store: x lists all metrics (a proxy)."
         self.scatter_status.setText(note)
         self.reload()
+
+    def _fill_runs(self) -> None:
+        prefix = self._design + " / "
+        runs = [r for r in self._all_runs if not self._design or r[1].startswith(prefix)]
+        self._run_ids = [r for r, _ in runs]
+        _fill(self.run, [label for _, label in runs])
+
+    def select_design(self, name: str) -> None:
+        """List the runs of one design (all runs for "") and select the first with timing data."""
+        self._design = name
+        if not self._all_runs:
+            return
+        self._fill_runs()
+        if self._run_ids:
+            self.reload()
+            return
+        self.hist.set_counts([])
+        self.pane.full_query = None
+        self.pane.set_table(Table("", (), []))
+        self.open_button.setEnabled(False)
+        self.summary.setText(f"no timing data for {name} in this store")
+
+    def _picked(self) -> None:
+        self.reload()
+        self.run_changed.emit(self.current_run())
 
     def current_run(self) -> str:
         i = self.run.currentIndex()

@@ -39,6 +39,7 @@ FETCH_TIP_MISSING = "The `mimir` command is not on PATH; install the mimir packa
 LIST_LIMIT = 500
 ROW_LIMIT = mimirview.DEFAULT_LIMIT  # rows per design table
 RUN_TEXT = "Select a run in the Design tab (double click)."
+NO_CURRENT = "Current design: none. Click a design in the list."
 
 
 class _Signals(QObject):
@@ -92,8 +93,11 @@ class MimirPanel(QWidget):
         self._signals.done.connect(self._on_done)
         self._signals.failed.connect(self._on_failed)
         self._current_run = ""
+        self._current_design = ""
+        self._switch_run_tab = True
         self._make_widgets()
         self._layout()
+        self._tooltips()
         self._connect()
         self._set_fetch_enabled()
 
@@ -102,6 +106,8 @@ class MimirPanel(QWidget):
     def _make_widgets(self) -> None:
         self.status = QLabel(NO_STORE)
         self.status.setWordWrap(True)
+        self.current_line = QLabel(NO_CURRENT)
+        self.current_line.setWordWrap(True)
         self.open_button = QPushButton("Open Mímir store...")
         self.last_button = QPushButton("Reopen last")
         self.last_button.setEnabled(False)
@@ -177,6 +183,47 @@ class MimirPanel(QWidget):
         self.hover = QLabel("")
         self.plot_status = QLabel("")
 
+    def _tooltips(self) -> None:
+        """A tooltip on every control of the older Design, Run, Compare and Plot tabs."""
+        tips: dict[QWidget, str] = {
+            self.open_button: "Choose a Mímir store file (read only) to browse.",
+            self.last_button: "Open the store you used last time.",
+            self.source: "Show only the designs of this experiment (source), or all of them.",
+            self.filter: "Type part of a design name to narrow the list.",
+            self.designs: "The designs in the store. Click one to see it in every tab.",
+            self.current_line: "The design and run every tab is showing now.",
+            self.tabs: "Views of the open store. Each has an About header at the top.",
+            self.design_label: "The design shown in this tab.",
+            self.design_tabs: "What the store knows about this design: values, runs, "
+            "meta data, lineage and structures.",
+            self.run_label: "The run shown in this tab.",
+            self.params_pane: "The flow settings of the run. Colour says how each is known.",
+            self.artifacts_pane: "The files this run produced, named by their hash.",
+            self.fetch_button: "Download the files of this run to a folder you choose.",
+            self.cancel_button: "Stop the download that is running.",
+            self.fetch_log: "What the fetch command printed.",
+            self.cmp_prefix: "Start of the experiment name to compare, e.g. norns-placers-e10-.",
+            self.cmp_base: "The configuration the others are divided by (the base).",
+            self.cmp_metric: "The measured value to compare, e.g. vpr.cpd (critical path delay).",
+            self.cmp_level: "Use only values measured at this step of the flow.",
+            self.cmp_load: "List the configurations that match the prefix.",
+            self.cmp_go: "Compare every configuration with the base on the chosen metric.",
+            self.cmp_pane: "One row per configuration: typical ratio to the base, and counts.",
+            self.cmp_scroll: "The same ratios as dots; the line at 1 is the base.",
+            self.cmp_status: "What the comparison did, or why it could not.",
+            self.plot_x: "The measured value on the horizontal axis.",
+            self.plot_y: "The measured value on the vertical axis.",
+            self.plot_source: "Draw only the runs of this experiment, or all.",
+            self.log_x: "Use a logarithmic horizontal axis (for values over many orders).",
+            self.log_y: "Use a logarithmic vertical axis (for values over many orders).",
+            self.plot_go: "Draw one dot per run for the chosen x and y.",
+            self.chart: "One dot per run. Hover over a dot to see which design and run it is.",
+            self.hover: "The design and run under the mouse.",
+            self.plot_status: "What the plot did, or why it could not.",
+        }
+        for widget, tip in tips.items():
+            widget.setToolTip(tip)
+
     def _layout(self) -> None:
         top = QHBoxLayout()
         top.addWidget(self.open_button)
@@ -201,6 +248,7 @@ class MimirPanel(QWidget):
         split.setStretchFactor(1, 1)
         lay = QVBoxLayout(self)
         lay.addWidget(self.status)
+        lay.addWidget(self.current_line)
         lay.addLayout(top)
         lay.addWidget(split, 1)
 
@@ -288,6 +336,7 @@ class MimirPanel(QWidget):
         self.log_y.toggled.connect(self._log_changed)
         self.chart.hovered.connect(self.hover.setText)
         self.timing_tab.heat_requested.connect(self.heat_requested)
+        self.timing_tab.run_changed.connect(self._timing_run_picked)
 
     # ---- workers ----
 
@@ -408,6 +457,9 @@ class MimirPanel(QWidget):
         """Clear everything that belonged to the previous store."""
         self.cancel_fetch()
         self._current_run, self._design_key, self._notes = "", None, ""
+        self._current_design = ""
+        self.chart.set_highlight("")
+        self._update_current()
         self.designs.clear()
         self.design_label.setText("")
         for pane in (
@@ -458,6 +510,12 @@ class MimirPanel(QWidget):
             return
         view, level = self.view, self.design_level.currentText() or None
         self._design_key = (name, source)
+        self._current_design = name
+        self.structs.select_design(name)
+        self.timing_tab.select_design(name)
+        self.chart.set_highlight(name)
+        self._note_compare()
+        self._update_current()
         self._submit("design", lambda: (view, view.design(name, source, ROW_LIMIT, level), level))
 
     def _refresh_design(self) -> None:
@@ -476,17 +534,34 @@ class MimirPanel(QWidget):
             (self.lineage_pane, d.lineage), (self.struct_pane, d.structures),
         ):  # fmt: skip
             pane.set_table(t)
-        self.tabs.setCurrentIndex(1)
+        if self.tabs.currentIndex() == 0:  # from the Summary go to the design; else stay put
+            self.tabs.setCurrentIndex(1)
+        self._auto_run(d.name, d.runs)
+
+    def _auto_run(self, name: str, runs: Table) -> None:
+        """The Run tab follows the design: keep the run when it belongs to it, else the first."""
+        ids = [str(r[0]) for r in runs.rows]
+        if not ids:
+            self._current_run = ""
+            self.run_label.setText(f"no runs of {name} in this store")
+            self.params_pane.set_table(Table("", (), []))
+            self.artifacts_pane.set_table(Table("", (), []))
+            self._set_fetch_enabled()
+            self._update_current()
+            return
+        keep = self._current_run if self._current_run in ids else ids[0]
+        self.show_run(keep, switch=False)
 
     def _run_row_activated(self, row: int, _col: int) -> None:
         rows = self.runs_pane.table_data.rows
         if 0 <= row < len(rows):
             self.show_run(str(rows[row][0]))
 
-    def show_run(self, run_id: str) -> None:
+    def show_run(self, run_id: str, switch: bool = True) -> None:
         if self.view is None:
             return
         view = self.view
+        self._switch_run_tab = switch
         self._submit("run", lambda: view.run(run_id))
 
     def _ran(self, result: object) -> None:
@@ -504,7 +579,27 @@ class MimirPanel(QWidget):
         self.params_pane.set_table(r.params)
         self.artifacts_pane.set_table(r.artifacts)
         self._set_fetch_enabled()
-        self.tabs.setCurrentIndex(2)
+        if self._switch_run_tab:
+            self.tabs.setCurrentIndex(2)
+        self.timing_tab.select_run(r.run_id)
+        self._update_current()
+
+    def _timing_run_picked(self, run_id: str) -> None:
+        if run_id:
+            self.show_run(run_id, switch=False)
+
+    def _update_current(self) -> None:
+        if not self._current_design:
+            self.current_line.setText(NO_CURRENT)
+            return
+        run = f"run {self._current_run[:8]}" if self._current_run else "no run"
+        self.current_line.setText(f"Current design: {self._current_design}    {run}")
+
+    def _note_compare(self) -> None:
+        if self._current_design and self.cmp_pane.table_data.rows:
+            base = self.cmp_status.text().split(" | ")[0]
+            note = f"{self._current_design} is one of the designs averaged in each row below"
+            self.cmp_status.setText(f"{base} | {note}")
 
     # ---- fetch hook ----
 
@@ -606,6 +701,7 @@ class MimirPanel(QWidget):
             + (f"; {mixed} MIXED (more than one tool commit or config)" if mixed else "")
             + (" (levels shown separately)" if result.multi_level else "")
         )
+        self._note_compare()
 
     # ---- plot ----
 
@@ -623,7 +719,16 @@ class MimirPanel(QWidget):
         assert isinstance(result, tuple)
         x, y, sc = result
         self.chart.set_points(sc.points, x, y)
-        self.plot_status.setText(sc.note)
+        self.chart.set_highlight(self._current_design)
+        note = ""
+        if self._current_design:
+            mine = len(self.chart.highlighted())
+            note = (
+                f"; {self._current_design} is ringed in red"
+                if mine
+                else f"; {self._current_design} has no point here (a value is missing)"
+            )
+        self.plot_status.setText(sc.note + note)
 
     def _log_changed(self) -> None:
         self.chart.set_log(self.log_x.isChecked(), self.log_y.isChecked())
