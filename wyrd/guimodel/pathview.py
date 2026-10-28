@@ -8,8 +8,10 @@ Data comes from the Mímir schema 6 tables via ``mimirview.MimirView.paths_throu
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
+from wyrd.guimodel.cone import Cone
+from wyrd.guimodel.heatview import FileHeat
 from wyrd.mimirview import PathNodeRow
 
 CUTOFFS: tuple[float | None, ...] = (0.90, 0.95, 0.99, None)
@@ -58,12 +60,19 @@ class Overlay:
     steps: dict[int, list[tuple[int, float]]] = field(default_factory=dict)
     colors: dict[int, float] = field(default_factory=dict)
     union: bool = False
+    levels: dict[int, int] = field(default_factory=dict)  # a cone: line -> logic level
 
     def lines(self) -> set[int]:
-        return set(self.steps) | set(self.colors)
+        return set(self.steps) | set(self.colors) | set(self.levels)
+
+    def gutter(self) -> bool:
+        """True when the overlay puts text in the gutter."""
+        return bool(self.steps or self.levels)
 
     def marker(self, line: int) -> str:
-        """Gutter text of a line: its step numbers and their summed delay."""
+        """Gutter text of a line: its cone level, or its step numbers and their summed delay."""
+        if line in self.levels:
+            return f"L{self.levels[line]}"
         got = self.steps.get(line)
         if not got:
             return ""
@@ -125,10 +134,48 @@ def click_queries(spans: Sequence[str], word: str | None, bit: int | None) -> li
     return out
 
 
-def word_text(n: PathNodeRow) -> str:
-    if not n.word:
+def cone_overlay(cone: Cone, in_file: Callable[[str], bool]) -> Overlay:
+    """Level numbers of a cone's lines in the open file (the heat colours stay)."""
+    levels: dict[int, int] = {}
+    for name, lines in cone.lines().items():
+        if in_file(name):
+            for line, lv in lines.items():
+                levels[line] = min(lv, levels.get(line, lv))
+    return Overlay(levels=levels)
+
+
+def cut_heat(fh: FileHeat, cutoff: float | None) -> FileHeat:
+    """The hot/cold ranges and line tints with crit >= the cut-off (all when off); what is below
+    it is plain text. A bit strip keeps only the bits at or above it."""
+    if cutoff is None:
+        return fh
+    ok = cutoff - 1e-9
+    ranges = [
+        replace(
+            r,
+            segments=tuple(g for g in r.segments if g.crit >= ok),
+            strip=tuple(s for s in r.strip if s[1] >= ok),
+        )
+        for r in fh.ranges
+        if r.crit >= ok
+    ]
+    return FileHeat(
+        {k: v for k, v in fh.lines.items() if v >= ok},
+        ranges,
+        {k: v for k, v in fh.line_paths.items() if fh.lines.get(k, 0.0) >= ok},
+        fh.unplaced,
+    )
+
+
+def word_bit(word: str, bit: int) -> str:
+    """``word[bit]`` or just the word."""
+    if not word:
         return ""
-    return f"{n.word}[{n.bit}]" if n.bit >= 0 and n.word_via in ("name", "pad") else n.word
+    return f"{word}[{bit}]" if bit >= 0 else word
+
+
+def word_text(n: PathNodeRow) -> str:
+    return word_bit(n.word, n.bit if n.word_via in ("name", "pad") else -1)
 
 
 def step_cells(n: PathNodeRow) -> list[str]:

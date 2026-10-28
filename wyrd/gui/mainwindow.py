@@ -138,6 +138,8 @@ class MainWindow(QMainWindow):
         self.source_view.text.heat_clicked.connect(self._on_heat_click)
         self.paths.selection_changed.connect(self._apply_overlay)
         self.paths.step_activated.connect(self._open_step)
+        self.paths.cutoff_changed.connect(self._refresh_heat)
+        self.source_view.cone_requested.connect(self._on_cone_requested)
         self.report_view.run_selected.connect(self._on_run_selected)
         self.report_view.floorplan_requested.connect(self._on_floorplan)
         self.flow.run_requested.connect(self._run_flow)
@@ -257,6 +259,8 @@ class MainWindow(QMainWindow):
         fh = None
         if mode in (MODE_HOT, MODE_BOTH):
             fh = self.timing.file_heat_for(path, self.source_view.text.toPlainText())
+            if fh is not None:
+                fh = pathview.cut_heat(fh, self.paths.cutoff_value())
         scope = self.timing.heat_scope()
         theta = scope.theta if scope.kind == "near" else None
         model = self.timing.heat_model()
@@ -347,6 +351,10 @@ class MainWindow(QMainWindow):
         queries = pathview.click_queries(spans, word, bit)
         label = f"{word} (line {line})" if word else f"line {line}"
         self.paths.show_for(model.store, model.run_id, label, queries)
+        self.show_panel(self.paths)
+
+    def _on_cone_requested(self, direction: str) -> None:
+        self.paths.request_cone(direction)
         self.show_panel(self.paths)
 
     def _in_open_file(self, name: str) -> bool:

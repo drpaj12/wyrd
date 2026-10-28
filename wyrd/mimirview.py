@@ -18,8 +18,9 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
-SUPPORTED_VERSIONS = ("4", "5", "6")  # 5 adds timing_run, timing_path_hist, timing_object; 6 adds
-# timing_path, timing_path_node (additive; read later by the path view)
+# 5 adds timing_run, timing_path_hist, timing_object; 6 adds timing_path, timing_path_node; 7 adds
+# hdl_graph_run, hdl_edge, hdl_port (all additive)
+SUPPORTED_VERSIONS = ("4", "5", "6", "7")
 DEFAULT_LIMIT = 500
 SCATTER_LIMIT = 20000
 NO_LIMIT = 2**62
@@ -33,7 +34,7 @@ TABLES = (
     "records", "design", "design_source", "design_meta", "design_lineage", "flow_config",
     "flow_param", "run", "run_artifact", "structure", "structure_mapping", "structure_member",
     "partition", "analysis_result", "timing_run", "timing_path_hist", "timing_object",
-    "timing_path", "timing_path_node",
+    "timing_path", "timing_path_node", "hdl_graph_run", "hdl_edge", "hdl_port",
 )  # fmt: skip
 Row = tuple[object, ...]
 
@@ -269,6 +270,24 @@ class PathNodeRow:
         """(file, line) from ``span`` (``file:line``), None when the node has no line."""
         name, sep, tail = self.span.rpartition(":")
         return (name, int(tail)) if sep and name and tail.isdigit() else None
+
+
+NO_GRAPH = (
+    "this store has no HDL graph; run mimir hdl-graph on the store (schema version 7)"
+)
+NO_RUN_GRAPH = "this run has no HDL graph; run mimir hdl-graph on the store"
+GraphNode = tuple[str, str, str, int]
+"""(span file:line, module, word, bit); bit is -1 when unknown."""
+
+
+@dataclass(frozen=True)
+class HdlGraph:
+    """The stored line-level graph of a run: edges (source, destination, via_register) and the
+    ports (node, kind PI or PO, port bit name). ``note`` says why it is empty."""
+
+    edges: list[tuple[GraphNode, GraphNode, int]]
+    ports: list[tuple[GraphNode, str, str]]
+    note: str = ""
 
 
 @dataclass(frozen=True)
@@ -561,6 +580,37 @@ class _ExploreMixin:
             "AND path_index = ? ORDER BY step", [run_id, path_index]
         )  # fmt: skip
         return PathDetail(_path_ref(rows[0]), [_node_row(r) for r in nodes])
+
+    def has_graph(self) -> bool:
+        """True when the store has the schema 7 graph tables."""
+        return {"hdl_graph_run", "hdl_edge", "hdl_port"} <= self._existing_tables()
+
+    def hdl_graph(self, run_id: str) -> HdlGraph:
+        """The whole stored graph of a run (one query per table; edges are deduplicated)."""
+        if not self.has_graph():
+            return HdlGraph([], [], NO_GRAPH)
+        if not self._query("SELECT 1 FROM hdl_graph_run WHERE run_id = ?", [run_id]):
+            return HdlGraph([], [], NO_RUN_GRAPH)
+        edges = self._query(
+            "SELECT src_span, src_module, src_word, src_bit, dst_span, dst_module, dst_word, "
+            "dst_bit, via_register FROM hdl_edge WHERE run_id = ?", [run_id]
+        )  # fmt: skip
+        ports = self._query(
+            "SELECT span, module, word, bit, kind, port FROM hdl_port WHERE run_id = ?", [run_id]
+        )  # fmt: skip
+        return HdlGraph(
+            [((_s(r[0]), _s(r[1]), _s(r[2]), _n(r[3])), (_s(r[4]), _s(r[5]), _s(r[6]), _n(r[7])),
+              _n(r[8])) for r in edges],
+            [((_s(r[0]), _s(r[1]), _s(r[2]), _n(r[3])), _s(r[4]), _s(r[5])) for r in ports],
+        )  # fmt: skip
+
+    def span_crits(self, run_id: str) -> dict[str, float]:
+        """crit_max of every ``file:line`` span row of a run (the criticality of a source line)."""
+        rows = self._query(
+            "SELECT object_key, crit_max FROM timing_object WHERE run_id = ? AND kind = 'span'",
+            [run_id],
+        )
+        return {str(k): _f(c) for k, c in rows}
 
     def run_scatter(self, x_metric: str, y_metric: str) -> Scatter:
         """One point per run that has both metrics (through the record_run view)."""

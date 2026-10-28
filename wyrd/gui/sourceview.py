@@ -20,8 +20,10 @@ from PySide6.QtGui import (
     QTextFormat,
 )
 from PySide6.QtWidgets import (
+    QHBoxLayout,
     QLabel,
     QPlainTextEdit,
+    QPushButton,
     QTextEdit,
     QToolTip,
     QVBoxLayout,
@@ -159,7 +161,7 @@ class HeatTextEdit(QPlainTextEdit):
         self.setViewportMargins(0, 0, 0, 0)
 
     def _step_width(self) -> int:
-        return STEP_WIDTH if self.overlay is not None and self.overlay.steps else 0
+        return STEP_WIDTH if self.overlay is not None and self.overlay.gutter() else 0
 
     def heat_width(self) -> int:
         return (HEAT_WIDTH if self.heat else 0) + self._step_width()
@@ -378,7 +380,7 @@ class HeatTextEdit(QPlainTextEdit):
 
     def _paint_marker(self, painter: QPainter, block: QTextBlock, top: int, height: int) -> None:
         """Step numbers and delay of a line on the shown path, in the gutter."""
-        if self.overlay is None or not self.overlay.steps or not block.isVisible():
+        if self.overlay is None or not self.overlay.gutter() or not block.isVisible():
             return
         text = self.overlay.marker(block.blockNumber() + 1)
         if not text:
@@ -408,8 +410,16 @@ class HeatTextEdit(QPlainTextEdit):
 
 
 class SourceView(QWidget):
+    cone_requested = Signal(str)  # ">" fan-out or "<" fan-in cone of the clicked token
+
     def __init__(self) -> None:
         super().__init__()
+        self.fan_in = QPushButton("<")
+        self.fan_out = QPushButton(">")
+        self.fan_in.setToolTip("Fan-in cone of the clicked token: back to the primary inputs")
+        self.fan_out.setToolTip("Fan-out cone of the clicked token: forward to the primary outputs")
+        self.fan_in.clicked.connect(lambda: self.cone_requested.emit("<"))
+        self.fan_out.clicked.connect(lambda: self.cone_requested.emit(">"))
         self.path_label = QLabel("")
         self.path: Path | None = None
         self.text = HeatTextEdit()
@@ -420,7 +430,14 @@ class SourceView(QWidget):
         self.legend_note.setVisible(False)
         self._highlighter: VerilogHighlighter | None = None
         layout = QVBoxLayout(self)
-        layout.addWidget(self.path_label)
+        row = QHBoxLayout()
+        row.addWidget(self.path_label, 1)
+        row.addWidget(QLabel("Cone:"))
+        row.addWidget(self.fan_in)
+        row.addWidget(self.fan_out)
+        for b in (self.fan_in, self.fan_out):
+            b.setMaximumWidth(36)
+        layout.addLayout(row)
         layout.addWidget(self.legend)
         layout.addWidget(self.legend_note)
         layout.addWidget(self.text)
