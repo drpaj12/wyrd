@@ -1,5 +1,7 @@
 """Window layout, View capabilities, zoom, About headers, tooltips; Qt runs offscreen."""
 
+from __future__ import annotations
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
