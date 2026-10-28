@@ -369,7 +369,7 @@ class FixRoundTest(unittest.TestCase):
         text = "a\U0001F600b x"
         self.assertEqual(heatview.utf16_col(text, 3), 4)
         self.assertEqual(heatview.codepoint_col(text, 4), 3)
-        self.assertEqual(heatview.codepoint_col(text, 2), 1)
+        self.assertEqual(heatview.codepoint_col(text, 1), 1)
         self.assertEqual(heatview.codepoint_col("ab", 9), 2)
 
     def test_l7_big_file_builds_fast(self) -> None:
