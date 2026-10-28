@@ -18,7 +18,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
-SUPPORTED_VERSIONS = ("4", "5")  # 5 is additive on 4: timing_run, timing_path_hist, timing_object
+SUPPORTED_VERSIONS = ("4", "5", "6")  # 5 adds timing_run, timing_path_hist, timing_object; 6 adds
+# timing_path, timing_path_node (additive; read later by the path view)
 DEFAULT_LIMIT = 500
 SCATTER_LIMIT = 20000
 NO_LIMIT = 2**62

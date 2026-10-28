@@ -240,6 +240,10 @@ class ViewTest(unittest.TestCase):
         self.assertFalse(v.has_timing())
         self.assertEqual(v.timing_runs(), [])
 
+    def test_version_6_accepted(self) -> None:
+        v = MimirView(mimir_fixture.build(self.dir / "v6.db", version="6"))
+        self.assertEqual(v.version, "6")
+
     def test_wrong_version_and_not_store(self) -> None:
         old = mimir_fixture.build(self.dir / "v3.db", version="3")
         with self.assertRaisesRegex(MimirError, "schema version 3"):
