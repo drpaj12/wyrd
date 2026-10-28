@@ -27,3 +27,6 @@ fixture tests/data/schematic/mux.svg is output of netlistsvg 1.0.2 for tests/dat
 (Odin III write_json of tests/micro/verilog/micro/bm_DL_2_1_mux.v, MIT, Copyright (c) 2026 drpaj12);
 tests/data/schematic/dag2.json is the same for bm_dag2_mod.v.
 The fixture SVG embeds netlistsvg's default skin and CSS, so it carries that copyright and MIT notice too.
+
+wyrd heat tests: tests/data/heat/*.attribution.json are copied unchanged from Odin III
+tests/tools/data/timing_attr_v1 (MIT, same author, Copyright (c) 2026 drpaj12).

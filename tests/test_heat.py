@@ -1,0 +1,256 @@
+"""Hot/cold model: criticality, scope, ranges, bit split, colours, Mímir adapter (no Qt)."""
+
+from __future__ import annotations
+
+import json
+import unittest
+from pathlib import Path
+
+from wyrd.guimodel import heat, heatmimir, heatview
+from wyrd.guimodel.heat import Scope
+from wyrd.guimodel.timing import TimingError
+
+DATA = Path(__file__).parent / "data" / "heat"
+ADDER = DATA / "bm_DL_BCD_adder.attribution.json"
+
+BUS_SRC = (
+    "module top(input [2:0] SIGNAL, output y);\n"
+    "  assign y = SIGNAL[2] ^ SIGNAL[1] ^ SIGNAL[0];  // SIGNAL\n"
+    "endmodule\n"
+)
+
+
+def _node(
+    span: str | None, word: str | None, bit: int | None, via: str | None
+) -> dict[str, object]:
+    return {
+        "span": span,
+        "module": "top",
+        "word": word,
+        "bit": bit,
+        "word_via": via,
+        "delay_ns": 0.5,
+    }
+
+
+def _path(index: int, slack: float, nodes: list[dict[str, object]]) -> dict[str, object]:
+    return {
+        "index": index,
+        "slack_ns": slack,
+        "required_ns": 0.0,
+        "startpoint": "a (.input clocked by clk)",
+        "endpoint": f"e{index} (.output clocked by clk)",
+        "nodes": nodes,
+    }
+
+
+def bus_model(second_slack: float = -1.0) -> heat.HeatModel:
+
+    def pad(b: int) -> dict[str, object]:
+        return _node(None, "SIGNAL", b, "pad")
+
+    def use(b: int) -> dict[str, object]:
+        return _node("top.v:2", "SIGNAL", b, "name")
+
+    paths = [
+        _path(1, -2.0, [pad(2), pad(0), use(2), use(0)]),
+        _path(2, second_slack, [pad(1), use(1)]),
+    ]
+    return heat.parse_heat({"schema_version": 1, "paths": paths, "words": []})
+
+
+class CritTest(unittest.TestCase):
+    def test_hand_computed(self) -> None:
+        rows = [heat.PathRow(i, "a (x clocked by c)", "b (y clocked by c)", s, 0.0)
+                for i, s in ((1, -4.0), (2, -3.0), (3, -1.0))]
+        crit, pairs, skipped = heat.path_criticalities(rows)
+        self.assertEqual((pairs, skipped), (1, 0))
+        self.assertAlmostEqual(crit[1], 1.0)
+        self.assertAlmostEqual(crit[2], 0.75)
+        self.assertAlmostEqual(crit[3], 0.25)
+
+    def test_positive_slack_is_one_minus_slack_over_req(self) -> None:
+        rows = [heat.PathRow(1, "a", "b", 1.0, 10.0), heat.PathRow(2, "a", "b", 4.0, 10.0)]
+        crit, _, _ = heat.path_criticalities(rows)
+        self.assertAlmostEqual(crit[1], 0.9)
+        self.assertAlmostEqual(crit[2], 0.6)
+
+    def test_pairs_are_separate_and_negative_denominator_skipped(self) -> None:
+        rows = [heat.PathRow(1, "a (x clocked by c1)", "b (y clocked by c1)", -2.0, 0.0),
+                heat.PathRow(2, "a (x clocked by c2)", "b (y clocked by c2)", -1.0, 0.0),
+                heat.PathRow(3, "a (x clocked by c3)", "b (y clocked by c3)", -1.0, -5.0)]
+        crit, pairs, skipped = heat.path_criticalities(rows)
+        self.assertEqual((pairs, skipped), (3, 1))
+        self.assertEqual((crit[1], crit[2]), (1.0, 1.0))
+        self.assertNotIn(3, crit)
+
+    def test_fixture_adder(self) -> None:
+        model = heat.load_heat(ADDER)
+        self.assertEqual(len(model.paths), 10)
+        self.assertAlmostEqual(model.paths[1].crit, 1.0)
+        # slack -2.941 of worst -4.619, max_req 0
+        self.assertAlmostEqual(model.paths[5].crit, 1 - (-2.941 + 4.619) / 4.619, places=6)
+
+    def test_bad_schema(self) -> None:
+        with self.assertRaises(TimingError):
+            heat.parse_heat({"schema_version": 2})
+        with self.assertRaises(TimingError):
+            heat.parse_heat([])
+
+
+class ScopeTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.model = heat.load_heat(ADDER)
+
+    def test_critical_is_rank_zero(self) -> None:
+        facts = self.model.select(Scope(heat.SCOPE_CRITICAL))
+        self.assertTrue(facts)
+        self.assertEqual({f.path for f in facts}, {1})
+
+    def test_top_n(self) -> None:
+        facts = self.model.select(Scope(heat.SCOPE_TOP, n=3))
+        self.assertEqual({f.path for f in facts}, {1, 2, 3})
+
+    def test_theta(self) -> None:
+        low = self.model.select(Scope(heat.SCOPE_NEAR, theta=0.90))
+        high = self.model.select(Scope(heat.SCOPE_NEAR, theta=0.999))
+        self.assertTrue(all(f.crit >= 0.90 for f in low))
+        self.assertLess(len(high), len(low))
+        self.assertEqual({f.path for f in low}, {1, 2})  # crit of path 2 = 0.995, path 3 = 0.866
+
+    def test_second_fixture_loads(self) -> None:
+        model = heat.load_heat(DATA / "bm_DL_logic_w_Dff.attribution.json")
+        self.assertTrue(model.select(Scope()))
+
+
+class BitSplitTest(unittest.TestCase):
+    def heat(self, scope: Scope, src: str = BUS_SRC, msb: bool = True) -> heatview.FileHeat:
+        model = bus_model()
+        return heatview.build_file_heat(model, model.select(scope), {"top.v"}, src, msb)
+
+    def decl(self, h: heatview.FileHeat) -> heatview.HeatRange:
+        found = [r for r in h.ranges if r.line == 1]
+        self.assertEqual(len(found), 1)
+        return found[0]
+
+    def test_rbr_split_on_declaration(self) -> None:
+        r = self.decl(self.heat(Scope(heat.SCOPE_CRITICAL)))
+        self.assertEqual(r.word, "SIGNAL")
+        pieces = [(r.word[s.col_start - r.col_start:s.col_end - r.col_start], s.bit, s.crit)
+                  for s in r.segments]
+        self.assertEqual(pieces, [("SI", 2, 1.0), ("GN", 1, 0.0), ("AL", 0, 1.0)])
+
+    def test_lsb_first_setting(self) -> None:
+        r = self.decl(self.heat(Scope(heat.SCOPE_CRITICAL), msb=False))
+        self.assertEqual([s.bit for s in r.segments], [0, 1, 2])
+
+    def test_all_paths_make_bit_hot(self) -> None:
+        r = self.decl(self.heat(Scope(heat.SCOPE_TOP, n=2)))
+        self.assertEqual([s.crit for s in r.segments], [1.0, 0.5, 1.0])
+
+    def test_use_line_token_and_comment_skipped(self) -> None:
+        h = self.heat(Scope(heat.SCOPE_CRITICAL))
+        cols = [(r.col_start, r.col_end) for r in h.ranges if r.line == 2]
+        self.assertEqual(len(cols), 3)  # three uses; the one in the comment is skipped
+        self.assertIn(2, h.lines)
+        self.assertEqual(h.line_paths[2], (1,))
+
+    def test_width_over_identifier_length_gives_strip(self) -> None:
+        src = "module top(input [9:0] AB, output y);\n  assign y = &AB;\nendmodule\n"
+        def pad(b: int) -> dict[str, object]:
+            return _node(None, "AB", b, "pad")
+
+        model = heat.parse_heat({"schema_version": 1, "words": [],
+                                 "paths": [_path(1, -1.0, [pad(9), pad(3)])]})
+        h = heatview.build_file_heat(model, model.select(Scope()), {"x.v"}, src)
+        r = next(r for r in h.ranges if r.line == 1)
+        self.assertEqual(r.segments, ())
+        self.assertEqual(len(r.strip), 10)
+        self.assertEqual(r.strip[0], (9, 1.0))
+        self.assertEqual(dict(r.strip)[5], 0.0)
+
+    def test_unknown_bits_marker(self) -> None:
+        paths = [_path(1, -1.0, [_node("top.v:2", "SIGNAL", None, "declarator")])]
+        model = heat.parse_heat({"schema_version": 1, "words": [], "paths": paths})
+        h = heatview.build_file_heat(model, model.select(Scope()), {"top.v"}, BUS_SRC)
+        rs = [r for r in h.ranges if r.line == 2]
+        self.assertTrue(rs)
+        self.assertTrue(all(r.unknown_bits and not r.segments for r in rs))
+        self.assertIn("bit unknown", rs[0].tooltip)
+
+    def test_json_id_bit_not_used(self) -> None:
+        paths = [_path(1, -1.0, [_node("top.v:2", "SIGNAL", 2, "json-id")])]
+        model = heat.parse_heat({"schema_version": 1, "words": [], "paths": paths})
+        h = heatview.build_file_heat(model, model.select(Scope()), {"top.v"}, BUS_SRC)
+        self.assertTrue(all(r.unknown_bits for r in h.ranges))
+
+    def test_unplaced_pad(self) -> None:
+        model = bus_model()
+        src = "module top;\nendmodule\n"
+        h = heatview.build_file_heat(model, model.select(Scope()), {"top.v"}, src)
+        self.assertEqual(h.unplaced, ["top.SIGNAL"])
+
+    def test_wrong_file_gets_nothing(self) -> None:
+        model = bus_model()
+        h = heatview.build_file_heat(model, model.select(Scope()), {"other.v"}, BUS_SRC)
+        self.assertEqual((h.lines, h.ranges), ({}, []))
+
+    def test_segment_sizes(self) -> None:
+        self.assertEqual(heatview.segment_sizes(6, 3), [2, 2, 2])
+        self.assertEqual(heatview.segment_sizes(7, 3), [3, 2, 2])
+
+    def test_declared_range(self) -> None:
+        lines = ["input [7:4] a, output b", "wire [3:0] c, d;", "reg e;"]
+        self.assertEqual(heatview.declared_range("a", lines), (7, 4))
+        self.assertIsNone(heatview.declared_range("b", lines))
+        self.assertEqual(heatview.declared_range("d", lines), (3, 0))
+        self.assertIsNone(heatview.declared_range("e", lines))
+
+
+class ColourTest(unittest.TestCase):
+    def test_ends_and_middle(self) -> None:
+        self.assertEqual(heatview.crit_hex(0.0), "#2c7bb6")
+        self.assertEqual(heatview.crit_hex(1.0), "#d7191c")
+        self.assertEqual(heatview.crit_hex(0.5), "#ffffbf")
+        self.assertEqual(heatview.crit_hex(2.0), "#d7191c")
+
+    def test_red_dominates_when_hot_blue_when_cold(self) -> None:
+        hot, cold = heatview.crit_rgb(0.95), heatview.crit_rgb(0.05)
+        self.assertGreater(hot[0], hot[2])
+        self.assertGreater(cold[2], cold[0])
+
+    def test_text_contrast(self) -> None:
+        self.assertTrue(heatview.text_is_dark(heatview.crit_rgb(0.5)))
+        self.assertFalse(heatview.text_is_dark(heatview.crit_rgb(1.0)))
+
+
+class MimirAdapterTest(unittest.TestCase):
+    ROWS = [
+        ("span", "top.v:2", -1, "", 0.97),
+        ("word", "top/SIGNAL", -1, "name", 0.97),
+        ("word", "top/SIGNAL", 2, "name", 0.97),
+        ("word", "top/SIGNAL", 0, "pad", 0.92),
+        ("module", "top", -1, "", 0.97),
+    ]
+
+    def test_model_and_scope(self) -> None:
+        model = heatmimir.model_from_objects(self.ROWS)
+        self.assertFalse(model.has_paths)
+        self.assertEqual(model.select(Scope(heat.SCOPE_CRITICAL)), [])
+        self.assertEqual(len(model.select(Scope(heat.SCOPE_NEAR, theta=0.95))), 3)
+
+    def test_colours_declaration_bits(self) -> None:
+        model = heatmimir.model_from_objects(self.ROWS)
+        facts = model.select(Scope(heat.SCOPE_NEAR))
+        h = heatview.build_file_heat(model, facts, {"top.v"}, BUS_SRC)
+        r = next(r for r in h.ranges if r.line == 1)
+        self.assertEqual([s.crit for s in r.segments], [0.97, 0.0, 0.92])
+        self.assertEqual(h.lines, {2: 0.97})
+
+    def test_real_json_round_trip(self) -> None:
+        data = json.loads(ADDER.read_text(encoding="utf-8"))
+        self.assertEqual(heat.parse_heat(data).facts, heat.load_heat(ADDER).facts)
+
+
+if __name__ == "__main__":
+    unittest.main()
