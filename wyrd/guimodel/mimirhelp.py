@@ -256,7 +256,20 @@ module, delay); click a step to scroll to it, and a step in another file opens t
 Previous path and Next path walk the list. "All paths through here" colours the lines of all the
 near-critical paths through the click by the largest crit among them. The near-critical cut-off
 (0.90, 0.95, 0.99 or off, remembered between sessions) hides every path below it: nothing is
-listed, coloured or marked for it, although the store keeps it.
+listed, coloured or marked for it, although the store keeps it. The same cut-off applies to
+the hot and cold colours of the source view: below it a word or line is plain text.
+
+### 9. Where does it come from, where does it go? Cones
+
+The buttons "<" and ">" (above the code and in the Paths panel) show the fan-in cone (everything
+that feeds the clicked token, back to the primary inputs) and the fan-out cone (everything it
+feeds, forward to the primary outputs). The lines of the cone carry their logic level in the
+gutter (L0 is the token, L1 the next line away, and so on), the other lines are dimmed, and the
+Paths panel lists the lines by level with the inputs, outputs and registers at the ends named.
+Two kinds of cone, and the panel says which one you see. The structural cone walks the HDL graph
+the store keeps from the netlist (schema version 7; `mimir hdl-graph` builds it); it stops at
+registers unless "cross registers" is ticked. The timing cone only follows the stored paths through
+the token and ends where they end. Lines below the near-critical cut-off are left out.
 """
 
 HELP_MENU_TITLE = "Mímir guide"

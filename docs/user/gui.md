@@ -261,7 +261,7 @@ Wyrd is a window onto your project: its files, its runs, what the tools said, ho
 
 **What you will see.** A cut-off setting, a table of paths (rank, crit, slack, start and end, number of nodes), Previous and Next buttons, an All paths through here box, and the steps of the chosen path. In the Source panel the path shows as numbered markers in the gutter with each step's delay; every line off the path is dimmed.
 
-**How to read it.** Open a Mímir store, press Show HDL heat, then click a hot word or line. Choose a path: click a step to jump to its line (a step in another file opens that file). Crit is as in the Timing panel; only paths with crit at least the cut-off (0.90, 0.95, 0.99 or off) are shown, the rest are kept in the store but not drawn. All paths through here colours the lines of the near-critical paths through the click by the largest crit among them. A store written before schema 6 has no per-path data: the panel says so.
+**How to read it.** Open a Mímir store, press Show HDL heat, then click a hot word or line. Choose a path: click a step to jump to its line (a step in another file opens that file). Crit is as in the Timing panel; only paths with crit at least the cut-off (0.90, 0.95, 0.99 or off) are shown, the rest are kept in the store but not drawn. All paths through here colours the lines of the near-critical paths through the click by the largest crit among them. A store written before schema 6 has no per-path data: the panel says so. The buttons < and > (here and above the code) show the fan-in cone (back to the primary inputs) and the fan-out cone (forward to the primary outputs) of the clicked token: the lines that feed it or that it feeds, numbered L0, L1, ... by logic level, listed by level in this panel. A structural cone follows the HDL graph of the store (schema 7, mimir hdl-graph) and stops at registers unless cross registers is ticked; a timing cone only follows the stored paths. The panel says which one is shown. Lines below the cut-off are not drawn in colour.
 
 ## Mímir guide: from a store to a coloured source file
 
@@ -351,5 +351,18 @@ module, delay); click a step to scroll to it, and a step in another file opens t
 Previous path and Next path walk the list. "All paths through here" colours the lines of all the
 near-critical paths through the click by the largest crit among them. The near-critical cut-off
 (0.90, 0.95, 0.99 or off, remembered between sessions) hides every path below it: nothing is
-listed, coloured or marked for it, although the store keeps it.
+listed, coloured or marked for it, although the store keeps it. The same cut-off applies to
+the hot and cold colours of the source view: below it a word or line is plain text.
+
+### 9. Where does it come from, where does it go? Cones
+
+The buttons "<" and ">" (above the code and in the Paths panel) show the fan-in cone (everything
+that feeds the clicked token, back to the primary inputs) and the fan-out cone (everything it
+feeds, forward to the primary outputs). The lines of the cone carry their logic level in the
+gutter (L0 is the token, L1 the next line away, and so on), the other lines are dimmed, and the
+Paths panel lists the lines by level with the inputs, outputs and registers at the ends named.
+Two kinds of cone, and the panel says which one you see. The structural cone walks the HDL graph
+the store keeps from the netlist (schema version 7; `mimir hdl-graph` builds it); it stops at
+registers unless "cross registers" is ticked. The timing cone only follows the stored paths through
+the token and ends where they end. Lines below the near-critical cut-off are left out.
 <!-- wyrd-guide:end -->

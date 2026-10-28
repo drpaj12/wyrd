@@ -15,7 +15,9 @@ def _rec(
             value, "u", "meas", "m1", f"data/{source}.jsonl:{seed}")  # fmt: skip
 
 
-def build(path: Path, version: str = "4", timing: bool = False, paths: bool = False) -> Path:
+def build(
+    path: Path, version: str = "4", timing: bool = False, paths: bool = False, graph: bool = False
+) -> Path:
     con = sqlite3.connect(path)
     con.executescript(SCHEMA.read_text(encoding="utf-8"))
     con.execute("INSERT INTO meta VALUES ('schema_version', ?)", (version,))
@@ -64,10 +66,12 @@ def build(path: Path, version: str = "4", timing: bool = False, paths: bool = Fa
             "INSERT INTO records VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             _rec(d, src, "clb", "vpr.logic_clbs", v * 2, arm, 1),
         )
-    if timing or paths:
+    if timing or paths or graph:
         add_v5(con)
-    if paths:
+    if paths or graph:
         add_v6(con)
+    if graph:
+        add_v7(con)
     con.commit()
     con.close()
     return path
@@ -168,3 +172,45 @@ def add_v6(con: sqlite3.Connection) -> None:
                 "INSERT INTO timing_path_node VALUES ('r1', ?, ?, 'at', '.names', '[]', ?, '', ?, "
                 "?, ?, 'name', 'matched', 0.1, 0.2, ?)", (idx, step, span, mod, word, bit, delay),
             )  # fmt: skip
+
+
+V7_DDL = (
+    """CREATE TABLE hdl_graph_run (
+        run_id TEXT PRIMARY KEY, n_atoms INTEGER NOT NULL, n_unattributed INTEGER NOT NULL,
+        n_edges INTEGER NOT NULL, n_ports INTEGER NOT NULL, blif_sha256 TEXT NOT NULL,
+        map_sha256 TEXT NOT NULL)""",
+    """CREATE TABLE hdl_edge (
+        run_id TEXT NOT NULL, src_span TEXT NOT NULL, src_module TEXT NOT NULL,
+        src_word TEXT NOT NULL, src_bit INTEGER NOT NULL, dst_span TEXT NOT NULL,
+        dst_module TEXT NOT NULL, dst_word TEXT NOT NULL, dst_bit INTEGER NOT NULL,
+        via_register INTEGER NOT NULL)""",
+    """CREATE TABLE hdl_port (
+        run_id TEXT NOT NULL, span TEXT NOT NULL, module TEXT NOT NULL, word TEXT NOT NULL,
+        bit INTEGER NOT NULL, kind TEXT NOT NULL, port TEXT NOT NULL)""",
+)
+# a -> b -> c -> r (register) -> d; a is a primary input, d a primary output.
+GRAPH_LINES = {"a": 10, "b": 20, "c": 30, "r": 40, "d": 50}
+GRAPH_CRIT = {10: 1.0, 20: 0.95, 30: 0.92, 40: 0.5, 50: 0.3}
+
+
+def gnode(name: str) -> tuple[str, str, str, int]:
+    return (f"{FILE}:{GRAPH_LINES[name]}", "top", name, 3 if name == "a" else -1)
+
+
+def add_v7(con: sqlite3.Connection) -> None:
+    """A small graph for run r1 and a span crit per graph line (version 7 store)."""
+    for ddl in V7_DDL:
+        con.execute(ddl)
+    con.execute("UPDATE meta SET value = '7' WHERE key = 'schema_version'")
+    edges = [("a", "b", 0), ("b", "c", 0), ("c", "r", 0), ("r", "d", 1)]
+    con.execute("INSERT INTO hdl_graph_run VALUES ('r1', 5, 0, 4, 2, 'x', 'y')")
+    for s, d, reg in edges:
+        con.execute("INSERT INTO hdl_edge VALUES ('r1', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (*gnode(s), *gnode(d), reg))  # fmt: skip
+    con.execute("INSERT INTO hdl_port VALUES ('r1', ?, ?, ?, ?, 'PI', 'a[3]')", gnode("a"))
+    con.execute("INSERT INTO hdl_port VALUES ('r1', ?, ?, ?, ?, 'PO', 'y')", gnode("d"))
+    for line, crit in GRAPH_CRIT.items():
+        con.execute(
+            "INSERT OR REPLACE INTO timing_object VALUES ('r1', 'span', ?, -1, '', ?, 5, 4, 2, 1, "
+            "NULL)", (f"{FILE}:{line}", crit),
+        )  # fmt: skip

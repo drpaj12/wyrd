@@ -141,7 +141,14 @@ PANELS: dict[str, tuple[str, str, str, str]] = {
         "in the Timing panel; only paths with crit at least the cut-off (0.90, 0.95, 0.99 or "
         "off) are shown, the rest are kept in the store but not drawn. All paths through here "
         "colours the lines of the near-critical paths through the click by the largest crit "
-        "among them. A store written before schema 6 has no per-path data: the panel says so.",
+        "among them. A store written before schema 6 has no per-path data: the panel says so. "
+        "The buttons < and > (here and above the code) show the fan-in cone (back to the "
+        "primary inputs) and the fan-out cone (forward to the primary outputs) of the clicked "
+        "token: the lines that feed it or that it feeds, numbered L0, L1, ... by logic level, "
+        "listed by level in this panel. A structural cone follows the HDL graph of the store "
+        "(schema 7, mimir hdl-graph) and stops at registers unless cross registers is ticked; a "
+        "timing cone only follows the stored paths. The panel says which one is shown. Lines "
+        "below the cut-off are not drawn in colour.",
     ),
 }
 

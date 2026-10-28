@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QSettings, Signal
+from PySide6.QtCore import QSettings, Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -18,10 +18,13 @@ from PySide6.QtWidgets import (
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
+    QTreeWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
+from wyrd.guimodel import cone as conemod
 from wyrd.guimodel import pathview
 from wyrd.guimodel.pathview import Query
 from wyrd.mimirview import MimirError, MimirView, PathList, PathNodeRow, PathRef
@@ -52,6 +55,7 @@ def _fill(t: QTableWidget, rows: list[list[str]]) -> None:
 
 class PathsPanel(QWidget):
     selection_changed = Signal()
+    cutoff_changed = Signal()  # the display cut-off changed: redraw the hot/cold colours
     step_activated = Signal(str, int)  # the span's file name as stored, and the line
 
     def __init__(self, settings: QSettings | None = None) -> None:
@@ -75,12 +79,33 @@ class PathsPanel(QWidget):
         self.prev = QPushButton("Previous path")
         self.next = QPushButton("Next path")
         self.union = QCheckBox("All paths through here")
+        self.cone: conemod.Cone | None = None
+        self.used: Query = ((), None, None)
+        self._crits_cache: tuple[str, str, dict[str, float]] | None = None
+        self.fan_in = QPushButton("<")
+        self.fan_out = QPushButton(">")
+        self.fan_in.setToolTip("Fan-in cone: back to the primary inputs")
+        self.fan_out.setToolTip("Fan-out cone: forward to the primary outputs")
+        self.cone_source = QComboBox()
+        self.cone_source.addItems(["Structural graph", "Timing paths"])
+        self.cross = QCheckBox("cross registers")
+        self.clear_cone_button = QPushButton("Clear cone")
+        self.cone_status = QLabel("")
+        self.cone_status.setWordWrap(True)
+        self.cone_tree = QTreeWidget()
+        self.cone_tree.setHeaderLabels(["Level / line", "Word[bit]", "Module", "End", "Crit"])
         self._build()
         self.table.itemSelectionChanged.connect(self._path_chosen)
         self.steps.itemSelectionChanged.connect(self._step_chosen)
-        self.prev.clicked.connect(lambda: self._move(-1))
-        self.next.clicked.connect(lambda: self._move(1))
+        self.prev.clicked.connect(self._move_back)
+        self.next.clicked.connect(self._move_forward)
         self.union.toggled.connect(self._union_toggled)
+        self.fan_in.clicked.connect(self._fan_in)
+        self.fan_out.clicked.connect(self._fan_out)
+        self.cross.toggled.connect(self._cross_toggled)
+        self.cone_source.currentIndexChanged.connect(self._cross_toggled)
+        self.clear_cone_button.clicked.connect(self.clear_cone)
+        self.cone_tree.itemClicked.connect(self._cone_item)
         self.cutoff.currentIndexChanged.connect(self._cutoff_changed)
         self._refresh_header()
 
@@ -101,6 +126,14 @@ class PathsPanel(QWidget):
         lay.addLayout(row)
         lay.addWidget(QLabel("Steps of the chosen path, start to end"))
         lay.addWidget(self.steps, 3)
+        crow = QHBoxLayout()
+        crow.addWidget(QLabel("Cone of the clicked token:"))
+        for w in (self.fan_in, self.fan_out, self.cone_source, self.cross, self.clear_cone_button):
+            crow.addWidget(w)
+        crow.addStretch(1)
+        lay.addLayout(crow)
+        lay.addWidget(self.cone_status)
+        lay.addWidget(self.cone_tree, 3)
 
     # ---- cut-off ----
 
@@ -119,15 +152,20 @@ class PathsPanel(QWidget):
         if self.settings is not None:
             self.settings.setValue(SETTING_KEY, self.cutoff.currentText())
         self._refresh_header()
+        direction = self.cone.direction if self.cone is not None else ""
         if self.queries:
             self._run_queries()
         else:
             self.selection_changed.emit()
+        if direction:
+            self.request_cone(direction)
+        self.cutoff_changed.emit()
 
     # ---- queries ----
 
     def clear(self) -> None:
         self.view, self.run_id, self.queries = None, "", []
+        self.cone = None
         self._set_paths([], NO_QUERY)
 
     def show_for(self, store: str, run_id: str, label: str, queries: list[Query]) -> None:
@@ -139,14 +177,17 @@ class PathsPanel(QWidget):
             self._set_paths([], str(e))
             return
         self.run_id, self.label, self.queries = run_id, label, queries
+        self.cone = None
+        self._show_cone()
         self._run_queries()
 
     def _run_queries(self) -> None:
         assert self.view is not None
         got = PathList([])
         try:
-            for spans, word, bit in self.queries:
-                got = self._ask(self.view, spans, word, bit)
+            for q in self.queries:
+                got = self._ask(self.view, *q)
+                self.used = q
                 if got.paths or got.note:
                     break
         except MimirError as e:
@@ -199,6 +240,18 @@ class PathsPanel(QWidget):
         self.next.setEnabled(0 <= row < len(self.refs) - 1)
         self.union.setEnabled(bool(self.refs))
 
+    def _move_back(self) -> None:
+        self._move(-1)
+
+    def _move_forward(self) -> None:
+        self._move(1)
+
+    def _fan_in(self) -> None:
+        self.request_cone(conemod.BACKWARD)
+
+    def _fan_out(self) -> None:
+        self.request_cone(conemod.FORWARD)
+
     def _move(self, step: int) -> None:
         row = self.table.currentRow() + step
         if 0 <= row < len(self.refs):
@@ -209,6 +262,9 @@ class PathsPanel(QWidget):
         return self.refs[row] if 0 <= row < len(self.refs) else None
 
     def _path_chosen(self) -> None:
+        if self.cone is not None:
+            self.cone = None
+            self._show_cone()
         ref = self.chosen()
         self.nodes = []
         if ref is not None and self.view is not None:
@@ -244,8 +300,95 @@ class PathsPanel(QWidget):
                 detail = self.view.path_detail(self.run_id, ref.index)
                 self.union_paths.append((ref.crit, detail.nodes))
 
+    # ---- cones ----
+
+    def _crits(self) -> dict[str, float]:
+        """crit_max of every source line of the run (cached per store and run)."""
+        assert self.view is not None
+        key = (str(self.view.path), self.run_id)
+        if self._crits_cache is None or self._crits_cache[:2] != key:
+            self._crits_cache = (*key, self.view.span_crits(self.run_id))
+        return self._crits_cache[2]
+
+    def request_cone(self, direction: str) -> None:
+        """Compute and show the fan-out (>) or fan-in (<) cone of the clicked token."""
+        if self.view is None or not self.queries:
+            self.cone_status.setText("Click a hot word or line in the Source panel first.")
+            return
+        try:
+            self.cone = self._make_cone(self.view, direction)
+        except MimirError as e:
+            self.cone = None
+            self.cone_status.setText(str(e))
+            return
+        self.union.blockSignals(True)
+        self.union.setChecked(False)
+        self.union.blockSignals(False)
+        self._show_cone()
+
+    def _make_cone(self, view: MimirView, direction: str) -> conemod.Cone:
+        crits, cut = self._crits(), self.cutoff_value()
+        spans, word, bit = self.queries[0]
+        notes: list[str] = []
+        if self.cone_source.currentIndex() == 0:
+            g = view.hdl_graph(self.run_id)
+            if not g.note:
+                return conemod.structural_cone(
+                    g.edges, g.ports, spans, word, bit, direction, self.cross.isChecked(),
+                    crits.get, cut,
+                )  # fmt: skip
+            notes.append(g.note + "; showing the timing cone instead")
+        used_spans, used_word, _bit = self.used
+        details = [view.path_detail(self.run_id, r.index).nodes for r in self.refs[:TOO_MANY]]
+        cone = conemod.timing_cone(
+            details, used_spans or spans, used_word, direction, crits.get, cut
+        )
+        cone.notes = notes + cone.notes
+        return cone
+
+    def _cross_toggled(self) -> None:
+        if self.cone is not None:
+            self.request_cone(self.cone.direction)
+
+    def clear_cone(self) -> None:
+        self.cone = None
+        self._show_cone()
+
+    def _show_cone(self) -> None:
+        """Fill the cone list (lines grouped by level) and tell the source view."""
+        self.cone_tree.clear()
+        cone = self.cone
+        if cone is None:
+            self.cone_status.setText("")
+        else:
+            cut = self.cutoff_value() or 0.0
+            hid = f" {cone.hidden} line(s) below crit {cut:.2f} are not shown." * bool(cone.hidden)
+            self.cone_status.setText(
+                f"{cone.title()}: {len(cone.nodes)} line(s).{hid} {' '.join(cone.notes)}".strip()
+            )
+            for level, nodes in cone.by_level():
+                top = QTreeWidgetItem([f"Level {level} ({len(nodes)})", "", "", "", ""])
+                self.cone_tree.addTopLevelItem(top)
+                for n in nodes:
+                    name = n.file.rsplit("/", 1)[-1]
+                    crit = "" if n.crit is None else f"{n.crit:.3f}"
+                    child = QTreeWidgetItem([f"{name}:{n.line}",
+                                             pathview.word_bit(n.word, n.bit), n.module,
+                                             n.kind, crit])  # fmt: skip
+                    child.setData(0, Qt.ItemDataRole.UserRole, (n.file, n.line))
+                    top.addChild(child)
+            self.cone_tree.expandAll()
+        self.selection_changed.emit()
+
+    def _cone_item(self, item: QTreeWidgetItem) -> None:
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if data:
+            self.step_activated.emit(str(data[0]), int(data[1]))
+
     def overlay(self, in_file: Callable[[str], bool]) -> pathview.Overlay | None:
-        """The overlay for the open file: the union, or the chosen path, or nothing."""
+        """The overlay for the open file: the cone, the union, the chosen path, or nothing."""
+        if self.cone is not None:
+            return pathview.cone_overlay(self.cone, in_file)
         if self.union.isChecked() and self.union_paths:
             return pathview.union_overlay(self.union_paths, in_file, self.cutoff_value())
         ref = self.chosen()
