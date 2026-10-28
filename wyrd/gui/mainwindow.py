@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
-    QTabWidget,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -25,6 +25,7 @@ from wyrd.gui.adddesign import AddDesignDialog
 from wyrd.gui.atlaspanel import AtlasPanel
 from wyrd.gui.editor import TomlEditor
 from wyrd.gui.flowpanel import FlowPanel
+from wyrd.gui.helpbox import HelpBox
 from wyrd.gui.messages import MessagesPane
 from wyrd.gui.mimirguide import MimirGuideDialog
 from wyrd.gui.mimirpanel import MimirPanel
@@ -36,8 +37,9 @@ from wyrd.gui.simpanel import SimPanel
 from wyrd.gui.sourceview import SourceView
 from wyrd.gui.stepload import LoadSignals, LoadTask
 from wyrd.gui.timingpanel import MODE_BOTH, MODE_HOT, MODE_MARGIN, TimingPanel
+from wyrd.gui.viewlayout import ViewLayout, scrolled
 from wyrd.gui.weakslot import weak
-from wyrd.guimodel import heatsource, mimirhelp
+from wyrd.guimodel import heatsource, layoutspec, panelhelp
 from wyrd.guimodel.floorplan import FloorplanPlan
 from wyrd.guimodel.heat import HeatModel
 from wyrd.guimodel.logparse import Message
@@ -50,7 +52,21 @@ from wyrd.settings import machine_path
 
 MAX_RECENT = 8
 LOAD_WAIT_MS = 2000
-TAB_NAMES = ("Source", "Report", "wyrd.toml", "Simulate")
+NEEDS_PROJECT = (layoutspec.SOURCE, layoutspec.REPORT, layoutspec.SIMULATE)
+#: Minimum content size per panel, and whether a narrow dock scrolls instead of shrinking it.
+PANEL_MIN: dict[str, tuple[int, int, bool]] = {
+    layoutspec.PROJECT: (160, 120, False),
+    layoutspec.SOURCE: (320, 160, False),
+    layoutspec.REPORT: (420, 260, True),
+    layoutspec.EDITOR: (320, 160, False),
+    layoutspec.SIMULATE: (520, 300, True),
+    layoutspec.MESSAGES: (320, 100, False),
+    layoutspec.FLOW: (360, 160, True),
+    layoutspec.TIMING: (520, 240, True),
+    layoutspec.SCHEMATIC: (240, 160, False),
+    layoutspec.ATLAS: (240, 160, False),
+    layoutspec.MIMIR: (640, 300, True),
+}
 MIDGARD_NEEDS = 'needs: pip install "wyrd[midgard]"'
 
 
@@ -75,7 +91,6 @@ class MainWindow(QMainWindow):
         self.project: Project | None = None
         self.project_dir: Path | None = None
         self.project_tree = ProjectTree()
-        self.tabs = QTabWidget()
         self.source_view = SourceView()
         self.messages = MessagesPane()
         self.report_view = ReportView()
@@ -83,10 +98,12 @@ class MainWindow(QMainWindow):
         self.timing = TimingPanel()
         self.schematic = SchematicPanel()
         self.atlas = AtlasPanel()
-        self.mimir = MimirPanel()
+        self.mimir = MimirPanel(settings)
         self.editor = TomlEditor(silent)
         self.sim_panel = SimPanel(sim_backend)
         self.docks: dict[str, QDockWidget] = {}
+        self.shown_panel: QWidget = self.editor
+        self.viewlayout: ViewLayout | None = None
         self.recent_menu = QMenu("Recent", self)
         self.pool = QThreadPool(self)
         self._load_signals = LoadSignals(self)
@@ -105,13 +122,6 @@ class MainWindow(QMainWindow):
 
     def _build(self) -> None:
         self.setWindowTitle("Wyrd III")
-        left = QDockWidget("Project", self)
-        left.setObjectName("dock-project")
-        left.setWidget(self.project_tree)
-        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, left)
-        for name in TAB_NAMES:
-            self.tabs.addTab(self._tab_widget(name), name)
-        self.setCentralWidget(self.tabs)
         self._build_docks()
         self._build_menus()
         self.project_tree.file_activated.connect(self.show_source)
@@ -190,7 +200,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(str(e))
             new = e.text
         self.editor.set_text(new)
-        self.tabs.setCurrentWidget(self.editor)
+        self.show_panel(self.editor)
 
     def _run_flow(self) -> None:
         if self._pending_project is not None:
@@ -205,15 +215,6 @@ class MainWindow(QMainWindow):
         self.docks["Flow"].show()
         self.docks["Flow"].raise_()
         self.flow.start_floorplan(plan)
-
-    def _tab_widget(self, name: str) -> QWidget:
-        pages: dict[str, QWidget] = {
-            "Source": self.source_view,
-            "Report": self.report_view,
-            "wyrd.toml": self.editor,
-            "Simulate": self.sim_panel,
-        }
-        return pages[name]
 
     def _start_midgard(self) -> None:
         if self.midgard_launcher(sys.executable, ["-m", "wyrd.midgard"]):
@@ -231,12 +232,12 @@ class MainWindow(QMainWindow):
         if self.project is None:
             self.statusBar().showMessage("Open a project to simulate")
             return
-        self.tabs.setCurrentWidget(self.sim_panel)
+        self.show_panel(self.sim_panel)
 
     def show_source(self, path: Path, line: int | None = None) -> None:
         self.source_view.open_file(path, line)
         self._refresh_heat()
-        self.tabs.setCurrentWidget(self.source_view)
+        self.show_panel(self.source_view)
 
     def _refresh_heat(self) -> None:
         path = self.source_view.path
@@ -318,29 +319,61 @@ class MainWindow(QMainWindow):
         paths = r.paths if r is not None else fh.line_paths.get(line, ())
         label = f"{r.word} (line {line})" if r is not None else f"line {line}"
         self.timing.show_paths(label, paths)
+        self.show_panel(self.timing)
 
-    def _dock_widget(self, name: str) -> QWidget:
-        docks: dict[str, QWidget] = {
-            "Messages": self.messages,
-            "Flow": self.flow,
-            "Timing": self.timing,
-            "Schematic": self.schematic,
-            "Atlas": self.atlas,
-            "Mímir": self.mimir,
+    def _panel_widgets(self) -> dict[str, QWidget]:
+        return {
+            layoutspec.PROJECT: self.project_tree,
+            layoutspec.SOURCE: self.source_view,
+            layoutspec.REPORT: self.report_view,
+            layoutspec.EDITOR: self.editor,
+            layoutspec.SIMULATE: self.sim_panel,
+            layoutspec.MESSAGES: self.messages,
+            layoutspec.FLOW: self.flow,
+            layoutspec.TIMING: self.timing,
+            layoutspec.SCHEMATIC: self.schematic,
+            layoutspec.ATLAS: self.atlas,
+            layoutspec.MIMIR: self.mimir,
         }
-        return docks[name]
+
+    def _wrap(self, name: str, widget: QWidget) -> QWidget:
+        """The panel under its About header; wide panels sit in a scroll area."""
+        width, height, scroll = PANEL_MIN[name]
+        content = QWidget()
+        lay = QVBoxLayout(content)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(HelpBox(name, panel=True, settings=self.settings))
+        lay.addWidget(widget, 1)
+        if scroll:
+            return scrolled(content, width, height)
+        content.setMinimumSize(width, height)
+        return content
 
     def _build_docks(self) -> None:
-        previous: QDockWidget | None = None
-        for name in ("Messages", "Flow", "Timing", "Schematic", "Atlas", "Mímir"):
+        self.panels = self._panel_widgets()
+        self.contents: dict[str, QWidget] = {}
+        for name in layoutspec.PANELS:
             dock = QDockWidget(name, self)
             dock.setObjectName("dock-" + name.lower().replace("í", "i"))
-            dock.setWidget(self._dock_widget(name))
+            self.contents[name] = self._wrap(name, self.panels[name])
+            dock.setWidget(self.contents[name])
             self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, dock)
-            if previous is not None:
-                self.tabifyDockWidget(previous, dock)
             self.docks[name] = dock
-            previous = dock
+        self.viewlayout = ViewLayout(self, self.docks, self.settings)
+        self.viewlayout.apply_preset(layoutspec.DEFAULT_PRESET)
+        self.viewlayout.polish()
+
+    def show_panel(self, widget: QWidget) -> None:
+        """Bring the dock holding ``widget`` to the front (showing it when hidden)."""
+        for name, panel in self.panels.items():
+            if panel is widget:
+                self.shown_panel = widget
+                self.docks[name].show()
+                self.docks[name].raise_()
+
+    def set_all_about(self, shown: bool) -> None:
+        for box in self.findChildren(HelpBox):
+            box.set_shown(shown)
 
     def _action(
         self, menu: QMenu, text: str, slot: Callable[[], object], keys: str | None = None
@@ -348,7 +381,7 @@ class MainWindow(QMainWindow):
         act = QAction(text, self)
         if keys:
             act.setShortcut(QKeySequence(keys))
-        act.triggered.connect(slot)
+        act.triggered.connect(lambda _checked=False: slot())  # triggered(bool) would pass a flag
         menu.addAction(act)
         return act
 
@@ -387,11 +420,15 @@ class MainWindow(QMainWindow):
         editor.setToolTip("Create or update a Midgard III level (needs no pygame)")
         view_menu = bar.addMenu("View")
         assert view_menu is not None
-        for dock in self.docks.values():
-            view_menu.addAction(dock.toggleViewAction())
+        assert self.viewlayout is not None
+        self.viewlayout.build_menu(view_menu, self._action)
+        about = view_menu.addMenu("About headers")
+        assert about is not None
+        self._action(about, "Show all About headers", lambda: self.set_all_about(True))
+        self._action(about, "Hide all About headers", lambda: self.set_all_about(False))
         help_menu = bar.addMenu("Help")
         assert help_menu is not None
-        self._action(help_menu, mimirhelp.HELP_MENU_TITLE, self._guide_dialog)
+        self._action(help_menu, panelhelp.GUIDE_MENU_TITLE, self._guide_dialog)
         self._action(help_menu, "About", self._about_dialog)
         self._rebuild_recent()
 
@@ -399,9 +436,9 @@ class MainWindow(QMainWindow):
         geometry = self.settings.value("geometry")
         if geometry is not None:
             self.restoreGeometry(geometry)
-        state = self.settings.value("windowState")
-        if state is not None:
-            self.restoreState(state)
+        assert self.viewlayout is not None
+        if not self.viewlayout.restore():
+            self.viewlayout.reset()
 
     def _recent(self) -> list[str]:
         value = self.settings.value("recentProjects")
@@ -494,10 +531,10 @@ class MainWindow(QMainWindow):
 
     def _enable_tabs(self) -> None:
         ok = self.project is not None
-        for i, name in enumerate(TAB_NAMES):
-            self.tabs.setTabEnabled(i, ok or name == "wyrd.toml")
+        for name in NEEDS_PROJECT:
+            self.contents[name].setEnabled(ok)
         if not ok:
-            self.tabs.setCurrentWidget(self.editor)
+            self.show_panel(self.editor)
 
     def refresh_results(self) -> None:
         self.flow.set_can_run(self.project is not None and self._pending_project is None)
@@ -614,6 +651,7 @@ class MainWindow(QMainWindow):
         self.sim_panel.shutdown()
         self._stop_loads()
         self.settings.setValue("geometry", self.saveGeometry())
-        self.settings.setValue("windowState", self.saveState())
+        if self.viewlayout is not None:
+            self.viewlayout.save()
         self.settings.sync()
         super().closeEvent(event)

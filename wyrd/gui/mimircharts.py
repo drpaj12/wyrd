@@ -144,6 +144,7 @@ class ScatterChart(QWidget):
         self.log_y = False
         self.x_name = ""
         self.y_name = ""
+        self.highlight: tuple[str, str] = ("", "")  # (source, design) of the ringed points
         self.setMouseTracking(True)
         self.setMinimumHeight(200)
 
@@ -154,6 +155,18 @@ class ScatterChart(QWidget):
     def set_log(self, log_x: bool, log_y: bool) -> None:
         self.log_x, self.log_y = log_x, log_y
         self.update()
+
+    def set_highlight(self, source: str | None, design: str) -> None:
+        """Ring the points of this design; of this source only when one is given."""
+        self.highlight = (source or "", design)
+        self.update()
+
+    def is_highlighted(self, p: Point) -> bool:
+        source, design = self.highlight
+        return bool(design) and p.design == design and (not source or p.source == source)
+
+    def highlighted(self) -> list[Point]:
+        return [p for p in self.points if self.is_highlighted(p)]
 
     def usable(self) -> list[Point]:
         return [
@@ -218,8 +231,12 @@ class ScatterChart(QWidget):
         q.drawText(QPointF(4, 14), self.y_name + (" (log)" if self.log_y else ""))
         q.setBrush(QColor(42, 111, 219, 160))
         q.setPen(Qt.PenStyle.NoPen)
-        for _p, sx, sy in self.project(pts):
+        for p, sx, sy in self.project(pts):
             q.drawEllipse(QPointF(sx, sy), 3.0, 3.0)
+            if self.is_highlighted(p):
+                q.setBrush(QColor(219, 60, 42))
+                q.drawEllipse(QPointF(sx, sy), 6.0, 6.0)
+                q.setBrush(QColor(42, 111, 219, 160))
 
     def _paint_ticks(self, q: QPainter, pts: list[Point], w: float, h: float) -> None:
         x0, x1, y0, y1 = self.extent(pts)

@@ -221,9 +221,9 @@ class SimPanelTest(unittest.TestCase):
         menu = tools[0]
         sim = [a for a in menu.actions() if a.text() == "Simulate"]
         self.assertEqual(len(sim), 1)
-        w.tabs.setCurrentWidget(w.editor)
+        w.show_panel(w.editor)
         sim[0].trigger()
-        self.assertIs(w.tabs.currentWidget(), w.sim_panel)
+        self.assertIs(w.shown_panel, w.sim_panel)
 
     def test_long_run_returns_control_and_stops(self) -> None:
         panel = self.opened().sim_panel
@@ -445,9 +445,9 @@ class SimPanelTest(unittest.TestCase):
         assert bar is not None
         menu = [m for m in bar.findChildren(QMenu) if m.title() == "Tools"][0]
         sim = [a for a in menu.actions() if a.text() == "Simulate"][0]
-        before = w.tabs.currentWidget()
+        before = w.shown_panel
         sim.trigger()
-        self.assertIs(w.tabs.currentWidget(), before)
+        self.assertIs(w.shown_panel, before)
         self.assertIn("Open a project", w.statusBar().currentMessage())
 
 

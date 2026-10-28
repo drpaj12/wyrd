@@ -44,6 +44,10 @@ class TablePane(QWidget):
         self.copy_button = QPushButton("Copy")
         self.export_button = QPushButton("Export CSV...")
         self.note = QLabel("")
+        self.grid.setToolTip("The rows; click a column heading to sort, hover it for its meaning.")
+        self.copy_button.setToolTip("Copy the table to the clipboard as tab separated text.")
+        self.export_button.setToolTip("Save the table as a CSV file (all rows).")
+        self.note.setToolTip("How many rows are shown.")
         row = QHBoxLayout()
         for w in (self.copy_button, self.export_button, self.note):
             row.addWidget(w)

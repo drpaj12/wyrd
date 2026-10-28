@@ -8,7 +8,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QProcess, QRunnable, Qt, QThreadPool, Signal
+from PySide6.QtCore import QObject, QProcess, QRunnable, QSettings, Qt, QThreadPool, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -35,10 +35,12 @@ from wyrd.gui.tablepane import TablePane
 from wyrd.mimirview import MimirError, MimirView, Table
 
 NO_STORE = "No Mímir store open. Use File > Open Mímir store... or the button below."
+FETCH_TIP_READY = "Download the files of this run to a folder you choose."
 FETCH_TIP_MISSING = "The `mimir` command is not on PATH; install the mimir package to fetch."
 LIST_LIMIT = 500
 ROW_LIMIT = mimirview.DEFAULT_LIMIT  # rows per design table
 RUN_TEXT = "Select a run in the Design tab (double click)."
+NO_CURRENT = "Current design: none. Click a design in the list."
 
 
 class _Signals(QObject):
@@ -74,8 +76,9 @@ class MimirPanel(QWidget):
     fetch_finished = Signal(int)
     heat_requested = Signal(object)
 
-    def __init__(self) -> None:
+    def __init__(self, settings: QSettings | None = None) -> None:
         super().__init__()
+        self.settings = settings
         self.view: MimirView | None = None
         self.last_path = ""
         self.timings: dict[str, float] = {}
@@ -92,8 +95,12 @@ class MimirPanel(QWidget):
         self._signals.done.connect(self._on_done)
         self._signals.failed.connect(self._on_failed)
         self._current_run = ""
+        self._current_design = ""
+        self._current_source: str | None = None
+        self._switch_run_tab = True
         self._make_widgets()
         self._layout()
+        self._tooltips()
         self._connect()
         self._set_fetch_enabled()
 
@@ -102,6 +109,8 @@ class MimirPanel(QWidget):
     def _make_widgets(self) -> None:
         self.status = QLabel(NO_STORE)
         self.status.setWordWrap(True)
+        self.current_line = QLabel(NO_CURRENT)
+        self.current_line.setWordWrap(True)
         self.open_button = QPushButton("Open Mímir store...")
         self.last_button = QPushButton("Reopen last")
         self.last_button.setEnabled(False)
@@ -117,8 +126,8 @@ class MimirPanel(QWidget):
         self._make_run_widgets()
         self._make_compare_widgets()
         self._make_plot_widgets()
-        self.structs = StructuresTab(self._submit)
-        self.timing_tab = TimingTab(self._submit)
+        self.structs = StructuresTab(self._submit, self.settings)
+        self.timing_tab = TimingTab(self._submit, self.settings)
 
     def _make_design_widgets(self) -> None:
         self.design_label = QLabel("")
@@ -177,6 +186,48 @@ class MimirPanel(QWidget):
         self.hover = QLabel("")
         self.plot_status = QLabel("")
 
+    def _tooltips(self) -> None:
+        """A tooltip on every control of the older Design, Run, Compare and Plot tabs."""
+        tips: dict[QWidget, str] = {
+            self.open_button: "Choose a Mímir store file (read only) to browse.",
+            self.last_button: "Open the store you used last time.",
+            self.source: "Show only the designs of this experiment (source), or all of them.",
+            self.filter: "Type part of a design name (or slug) to narrow the list.",
+            self.designs: "The designs in the store. Click one to see it in every tab.",
+            self.current_line: "The design and run every tab is showing now.",
+            self.tabs: "Views of the open store. Each has an About header at the top.",
+            self.design_label: "The design shown in this tab.",
+            self.design_tabs: "What the store knows about this design: values, runs, "
+            "meta data, lineage and structures.",
+            self.run_label: "The run shown in this tab.",
+            self.params_pane: "The flow settings of the run. Colour says how each is known.",
+            self.artifacts_pane: "The files this run produced: kind, and the hash naming the file.",
+            self.fetch_button: "Download the files of this run to a folder you choose.",
+            self.cancel_button: "Stop the download that is running.",
+            self.fetch_log: "What the fetch command printed.",
+            self.cmp_prefix: "Start of the experiment name to compare, e.g. norns-placers-e10-.",
+            self.cmp_base: "The configuration the others are divided by (the base).",
+            self.cmp_metric: "The measured value to compare, e.g. vpr.cpd (critical path delay).",
+            self.cmp_level: "Use only values measured at this step of the flow.",
+            self.cmp_load: "List the configurations that match the prefix.",
+            self.cmp_go: "Compare every configuration with the base on the chosen metric.",
+            self.cmp_pane: "One row per configuration: typical ratio to the base, and counts.",
+            self.cmp_scroll: "The same ratios as dots; the line at 1 is the base.",
+            self.cmp_status: "What the comparison did, or why it could not.",
+            self.plot_x: "The measured value on the horizontal axis.",
+            self.plot_y: "The measured value on the vertical axis.",
+            self.plot_source: "Draw only the designs of this experiment (source), or all.",
+            self.log_x: "Use a logarithmic horizontal axis (for values over many orders).",
+            self.log_y: "Use a logarithmic vertical axis (for values over many orders).",
+            self.plot_go: "Draw one dot per source and design (mean of its arms with both values).",
+            self.chart: "One dot per (source, design): the mean over its arms with both values. "
+            "Hover over a dot to see which design it is.",
+            self.hover: "The source and design under the mouse.",
+            self.plot_status: "What the plot did, or why it could not.",
+        }
+        for widget, tip in tips.items():
+            widget.setToolTip(tip)
+
     def _layout(self) -> None:
         top = QHBoxLayout()
         top.addWidget(self.open_button)
@@ -201,13 +252,14 @@ class MimirPanel(QWidget):
         split.setStretchFactor(1, 1)
         lay = QVBoxLayout(self)
         lay.addWidget(self.status)
+        lay.addWidget(self.current_line)
         lay.addLayout(top)
         lay.addWidget(split, 1)
 
     def _summary_tab(self) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
-        lay.addWidget(HelpBox("Summary"))
+        lay.addWidget(HelpBox("Summary", settings=self.settings))
         lay.addWidget(self.summary_text, 1)
         lay.addWidget(self.sources_pane, 2)
         return w
@@ -215,7 +267,7 @@ class MimirPanel(QWidget):
     def _design_tab(self) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
-        lay.addWidget(HelpBox("Design"))
+        lay.addWidget(HelpBox("Design", settings=self.settings))
         top = QHBoxLayout()
         top.addWidget(self.design_label, 1)
         top.addWidget(QLabel("Metrics level"))
@@ -227,7 +279,7 @@ class MimirPanel(QWidget):
     def _run_tab(self) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
-        lay.addWidget(HelpBox("Run"))
+        lay.addWidget(HelpBox("Run", settings=self.settings))
         lay.addWidget(self.run_label)
         lay.addWidget(QLabel("Flow parameters (colour = how the value is known)"))
         lay.addWidget(self.params_pane, 3)
@@ -251,7 +303,7 @@ class MimirPanel(QWidget):
     def _compare_tab(self) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
-        lay.addWidget(HelpBox("Compare"))
+        lay.addWidget(HelpBox("Compare", settings=self.settings))
         lay.addLayout(self._row("Prefix", self.cmp_prefix, self.cmp_load))
         lay.addLayout(self._row("Base", self.cmp_base, "Metric", self.cmp_metric,
                                 "Level", self.cmp_level, self.cmp_go))  # fmt: skip
@@ -263,7 +315,7 @@ class MimirPanel(QWidget):
     def _plot_tab(self) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
-        lay.addWidget(HelpBox("Plot"))
+        lay.addWidget(HelpBox("Plot", settings=self.settings))
         lay.addLayout(self._row("x", self.plot_x, "y", self.plot_y, "source", self.plot_source,
                                 self.log_x, self.log_y, self.plot_go))  # fmt: skip
         lay.addWidget(self.plot_status)
@@ -288,6 +340,7 @@ class MimirPanel(QWidget):
         self.log_y.toggled.connect(self._log_changed)
         self.chart.hovered.connect(self.hover.setText)
         self.timing_tab.heat_requested.connect(self.heat_requested)
+        self.timing_tab.run_changed.connect(self._timing_run_picked)
 
     # ---- workers ----
 
@@ -316,6 +369,10 @@ class MimirPanel(QWidget):
             return
         if key == "open":
             self._pending = None
+        if key == "run":
+            self._current_run = ""
+            self._set_fetch_enabled()
+            self._update_current()
         self.status.setText(f"{key}: {reason}")
         self.finished.emit(key)
 
@@ -330,7 +387,7 @@ class MimirPanel(QWidget):
     def set_last(self, path: str) -> None:
         self.last_path = path
         self.last_button.setEnabled(bool(path))
-        self.last_button.setToolTip(path)
+        self.last_button.setToolTip(path or "Open the store you used last time.")
 
     def choose(self) -> None:
         name, _ = QFileDialog.getOpenFileName(
@@ -408,7 +465,12 @@ class MimirPanel(QWidget):
         """Clear everything that belonged to the previous store."""
         self.cancel_fetch()
         self._current_run, self._design_key, self._notes = "", None, ""
+        self._current_design, self._current_source = "", None
+        self.chart.set_highlight(None, "")
+        self._update_current()
+        self.designs.blockSignals(True)  # clearing must not select a design of the new store
         self.designs.clear()
+        self.designs.blockSignals(False)
         self.design_label.setText("")
         for pane in (
             self.metrics_pane, self.runs_pane, self.meta_pane, self.lineage_pane,
@@ -439,7 +501,9 @@ class MimirPanel(QWidget):
     def _listed(self, result: object) -> None:
         assert isinstance(result, Table)
         t = result
+        self.designs.blockSignals(True)
         self.designs.clear()
+        self.designs.blockSignals(False)
         for s, name, _slug, _suite, n in t.rows:
             item = QListWidgetItem(f"{name}   [{s}]  {n} runs")
             item.setData(Qt.ItemDataRole.UserRole, (str(s), str(name)))
@@ -457,7 +521,16 @@ class MimirPanel(QWidget):
         if self.view is None:
             return
         view, level = self.view, self.design_level.currentText() or None
+        if (name, source) != (self._current_design, self._current_source):
+            self._tokens["run"] = self._tokens.get("run", 0) + 1  # drop a run of the old design
+            self._current_run = ""
         self._design_key = (name, source)
+        self._current_design, self._current_source = name, source
+        self.structs.select_design(name, source)
+        self.timing_tab.select_design(name, source)
+        self.chart.set_highlight(source, name)
+        self._note_compare()
+        self._update_current()
         self._submit("design", lambda: (view, view.design(name, source, ROW_LIMIT, level), level))
 
     def _refresh_design(self) -> None:
@@ -476,24 +549,46 @@ class MimirPanel(QWidget):
             (self.lineage_pane, d.lineage), (self.struct_pane, d.structures),
         ):  # fmt: skip
             pane.set_table(t)
-        self.tabs.setCurrentIndex(1)
+        if self.tabs.currentIndex() == 0:  # from the Summary go to the design; else stay put
+            self.tabs.setCurrentIndex(1)
+        self._auto_run(d.name, d.runs)
+
+    def _auto_run(self, name: str, runs: Table) -> None:
+        """The Run tab follows the design: keep the run when it belongs to it, else the first."""
+        ids = [str(r[0]) for r in runs.rows]
+        if not ids:
+            self._current_run = ""
+            self.run_label.setText(f"no runs of {name} in this store")
+            self.params_pane.set_table(Table("", (), []))
+            self.artifacts_pane.set_table(Table("", (), []))
+            self._set_fetch_enabled()
+            self._update_current()
+            return
+        keep = self._current_run if self._current_run in ids else ids[0]
+        self.show_run(keep, switch=False)
 
     def _run_row_activated(self, row: int, _col: int) -> None:
         rows = self.runs_pane.table_data.rows
         if 0 <= row < len(rows):
             self.show_run(str(rows[row][0]))
 
-    def show_run(self, run_id: str) -> None:
+    def show_run(self, run_id: str, switch: bool = True) -> None:
         if self.view is None:
             return
         view = self.view
+        self._switch_run_tab = switch
         self._submit("run", lambda: view.run(run_id))
 
     def _ran(self, result: object) -> None:
         assert isinstance(result, mimirview.RunInfo)
         r = result
-        self._current_run = r.run_id
         h = r.header
+        if self._current_design and (
+            h["design"] != self._current_design
+            or (self._current_source and h["source"] != self._current_source)
+        ):
+            return  # a run of a design that is no longer the current one
+        self._current_run = r.run_id
         self.run_label.setText(
             f"run {r.run_id}: {h['design']}  {h['source']}  arch {h['arch']}  arm {h['arm']}  "
             f"seed {h['seed']}  tools {h['tool_commits']}  time {h['time_s']}  "
@@ -504,7 +599,27 @@ class MimirPanel(QWidget):
         self.params_pane.set_table(r.params)
         self.artifacts_pane.set_table(r.artifacts)
         self._set_fetch_enabled()
-        self.tabs.setCurrentIndex(2)
+        if self._switch_run_tab:
+            self.tabs.setCurrentIndex(2)
+        self.timing_tab.select_run(r.run_id)
+        self._update_current()
+
+    def _timing_run_picked(self, run_id: str) -> None:
+        if run_id:
+            self.show_run(run_id, switch=False)
+
+    def _update_current(self) -> None:
+        if not self._current_design:
+            self.current_line.setText(NO_CURRENT)
+            return
+        run = f"run {self._current_run[:8]}" if self._current_run else "no run"
+        self.current_line.setText(f"Current design: {self._current_design}    {run}")
+
+    def _note_compare(self) -> None:
+        if self._current_design and self.cmp_pane.table_data.rows:
+            base = self.cmp_status.text().split(" | ")[0]
+            note = f"{self._current_design} is one of the designs averaged in each row below"
+            self.cmp_status.setText(f"{base} | {note}")
 
     # ---- fetch hook ----
 
@@ -512,7 +627,7 @@ class MimirPanel(QWidget):
         have = mimirview.mimir_on_path() is not None
         running = self._proc is not None
         self.fetch_button.setEnabled(have and bool(self._current_run) and not running)
-        self.fetch_button.setToolTip("" if have else FETCH_TIP_MISSING)
+        self.fetch_button.setToolTip(FETCH_TIP_READY if have else FETCH_TIP_MISSING)
         self.cancel_button.setEnabled(running)
 
     def _ask_dir(self) -> str:
@@ -606,6 +721,7 @@ class MimirPanel(QWidget):
             + (f"; {mixed} MIXED (more than one tool commit or config)" if mixed else "")
             + (" (levels shown separately)" if result.multi_level else "")
         )
+        self._note_compare()
 
     # ---- plot ----
 
@@ -623,7 +739,16 @@ class MimirPanel(QWidget):
         assert isinstance(result, tuple)
         x, y, sc = result
         self.chart.set_points(sc.points, x, y)
-        self.plot_status.setText(sc.note)
+        self.chart.set_highlight(self._current_source, self._current_design)
+        note = ""
+        if self._current_design:
+            mine = len(self.chart.highlighted())
+            note = (
+                f"; {self._current_design} is ringed in red"
+                if mine
+                else f"; {self._current_design} has no point here (a value is missing)"
+            )
+        self.plot_status.setText(sc.note + note)
 
     def _log_changed(self) -> None:
         self.chart.set_log(self.log_x.isChecked(), self.log_y.isChecked())

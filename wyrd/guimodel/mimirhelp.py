@@ -48,12 +48,14 @@ TABS: dict[str, tuple[str, str, str, str]] = {
         "settings, so read that row with care.",
     ),
     "Plot": (
-        "Every run as one dot: one measured value on the x axis, another on the y axis.",
+        "Every design as one dot: one measured value on the x axis, another on the y axis. A "
+        "design measured in two experiments (sources) gives two dots.",
         "Use it to see a trade-off, for example area against speed, across all circuits.",
-        "A scatter plot. Hover over a dot to see which design and run it is. Log axes help when "
-        "values span several orders of magnitude.",
-        "Only runs that have both values are drawn. A cluster away from the others is worth "
-        "opening in the Design tab.",
+        "A scatter plot. Hover over a dot to see its source and design. The current design is "
+        "ringed in red. Log axes help when values span several orders of magnitude.",
+        "Each dot is the mean, over the arms (settings) of that source and design, of the arms "
+        "that have both values; designs without both values are not drawn. A cluster away from "
+        "the others is worth opening in the Design tab.",
     ),
     "Structures": (
         "The pieces of HDL that look like a known building block (an adder, a multiplexer, a "
@@ -77,12 +79,14 @@ TABS: dict[str, tuple[str, str, str, str]] = {
         "A summary line, a histogram of path criticality, a table of the most critical objects "
         "(words, source lines, modules, structures), and a plot of near-critical paths against "
         "area. 'Open in source view' paints the HDL red (critical) to blue (not critical).",
-        "Crit (criticality) is 1 minus slack divided by the clock period: 1.0 is the slowest "
-        "path, 0 has lots of spare time. Near-critical means crit is at least theta; theta is "
-        "0.90, 0.95 or 0.99 (the three counts). A bit strip lists crit per bit of a bus, most "
-        "significant first. Exact or lower bound: the store says whether the clock period was "
-        "found from all paths (exact) or only from a cut report, in which case crit is a lower "
-        "bound.",
+        "Crit (criticality) is how close a path is to being the slowest one: 1 is the slowest, "
+        "0 has lots of spare time. It is 1 - slack / (the largest required time of the clock "
+        "pair of the path); when the worst slack is negative, all slacks are shifted so that the "
+        "worst is 0. Near-critical means crit is at least theta; theta is 0.90, 0.95 or 0.99 "
+        "(the three counts). A bit strip lists crit per bit of a bus, most significant bit first "
+        "(MSB first is a setting of the Timing panel). Exact or lower bound: the store says "
+        "whether the clock period was found from all paths (exact) or only from a cut report, "
+        "in which case crit is a lower bound.",
     ),
 }
 
@@ -91,7 +95,8 @@ GLOSSARY: dict[str, str] = {
     "config": "A set of runs made with the same settings (source and arm).",
     "level": "The step of the flow a value was measured at: gate, lut, ble, clb, placed, routed.",
     "structure": "A piece of HDL that matches a known building block, such as an adder.",
-    "crit": "Criticality, 1 - slack / clock period. 1.0 is the slowest path, 0 has spare time.",
+    "crit": "Criticality: how close a path is to the slowest one, 1 - slack / (largest required "
+    "time of its clock pair). 1.0 is the slowest path, 0 has spare time.",
     "near-critical": "A path whose crit is at least theta.",
     "theta": "The near-critical threshold: 0.90, 0.95 or 0.99.",
     "spread": "How far apart on the chip the parts of a structure were placed.",
@@ -141,7 +146,8 @@ COLUMN_TIPS: dict[str, str] = {
     "delay share 0.90": "The share of the delay of the 0.90 near-critical paths in the object.",
     "via": "How the object was linked to the HDL: name (signal name), pad (port), line or span "
     "(by source line), json-id, declarator.",
-    "bits (MSB first, crit)": "Crit of each bit of a bus, most significant bit first (bit:crit).",
+    "bits (MSB first, crit)": "Crit of each bit of a bus, most significant bit first by default "
+    "(bit:crit).",
 }
 
 CONTROL_TIPS: dict[str, str] = {
@@ -179,8 +185,10 @@ click a run in its Runs table to see exactly how the run was made (Run tab).
 ### 3. The Timing tab
 
 Pick a run. The summary line gives the clock period (CPD), the worst slack and how many of the
-reported paths were used. Criticality (crit) is 1 minus slack divided by the clock period: 1.0 is
-the slowest path, 0 has plenty of spare time. A path is near-critical when its crit is at least
+reported paths were used. Criticality (crit) is how close a path is to being the slowest one: 1.0
+is the slowest, 0 has plenty of spare time. It is 1 - slack / (the largest required time of the
+clock pair of the path); when the worst slack is negative, all slacks are shifted so that the
+worst is 0. A path is near-critical when its crit is at least
 theta (0.90, 0.95 or 0.99). The histogram shows how many paths fall in each crit range; the
 table lists the most critical HDL objects, with a bit strip for buses.
 
@@ -203,7 +211,12 @@ on a whole line says the line is on a near-critical path. For a bus such as `D_O
 name is split into one coloured piece per bit, most significant bit first: a name of 6 letters
 for 3 bits gives 2 letters per bit. When the name is shorter than the number of bits, a bit
 strip under the name shows each bit and the name keeps the highest crit. A dotted underline
-marks a bit that is unknown. Hover a token to see its crit and every bit.
+marks a bit whose index is unknown; such a bit is grey. Hover a token to see its crit and every
+bit.
+
+The token columns are always found by matching the name of the word on the line (the store
+links a word to a line, not to a column). The Timing panel setting "MSB first" chooses whether
+the bits run from the most or the least significant bit.
 
 ### 6. Example: mkPktMerge
 
