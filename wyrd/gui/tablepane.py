@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from wyrd import mimirview
+from wyrd.guimodel import mimirhelp
 from wyrd.mimirview import Table
 
 CONF_COLOURS = {
@@ -60,6 +61,11 @@ class TablePane(QWidget):
         self.grid.clear()
         self.grid.setColumnCount(len(t.columns))
         self.grid.setHorizontalHeaderLabels(list(t.columns))
+        for j, name in enumerate(t.columns):
+            head = self.grid.horizontalHeaderItem(j)
+            tip = mimirhelp.column_tip(name)
+            if head is not None and tip:
+                head.setToolTip(tip)
         self.grid.setRowCount(len(t.rows))
         conf = t.columns.index(self.conf_column) if self.conf_column in t.columns else -1
         flag = t.columns.index("mixed") if "mixed" in t.columns else -1

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import unittest
 from pathlib import Path
 
-from wyrd.guimodel import heat, heatmimir, heatview
+from wyrd.guimodel import heat, heatmimir, heatsource, heatview
 from wyrd.guimodel.heat import Scope
 from wyrd.guimodel.timing import TimingError
 
@@ -386,6 +388,94 @@ class FixRoundTest(unittest.TestCase):
 
     def test_l4_note_states_remainder_rule(self) -> None:
         self.assertIn("extra characters to the leading segments", heatview.LEGEND_NOTE)
+
+
+class SourceFinderTest(unittest.TestCase):
+    ROWS = [("span", "$WYRD_TEST_ROOT/sub/top.v:2", -1, "", 0.97),
+            ("word", "top/SIGNAL", 2, "name", 0.97)]  # fmt: skip
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        (self.root / "sub").mkdir()
+        (self.root / "sub" / "top.v").write_text(BUS_SRC, encoding="utf-8")
+        os.environ.pop("WYRD_TEST_ROOT", None)
+
+    def model(self) -> heat.HeatModel:
+        return heatmimir.model_from_objects(
+            self.ROWS, "$WYRD_TEST_ROOT/sub/top.v", "report"
+        )
+
+    def test_expand_and_unset(self) -> None:
+        self.assertEqual(heatsource.expand("$A/x/${B}", {"A": "1", "B": "2"}), "1/x/2")
+        self.assertEqual(heatsource.expand("$NOPE_Z/x"), "$NOPE_Z/x")
+        self.assertEqual(heatsource.unset("$NOPE_Z/${NOPE_Y}"), ["NOPE_Z", "NOPE_Y"])
+
+    def test_found_through_extra_env_outside_project(self) -> None:
+        c = heatsource.find_source(self.model(), {"WYRD_TEST_ROOT": str(self.root)})
+        self.assertEqual(c.path, self.root / "sub" / "top.v")
+
+    def test_missing_variable_is_named(self) -> None:
+        c = heatsource.find_source(self.model(), {})
+        self.assertIsNone(c.path)
+        self.assertIn("WYRD_TEST_ROOT is not set", c.message)
+        self.assertEqual(c.guess, "$WYRD_TEST_ROOT/sub/top.v")
+
+    def test_missing_file_is_named(self) -> None:
+        c = heatsource.find_source(self.model(), {"WYRD_TEST_ROOT": str(self.root / "zz")})
+        self.assertIsNone(c.path)
+        self.assertIn("no such file", c.message)
+        self.assertIn(str(self.root / "zz"), c.guess)
+
+    def test_chosen_file_wins(self) -> None:
+        m = self.model()
+        c = heatsource.find_source(m, {}, None, {m.origin: self.root / "sub" / "top.v"})
+        self.assertEqual(c.path, self.root / "sub" / "top.v")
+
+    def test_dmax_notes(self) -> None:
+        self.assertIn("crit is a lower bound (dmax from report)", self.model().notes)
+        exact = heatmimir.model_from_objects(self.ROWS, "", "exhaustive")
+        self.assertIn("crit is exact (exhaustive)", exact.notes)
+        full = heatmimir.model_from_objects(self.ROWS, "", "full-report")
+        self.assertIn("crit is exact (full report)", full.notes)
+
+    def test_origin_only_model_colours_the_file(self) -> None:
+        rows = [("word", "top/SIGNAL", 2, "name", 0.97), ("word", "top/SIGNAL", 0, "name", 0.1)]
+        m = heatmimir.model_from_objects(rows, "$WYRD_TEST_ROOT/sub/top.v")
+        h = heatview.build_file_heat(
+            m, m.select(Scope(heat.SCOPE_NEAR, theta=0.0)),
+            {"$WYRD_TEST_ROOT/sub/top.v"}, BUS_SRC,
+        )  # fmt: skip
+        self.assertEqual([r.line for r in h.ranges], [1])
+
+
+class GuideTextTest(unittest.TestCase):
+    def test_every_tab_has_four_sections(self) -> None:
+        from wyrd.guimodel import mimirhelp
+
+        for tab in ("Summary", "Design", "Run", "Compare", "Plot", "Structures", "Timing"):
+            self.assertEqual(len(mimirhelp.TABS[tab]), 4, tab)
+            self.assertTrue(all(len(t) > 40 for t in mimirhelp.TABS[tab]), tab)
+        text = " ".join(" ".join(v) for v in mimirhelp.TABS.values()).lower()
+        for term in ("run", "config", "level", "structure", "crit", "near-critical", "theta",
+                     "spread", "crit_share", "exact", "lower bound"):  # fmt: skip
+            self.assertIn(term, text)
+            self.assertIn(term, mimirhelp.GLOSSARY)
+
+    def test_table_columns_have_tips(self) -> None:
+        from wyrd import mimirview
+        from wyrd.guimodel import mimirhelp
+
+        cols = (*mimirview.STRUCT_COLUMNS, *mimirview.TIMING_OBJECT_COLUMNS)
+        self.assertEqual([c for c in cols if not mimirhelp.column_tip(c)], [])
+
+    def test_docs_page_carries_the_guide(self) -> None:
+        from wyrd.guimodel import mimirhelp
+
+        doc = (Path(__file__).parents[1] / "docs" / "user" / "mimir.md").read_text("utf-8")
+        a, b = doc.index(mimirhelp.GUIDE_BEGIN), doc.index(mimirhelp.GUIDE_END)
+        self.assertEqual(doc[a + len(mimirhelp.GUIDE_BEGIN):b].strip(), mimirhelp.GUIDE.strip())
 
 
 if __name__ == "__main__":

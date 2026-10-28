@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from wyrd import mimirview
+from wyrd.gui.helpbox import HelpBox
 from wyrd.gui.mimircharts import DotChart, ScatterChart
 from wyrd.gui.mimirexplore import StructuresTab, TimingTab
 from wyrd.gui.tablepane import TablePane
@@ -206,6 +207,7 @@ class MimirPanel(QWidget):
     def _summary_tab(self) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
+        lay.addWidget(HelpBox("Summary"))
         lay.addWidget(self.summary_text, 1)
         lay.addWidget(self.sources_pane, 2)
         return w
@@ -213,6 +215,7 @@ class MimirPanel(QWidget):
     def _design_tab(self) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
+        lay.addWidget(HelpBox("Design"))
         top = QHBoxLayout()
         top.addWidget(self.design_label, 1)
         top.addWidget(QLabel("Metrics level"))
@@ -224,6 +227,7 @@ class MimirPanel(QWidget):
     def _run_tab(self) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
+        lay.addWidget(HelpBox("Run"))
         lay.addWidget(self.run_label)
         lay.addWidget(QLabel("Flow parameters (colour = how the value is known)"))
         lay.addWidget(self.params_pane, 3)
@@ -247,6 +251,7 @@ class MimirPanel(QWidget):
     def _compare_tab(self) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
+        lay.addWidget(HelpBox("Compare"))
         lay.addLayout(self._row("Prefix", self.cmp_prefix, self.cmp_load))
         lay.addLayout(self._row("Base", self.cmp_base, "Metric", self.cmp_metric,
                                 "Level", self.cmp_level, self.cmp_go))  # fmt: skip
@@ -258,6 +263,7 @@ class MimirPanel(QWidget):
     def _plot_tab(self) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
+        lay.addWidget(HelpBox("Plot"))
         lay.addLayout(self._row("x", self.plot_x, "y", self.plot_y, "source", self.plot_source,
                                 self.log_x, self.log_y, self.plot_go))  # fmt: skip
         lay.addWidget(self.plot_status)

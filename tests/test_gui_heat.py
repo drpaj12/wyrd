@@ -10,9 +10,10 @@ import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from tests.test_heat import BUS_SRC, bus_model
-from wyrd.guimodel import heat, heatview
+from wyrd.guimodel import heat, heatmimir, heatview
 
 HAVE_QT = importlib.util.find_spec("PySide6") is not None
 
@@ -133,6 +134,57 @@ class WindowHeatTest(unittest.TestCase):
             w.timing.mode.setCurrentIndex(1)
             self.assertIsNone(w.source_view.text.file_heat)
             self.assertTrue(w.source_view.text.heat)
+
+
+@unittest.skipUnless(HAVE_QT, "PySide6 not installed")
+class OpenInSourceViewTest(unittest.TestCase):
+    ROWS = [("word", "top/SIGNAL", 2, "name", 0.97), ("word", "top/SIGNAL", 0, "name", 0.92)]
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = Path(self._tmp.name)
+        (self.tmp / "bench").mkdir()
+        (self.tmp / "bench" / "top.v").write_text(BUS_SRC, encoding="utf-8")
+        self.w = MainWindow(
+            QSettings(str(self.tmp / "s.ini"), QSettings.Format.IniFormat), silent=True
+        )
+        self.addCleanup(dispose, self.w)
+
+    def model(self) -> heat.HeatModel:
+        return heatmimir.model_from_objects(self.ROWS, "$WYRD_T_ROOT/bench/top.v", "report")
+
+    def test_source_outside_project_opens_with_hottest_token_selected(self) -> None:
+        with mock.patch.dict(os.environ, {"WYRD_T_ROOT": str(self.tmp)}):
+            self.w._on_mimir_heat(self.model())
+        self.assertEqual(self.w.source_view.path, self.tmp / "bench" / "top.v")
+        fh = self.w.source_view.text.file_heat
+        assert fh is not None
+        self.assertTrue(fh.ranges)
+        self.assertEqual(self.w.timing.scope.currentIndex(), 2)
+        self.assertEqual(self.w.timing.display_mode(), 0)
+        cur = self.w.source_view.text.textCursor()
+        self.assertEqual(cur.selectedText(), "SIGNAL")
+        self.assertIn("lower bound", self.w.source_view.legend_note.text())
+
+    def test_missing_source_says_what_and_asks_for_file(self) -> None:
+        asked: list[str] = []
+
+        def pick(guess: str) -> Path | None:
+            asked.append(guess)
+            asked.append(self.w.statusBar().currentMessage())
+            return self.tmp / "bench" / "top.v"
+
+        self.w.source_picker = pick
+        env = {k: v for k, v in os.environ.items() if k != "WYRD_T_ROOT"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            self.w._on_mimir_heat(self.model())
+        self.assertEqual(asked[0], "$WYRD_T_ROOT/bench/top.v")
+        self.assertIn("environment variable WYRD_T_ROOT is not set", asked[1])
+        self.assertEqual(self.w.source_view.path, self.tmp / "bench" / "top.v")
+        fh = self.w.source_view.text.file_heat
+        assert fh is not None
+        self.assertTrue(fh.ranges)
 
 
 if __name__ == "__main__":

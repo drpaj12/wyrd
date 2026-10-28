@@ -26,6 +26,7 @@ from wyrd.gui.atlaspanel import AtlasPanel
 from wyrd.gui.editor import TomlEditor
 from wyrd.gui.flowpanel import FlowPanel
 from wyrd.gui.messages import MessagesPane
+from wyrd.gui.mimirguide import MimirGuideDialog
 from wyrd.gui.mimirpanel import MimirPanel
 from wyrd.gui.projecttree import ProjectTree
 from wyrd.gui.reportview import ReportView
@@ -36,6 +37,7 @@ from wyrd.gui.sourceview import SourceView
 from wyrd.gui.stepload import LoadSignals, LoadTask
 from wyrd.gui.timingpanel import MODE_BOTH, MODE_HOT, MODE_MARGIN, TimingPanel
 from wyrd.gui.weakslot import weak
+from wyrd.guimodel import heatsource, mimirhelp
 from wyrd.guimodel.floorplan import FloorplanPlan
 from wyrd.guimodel.heat import HeatModel
 from wyrd.guimodel.logparse import Message
@@ -43,6 +45,7 @@ from wyrd.guimodel.projmodel import project_tree
 from wyrd.guimodel.runs import RunInfo
 from wyrd.guimodel.tomledit import AddDesignError, add_design
 from wyrd.project import ConfigError, Project, load_project
+from wyrd.settings import load as load_settings
 from wyrd.settings import machine_path
 
 MAX_RECENT = 8
@@ -67,6 +70,7 @@ class MainWindow(QMainWindow):
     ) -> None:
         super().__init__()
         self.settings = settings
+        self.source_picker: Callable[[str], Path | None] = self._ask_source
         self.silent = silent
         self.project: Project | None = None
         self.project_dir: Path | None = None
@@ -251,22 +255,60 @@ class MainWindow(QMainWindow):
         model = self.timing.heat_model()
         self.source_view.set_file_heat(fh, theta, model.notes if model is not None else None)
 
+    def _vtr_env(self) -> dict[str, str]:
+        """``VTR_ROOT`` from the machine settings, for store paths that name it."""
+        try:
+            root = load_settings(None, {}).vtr_root
+        except (OSError, ValueError):
+            return {}
+        return {} if root is None else {"VTR_ROOT": str(root)}
+
+    def _ask_source(self, guess: str) -> Path | None:
+        """Ask for the source file when the store's path cannot be found (replaced in tests)."""
+        name, _ = QFileDialog.getOpenFileName(
+            self, "Where is the design's source file?", guess, "Verilog (*.v *.sv *.vh);;All (*)"
+        )
+        return Path(name) if name else None
+
     def _on_mimir_heat(self, model: object) -> None:
         """Show a Mímir timing model in the source view (near-critical scope)."""
         if not isinstance(model, HeatModel):
             return
         self.timing.set_roots(self._timing_roots())
+        self.timing.extra_env = self._vtr_env()
         self.timing.use_heat_model(model)
         self.timing.scope.setCurrentIndex(2)
         self.timing.mode.setCurrentIndex(MODE_HOT)
-        for name in sorted(model.files()):
-            found = self.timing.resolve_source(name)
-            if found is not None:
-                self.show_source(found)
-                return
-        self.statusBar().showMessage(
-            "Hot/cold view from Mímir is set; open the design's source file to see it"
+        choice = heatsource.find_source(
+            model, self.timing.extra_env, self.timing.resolve_source, self.timing.chosen
         )
+        if choice.path is None:
+            self.statusBar().showMessage(choice.message)
+            picked = self.source_picker(choice.guess)
+            if picked is None:
+                return
+            for n in model.known_names():
+                if n == choice.name or Path(n).name == picked.name:
+                    self.timing.choose_file(n, picked)
+            choice = heatsource.SourceChoice(picked, str(picked), f"opened {picked}")
+        assert choice.path is not None
+        self.show_source(choice.path)
+        self._focus_hottest()
+        self.statusBar().showMessage(choice.message)
+
+    def _focus_hottest(self) -> None:
+        fh = self.source_view.text.file_heat
+        if fh is None:
+            return
+        if fh.ranges:
+            r = max(fh.ranges, key=lambda x: (x.crit, -x.line, -x.col_start))
+            self.source_view.focus_token(r.line, r.col_start, r.col_end)
+        elif fh.lines:
+            line = max(fh.lines, key=lambda k: (fh.lines[k], -k))
+            self.source_view.focus_token(line, 0, 0)
+
+    def _guide_dialog(self) -> None:
+        MimirGuideDialog(self).exec()
 
     def _on_heat_click(self, line: int, col: int) -> None:
         fh = self.source_view.text.file_heat
@@ -349,6 +391,7 @@ class MainWindow(QMainWindow):
             view_menu.addAction(dock.toggleViewAction())
         help_menu = bar.addMenu("Help")
         assert help_menu is not None
+        self._action(help_menu, mimirhelp.HELP_MENU_TITLE, self._guide_dialog)
         self._action(help_menu, "About", self._about_dialog)
         self._rebuild_recent()
 

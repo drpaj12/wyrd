@@ -47,19 +47,26 @@ def _drop_aggregates(facts: list[Fact]) -> list[Fact]:
     return [f for f in facts if f.bit is not None or (f.module, f.word) not in with_bits]
 
 
-def model_from_objects(rows: Iterable[ObjectRow]) -> HeatModel:
+def model_from_objects(
+    rows: Iterable[ObjectRow], origin: str = "", dmax_source: str = ""
+) -> HeatModel:
     facts = _drop_aggregates([f for f in (_fact(r) for r in rows) if f is not None])
     widths: dict[tuple[str, str], int] = {}
     for f in facts:
         if f.bit_known and f.bit is not None:
             widths[(f.module, f.word)] = max(widths.get((f.module, f.word), 0), f.bit + 1)
     # Word rows carry no file: they colour only the files named by the span rows.
-    span_files = {f.file for f in facts if f.file is not None}
+    span_files = {f.file for f in facts if f.file is not None} | ({origin} if origin else set())
     modules = {f.module for f in facts if f.module}
     module_files = {m: set(span_files) for m in modules}
     model = HeatModel(
-        tuple(facts), {}, widths, module_files, [NOTE], has_paths=False, source="mimir"
+        tuple(facts), {}, widths, module_files, [NOTE], has_paths=False, source="mimir",
+        origin=origin,
     )
+    if dmax_source == "report":
+        model.notes.append("crit is a lower bound (dmax from report)")
+    elif dmax_source:
+        model.notes.append(f"crit is exact ({dmax_source.replace('-', ' ')})")
     if not facts:
         model.notes.append("the run has no span or word rows")
     return model

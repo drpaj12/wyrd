@@ -399,6 +399,15 @@ class SourceView(QWidget):
             self._goto(line)
         return True
 
+    def focus_token(self, line: int, c0: int, c1: int) -> None:
+        """Scroll to a token (code-point columns of a 1-based line) and select it."""
+        cursor = self.text._block_cursor(line, c0, c1)
+        if cursor is None:
+            return
+        self.text.setTextCursor(cursor)
+        self.text.centerCursor()
+        self.text.apply_selections()
+
     def _goto(self, line: int) -> None:
         block = self.text.document().findBlockByNumber(max(line - 1, 0))
         if not block.isValid():

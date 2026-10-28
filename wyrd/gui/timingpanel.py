@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from wyrd.guimodel import heat, heatview, timing
+from wyrd.guimodel import heat, heatsource, heatview, timing
 from wyrd.guimodel.timing import Attribution, TimingError
 
 STATEMENT_HEADERS = ["Share", "Delay (ns)", "Location", "Module", "Word"]
@@ -81,6 +81,8 @@ class TimingPanel(QWidget):
         self.hits = _table(HIT_HEADERS)
         self.hits_label = QLabel("Paths through the clicked token (click a coloured token)")
         self._heat: heat.HeatModel | None = None
+        self.chosen: dict[str, Path] = {}
+        self.extra_env: dict[str, str] = {}
         self._build()
         self._att: Attribution | None = None
         self._att_path: Path | None = None
@@ -243,7 +245,7 @@ class TimingPanel(QWidget):
         if model is None:
             return None
         target = path.resolve()
-        names = {n for n in model.files() if self._same_file(n, target)}
+        names = {n for n in model.known_names() if self._same_file(n, target)}
         if model.source != "attribution":
             names = names or self._mimir_names(model, target)
         facts = model.select(self.heat_scope())
@@ -252,17 +254,26 @@ class TimingPanel(QWidget):
     def _mimir_names(self, model: heat.HeatModel, target: Path) -> set[str]:
         """Model file names for ``target``: by full relative path; by base name only when the name
         has no directory part and the match is flagged in the model notes."""
+        known = model.known_names()
         full = {
-            n for n in model.files()
+            n for n in known
             if Path(n).parts[:-1] and target.as_posix().endswith("/" + Path(n).as_posix())
         }  # fmt: skip
         if full:
             return full
-        bare = {n for n in model.files() if len(Path(n).parts) == 1 and n == target.name}
+        bare = {n for n in known if len(Path(n).parts) == 1 and n == target.name}
         note = f"{target.name}: matched by base name only (the store names no directory)"
         if bare and note not in model.notes:
             model.notes.append(note)
         return bare
+
+    def choose_file(self, name: str, path: Path) -> None:
+        """Remember that the model's file ``name`` is ``path`` (picked by the user)."""
+        self.chosen[name] = path
+
+    def env_extra(self) -> dict[str, str]:
+        """Variables for ``$VAR`` in store file names that the environment does not set."""
+        return dict(self.extra_env)
 
     def set_roots(self, roots: list[Path]) -> None:
         """Set the project roots used to find source files (without loading a run)."""
@@ -274,6 +285,12 @@ class TimingPanel(QWidget):
         return self._resolver.resolve(name)
 
     def _same_file(self, name: str, target: Path) -> bool:
+        picked = self.chosen.get(name)
+        if picked is not None:
+            return picked.resolve() == target
+        expanded = heatsource.expand(name, self.extra_env)
+        if Path(expanded).is_absolute():  # a store path: read-only, may lie outside the project
+            return Path(expanded).resolve() == target
         found = self._resolver.resolve(name)
         return found is not None and found.resolve() == target
 

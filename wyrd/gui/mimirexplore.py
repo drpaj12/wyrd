@@ -19,9 +19,10 @@ from PySide6.QtWidgets import (
 )
 
 from wyrd import mimirview
+from wyrd.gui.helpbox import HelpBox
 from wyrd.gui.mimircharts import HistChart, ScatterChart
 from wyrd.gui.tablepane import TablePane
-from wyrd.guimodel import heatmimir
+from wyrd.guimodel import heatmimir, mimirhelp
 from wyrd.mimirview import MimirView, Scatter, Table
 
 Submit = Callable[[str, Callable[[], object]], None]
@@ -32,7 +33,7 @@ NO_TIMING = (
 )
 OBJECT_KINDS = ("word", "span", "module", "structure")
 NC_METRICS = ("timing.nc_paths_090", "timing.nc_paths_095", "timing.nc_paths_099")
-AREA_HINTS = ("lut", "clb", "block")
+AREA_HINTS = ("lut", "clb")  # a LUT or CLB count is real area; anything else is a proxy
 ROW_LIMIT = 500
 
 
@@ -76,16 +77,27 @@ class StructuresTab(QWidget):
         self.chart = ScatterChart()
         self.hover = QLabel("")
         lay = QVBoxLayout(self)
+        lay.addWidget(HelpBox("Structures"))
         lay.addLayout(_row("Design", self.design, "Run", self.run, "Level", self.level,
                            "Kind", self.kind))  # fmt: skip
         lay.addWidget(self.status)
         lay.addWidget(self.pane, 2)
         lay.addWidget(self.chart, 1)
         lay.addWidget(self.hover)
+        self._tips({self.design: "design", self.run: "run", self.level: "level", self.kind: "kind"})
+        self.chart.setToolTip(
+            "One dot per structure row: x = spread (how far apart on the chip its parts were "
+            "placed), y = crit_share (its part of the critical path delay)."
+        )
         self.design.activated.connect(self._design_changed)
         for c in (self.run, self.level, self.kind):
             c.activated.connect(self.reload)
         self.chart.hovered.connect(self.hover.setText)
+
+    @staticmethod
+    def _tips(controls: dict[QWidget, str]) -> None:
+        for w, key in controls.items():
+            w.setToolTip(mimirhelp.CONTROL_TIPS[key])
 
     def handlers(self) -> dict[str, Callable[[object], None]]:
         return {"sdesigns": self._designs, "sfilters": self._filters, "sdata": self._data}
@@ -167,10 +179,7 @@ class TimingTab(QWidget):
         self.hist = HistChart()
         self.pane = TablePane()
         self.open_button = QPushButton("Open in source view")
-        self.open_button.setToolTip(
-            "Colour the HDL of the project by this run's near-critical objects; "
-            "open the design's source file afterwards"
-        )
+        self.open_button.setToolTip(mimirhelp.CONTROL_TIPS["open"])
         self.open_button.setEnabled(False)
         self.x_metric = QComboBox()
         self.y_metric = QComboBox()
@@ -180,6 +189,7 @@ class TimingTab(QWidget):
         self.hover = QLabel("")
         self.scatter_status = QLabel("")
         lay = QVBoxLayout(self)
+        lay.addWidget(HelpBox("Timing"))
         lay.addLayout(_row("Run", self.run, "Objects", self.kind, self.open_button))
         lay.addWidget(self.summary)
         lay.addWidget(self.hist, 1)
@@ -188,6 +198,13 @@ class TimingTab(QWidget):
         lay.addWidget(self.scatter_status)
         lay.addWidget(self.chart, 1)
         lay.addWidget(self.hover)
+        for w, key in ((self.run, "run"), (self.kind, "objects"), (self.x_metric, "area x"),
+                       (self.y_metric, "near-critical y")):  # fmt: skip
+            w.setToolTip(mimirhelp.CONTROL_TIPS[key])
+        self.hist.setToolTip(
+            "Number of paths per criticality range, from 0 (spare time) to 1 (slowest path)."
+        )
+        self.go.setToolTip("Plot one dot per run: area on x, near-critical paths on y.")
         self.run.activated.connect(self.reload)
         self.kind.activated.connect(self.reload)
         self.go.clicked.connect(self.plot)
@@ -219,10 +236,10 @@ class TimingTab(QWidget):
             self.summary.setText(NO_TIMING)
             return
         _fill(self.run, [label for _, label in runs])
-        area = [m for m in metrics if any(h in m.lower() for h in AREA_HINTS)]
+        area = [m for m in metrics if is_area(m)]
         _fill(self.x_metric, area or list(metrics))
-        note = "" if area else " No LUT/CLB records in this store: x lists all metrics."
-        self.scatter_status.setText(note.strip())
+        note = "" if area else "No LUT/CLB records in this store: x lists all metrics (a proxy)."
+        self.scatter_status.setText(note)
         self.reload()
 
     def current_run(self) -> str:
@@ -264,8 +281,11 @@ class TimingTab(QWidget):
     def _plotted(self, result: object) -> None:
         assert isinstance(result, tuple)
         x, y, sc = result
-        self.chart.set_points(sc.points, x, y)
-        self.scatter_status.setText(f"{len(sc.points)} runs with both metrics")
+        proxy = not is_area(x)
+        self.chart.set_points(sc.points, f"area proxy: {x}" if proxy else x, y)
+        text = f"{len(sc.points)} runs with both metrics"
+        note = f"; area proxy: {x} (not a LUT or CLB count)"
+        self.scatter_status.setText(text + (note if proxy else ""))
 
     def _metrics(self, result: object) -> None:
         pass
@@ -275,10 +295,41 @@ class TimingTab(QWidget):
         if self.view is None or not run_id:
             return
         view = self.view
-        self._submit("trows", lambda: heatmimir.model_from_objects(view.timing_object_rows(run_id)))
+
+        def build() -> object:
+            dmax = view.timing_run(run_id).summary.get("dmax_source")
+            return heatmimir.model_from_objects(
+                view.timing_object_rows(run_id), view.design_origin(run_id), str(dmax or "")
+            )
+
+        self._submit("trows", build)
 
     def _rows(self, result: object) -> None:
         self.heat_requested.emit(result)
+
+
+def is_area(metric: str) -> bool:
+    """True for a LUT or CLB record; any other metric is only an area proxy."""
+    return any(h in metric.lower() for h in AREA_HINTS)
+
+
+def _exactness(dmax: object) -> str:
+    if dmax == "report":
+        return "crit is a lower bound (dmax from report)"
+    if dmax in ("exhaustive", "full-report"):
+        return f"crit is exact ({str(dmax).replace('-', ' ')})"
+    return ""
+
+
+def _truncation(s: dict[str, object]) -> str:
+    states = [s.get(f"trunc_{k}") for k in ("090", "095", "099")]
+    if all(v == -1 for v in states):
+        return "truncation unknown"
+    if any(v == 1 for v in states):
+        return "TRUNCATED (near-critical counts are lower bounds)"
+    if any(v == -1 for v in states):
+        return "truncation unknown for some theta"
+    return "not truncated"
 
 
 def summary_text(info: mimirview.TimingRunInfo) -> str:
@@ -290,9 +341,13 @@ def summary_text(info: mimirview.TimingRunInfo) -> str:
 
     near = ", ".join(f">= {t}: {get(f'timing.nc_paths_{k}')}"
                      for t, k in (("0.90", "090"), ("0.95", "095"), ("0.99", "099")))  # fmt: skip
-    trunc = "TRUNCATED at 0.90 (counts are lower bounds)" if s.get("trunc_090") else "not truncated"
+    exact = _exactness(s.get("dmax_source"))
+    spread = f" Required-time spread {get('req_spread_ns')} ns." if "req_spread_ns" in s else ""
+    missing = f" This store lacks: {', '.join(info.missing)}." if info.missing else ""
     return (
         f"{info.label}\nCPD {get('cpd_ns')} ns, worst slack {get('worst_slack_ns')} ns, "
-        f"{get('paths_used')} of {get('paths_requested')} paths used ({trunc}). "
+        f"{get('paths_used')} of {get('paths_requested')} paths used ({_truncation(s)}). "
         f"Near-critical paths {near}. Source: {get('source_kind')}."
+        + (f" {exact[0].upper()}{exact[1:]}." if exact else "")
+        + spread + missing
     )

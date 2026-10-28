@@ -204,6 +204,13 @@ TIMING_OBJECT_COLUMNS = (
     "delay share 0.90", "via", "bits (MSB first, crit)",
 )  # fmt: skip
 STRIP_MAX = 12
+BIT_CHUNK = 400
+TIMING_RUN_COLUMNS = (
+    "cpd_ns", "worst_slack_ns", "paths_requested", "paths_in_report", "paths_used", "max_req_ns",
+    "dmax_source", "req_spread_ns", "pairs", "pairs_skipped", "last_crit", "trunc_090",
+    "trunc_095", "trunc_099", "n_endpoints_090", "n_endpoints_095", "n_endpoints_099",
+    "source_kind", "analysis_n",
+)  # fmt: skip
 
 
 @dataclass(frozen=True)
@@ -212,6 +219,7 @@ class TimingRunInfo:
     label: str
     summary: dict[str, object]
     hist: list[int]  # HIST_BINS counts
+    missing: tuple[str, ...] = ()  # optional timing_run columns this store lacks
 
 
 def _bbox(row: Row) -> str:
@@ -316,10 +324,9 @@ class _ExploreMixin:
                 for r in rows]  # fmt: skip
 
     def timing_run(self, run_id: str) -> TimingRunInfo:
-        cols = ("cpd_ns", "worst_slack_ns", "paths_requested", "paths_in_report", "paths_used",
-                "max_req_ns", "dmax_source", "pairs", "pairs_skipped", "last_crit", "trunc_090",
-                "trunc_095", "trunc_099", "n_endpoints_090", "n_endpoints_095",
-                "n_endpoints_099", "source_kind", "analysis_n")  # fmt: skip
+        have = {str(r[1]) for r in self._query("PRAGMA table_info(timing_run)")}
+        cols = tuple(c for c in TIMING_RUN_COLUMNS if c in have)
+        missing = tuple(c for c in TIMING_RUN_COLUMNS if c not in have)
         rows = self._query(f"SELECT {', '.join(cols)} FROM timing_run WHERE run_id = ?", [run_id])
         if not rows:
             raise MimirError(f"no timing for run {run_id!r}")
@@ -334,7 +341,20 @@ class _ExploreMixin:
             if 0 <= _n(b) < HIST_BINS:
                 hist[_n(b)] = _n(n)
         label = dict(self.timing_runs()).get(run_id, run_id)
-        return TimingRunInfo(run_id, label, info, hist)
+        return TimingRunInfo(run_id, label, info, hist, missing)
+
+    def _word_bits(self, run_id: str, keys: Sequence[str]) -> dict[str, list[tuple[int, float]]]:
+        """Bit rows of the given word objects only (in chunks, under SQLite's variable limit)."""
+        bits: dict[str, list[tuple[int, float]]] = {}
+        for i in range(0, len(keys), BIT_CHUNK):
+            chunk = list(keys[i:i + BIT_CHUNK])
+            marks = ", ".join("?" * len(chunk))
+            for key, bit, crit in self._query(
+                "SELECT object_key, bit, crit_max FROM timing_object WHERE run_id = ? "
+                f"AND kind = 'word' AND bit >= 0 AND object_key IN ({marks})", [run_id, *chunk]
+            ):  # fmt: skip
+                bits.setdefault(str(key), []).append((_n(bit), _f(crit)))
+        return bits
 
     def timing_top_objects(self, run_id: str, kind: str = "word", limit: int = 100) -> Table:
         """Objects of one kind by crit_max; a word row carries its bit strip."""
@@ -343,16 +363,20 @@ class _ExploreMixin:
             "delay_share_090, via FROM timing_object WHERE run_id = ? AND kind = ? AND bit = -1 "
             "ORDER BY crit_max DESC, n_paths DESC, object_key LIMIT ?"
         )
+        limit = limit if limit > 0 else NO_LIMIT
         rows = self._query(sql, [run_id, kind, limit + 1])
-        bits: dict[str, list[tuple[int, float]]] = {}
-        if kind == "word":
-            for key, bit, crit in self._query(
-                "SELECT object_key, bit, crit_max FROM timing_object "
-                "WHERE run_id = ? AND kind = 'word' AND bit >= 0", [run_id]
-            ):  # fmt: skip
-                bits.setdefault(str(key), []).append((_n(bit), _f(crit)))
-        out: list[Row] = [(*r, bit_strip(bits.get(str(r[1]), ()))) for r in rows[:limit]]
+        shown = rows[:limit]
+        bits = self._word_bits(run_id, [str(r[1]) for r in shown]) if kind == "word" else {}
+        out: list[Row] = [(*r, bit_strip(bits.get(str(r[1]), ()))) for r in shown]
         return Table("timing_object", TIMING_OBJECT_COLUMNS, out, len(rows) > limit)
+
+    def design_origin(self, run_id: str) -> str:
+        """The recorded origin (source path, may contain ``$VTR_ROOT``) of the run's design."""
+        rows = self._query(
+            "SELECT d.origin FROM run r JOIN design d ON d.slug = r.slug WHERE r.run_id = ?",
+            [run_id],
+        )
+        return str(rows[0][0]) if rows else ""
 
     def timing_object_rows(self, run_id: str) -> list[Row]:
         """(kind, key, bit, via, crit_max) of the span and word rows, for the hot/cold view."""

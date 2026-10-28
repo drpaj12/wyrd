@@ -96,5 +96,34 @@ class ExploreTabsTest(unittest.TestCase):
         self.assertEqual(p.structs.design.count(), 0)
 
 
+@unittest.skipUnless(HAVE_QT, "PySide6 not installed")
+class SummaryTextTest(unittest.TestCase):
+    def text(self, **summary: object) -> str:
+        from wyrd import mimirview
+        from wyrd.gui.mimirexplore import summary_text
+
+        return summary_text(mimirview.TimingRunInfo("r", "label", dict(summary), [0] * 20))
+
+    def test_lower_bound_only_for_report(self) -> None:
+        self.assertIn("lower bound (dmax from report)", self.text(dmax_source="report"))
+        for kind in ("exhaustive", "full-report"):
+            t = self.text(dmax_source=kind)
+            self.assertIn("rit is exact", t)
+            self.assertNotIn("lower bound", t)
+
+    def test_truncation_unknown(self) -> None:
+        self.assertIn("truncation unknown", self.text(trunc_090=-1, trunc_095=-1, trunc_099=-1))
+        self.assertIn("not truncated", self.text(trunc_090=0, trunc_095=0, trunc_099=0))
+        self.assertIn("TRUNCATED", self.text(trunc_090=1, trunc_095=0, trunc_099=0))
+
+    def test_area_proxy(self) -> None:
+        from wyrd.gui.mimirexplore import is_area
+
+        self.assertTrue(is_area("vpr.logic_clbs"))
+        self.assertTrue(is_area("synth.luts"))
+        self.assertFalse(is_area("vpr.blocks"))
+        self.assertFalse(is_area("block"))
+
+
 if __name__ == "__main__":
     unittest.main()

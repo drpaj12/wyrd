@@ -79,9 +79,14 @@ class HeatModel:
     notes: list[str] = field(default_factory=list)
     has_paths: bool = True
     source: str = "attribution"
+    origin: str = ""
 
     def files(self) -> set[str]:
         return {f.file for f in self.facts if f.file is not None}
+
+    def known_names(self) -> set[str]:
+        """The file names the model can colour: its span files and the design origin."""
+        return self.files() | ({self.origin} if self.origin else set())
 
     def supports(self, scope: Scope) -> bool:
         return self.has_paths or scope.kind == SCOPE_NEAR

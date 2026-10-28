@@ -318,6 +318,26 @@ class ExploreTest(unittest.TestCase):
         self.assertEqual(t.rows[0][-1], "2:1.000 0:0.970")
         self.assertEqual(len(self.v.timing_object_rows("r1")), 4)
 
+    def test_timing_run_tolerates_missing_optional_columns(self) -> None:
+        info = self.v.timing_run("r1")
+        self.assertIn("req_spread_ns", info.missing)  # the fixture is a v5 store without it
+        self.assertNotIn("req_spread_ns", info.summary)
+        self.assertEqual(info.summary["dmax_source"], "report")
+
+    def test_design_origin(self) -> None:
+        self.assertEqual(self.v.design_origin("r1"), "o")
+        self.assertEqual(self.v.design_origin("nope"), "")
+
+    def test_word_bits_only_for_shown_words(self) -> None:
+        with mock.patch.object(self.v, "_query", wraps=self.v._query) as q:
+            self.v.timing_top_objects("r1", "word", 1)
+        bit_sql = [c.args[0] for c in q.call_args_list if "bit >= 0" in c.args[0]]
+        self.assertEqual(len(bit_sql), 1)
+        self.assertIn("object_key IN (?)", bit_sql[0])
+        with mock.patch.object(self.v, "_query", wraps=self.v._query) as q:
+            self.v.timing_top_objects("r1", "span", 5)
+        self.assertEqual([c for c in q.call_args_list if "bit >= 0" in c.args[0]], [])
+
     def test_bit_strip_limit_keeps_hottest(self) -> None:
         rows = [(b, b / 100) for b in range(20)]
         s = mimirview.bit_strip(rows, 3)
