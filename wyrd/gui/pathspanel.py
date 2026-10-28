@@ -97,11 +97,11 @@ class PathsPanel(QWidget):
         self._build()
         self.table.itemSelectionChanged.connect(self._path_chosen)
         self.steps.itemSelectionChanged.connect(self._step_chosen)
-        self.prev.clicked.connect(lambda: self._move(-1))
-        self.next.clicked.connect(lambda: self._move(1))
+        self.prev.clicked.connect(self._move_back)
+        self.next.clicked.connect(self._move_forward)
         self.union.toggled.connect(self._union_toggled)
-        self.fan_in.clicked.connect(lambda: self.request_cone(conemod.BACKWARD))
-        self.fan_out.clicked.connect(lambda: self.request_cone(conemod.FORWARD))
+        self.fan_in.clicked.connect(self._fan_in)
+        self.fan_out.clicked.connect(self._fan_out)
         self.cross.toggled.connect(self._cross_toggled)
         self.cone_source.currentIndexChanged.connect(self._cross_toggled)
         self.clear_cone_button.clicked.connect(self.clear_cone)
@@ -239,6 +239,18 @@ class PathsPanel(QWidget):
         self.prev.setEnabled(row > 0)
         self.next.setEnabled(0 <= row < len(self.refs) - 1)
         self.union.setEnabled(bool(self.refs))
+
+    def _move_back(self) -> None:
+        self._move(-1)
+
+    def _move_forward(self) -> None:
+        self._move(1)
+
+    def _fan_in(self) -> None:
+        self.request_cone(conemod.BACKWARD)
+
+    def _fan_out(self) -> None:
+        self.request_cone(conemod.FORWARD)
 
     def _move(self, step: int) -> None:
         row = self.table.currentRow() + step

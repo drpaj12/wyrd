@@ -418,8 +418,8 @@ class SourceView(QWidget):
         self.fan_out = QPushButton(">")
         self.fan_in.setToolTip("Fan-in cone of the clicked token: back to the primary inputs")
         self.fan_out.setToolTip("Fan-out cone of the clicked token: forward to the primary outputs")
-        self.fan_in.clicked.connect(lambda: self.cone_requested.emit("<"))
-        self.fan_out.clicked.connect(lambda: self.cone_requested.emit(">"))
+        self.fan_in.clicked.connect(self._fan_in)
+        self.fan_out.clicked.connect(self._fan_out)
         self.path_label = QLabel("")
         self.path: Path | None = None
         self.text = HeatTextEdit()
@@ -441,6 +441,12 @@ class SourceView(QWidget):
         layout.addWidget(self.legend)
         layout.addWidget(self.legend_note)
         layout.addWidget(self.text)
+
+    def _fan_in(self) -> None:
+        self.cone_requested.emit("<")
+
+    def _fan_out(self) -> None:
+        self.cone_requested.emit(">")
 
     def _set_highlight(self, path: Path) -> None:
         if self._highlighter is not None:
