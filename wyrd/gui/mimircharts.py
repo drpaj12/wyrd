@@ -144,7 +144,7 @@ class ScatterChart(QWidget):
         self.log_y = False
         self.x_name = ""
         self.y_name = ""
-        self.highlight = ""  # name of the current design: its points are ringed
+        self.highlight: tuple[str, str] = ("", "")  # (source, design) of the ringed points
         self.setMouseTracking(True)
         self.setMinimumHeight(200)
 
@@ -156,12 +156,14 @@ class ScatterChart(QWidget):
         self.log_x, self.log_y = log_x, log_y
         self.update()
 
-    def set_highlight(self, design: str) -> None:
-        self.highlight = design
+    def set_highlight(self, source: str | None, design: str) -> None:
+        """Ring the points of this design; of this source only when one is given."""
+        self.highlight = (source or "", design)
         self.update()
 
     def is_highlighted(self, p: Point) -> bool:
-        return bool(self.highlight) and p.label.rsplit("/", 1)[-1] == self.highlight
+        source, design = self.highlight
+        return bool(design) and p.design == design and (not source or p.source == source)
 
     def highlighted(self) -> list[Point]:
         return [p for p in self.points if self.is_highlighted(p)]

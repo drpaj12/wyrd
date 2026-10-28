@@ -86,6 +86,8 @@ class Point:
     label: str
     x: float
     y: float
+    source: str = ""  # set on per-design points (Plot tab); compared exactly, never parsed
+    design: str = ""
 
 
 @dataclass(frozen=True)
@@ -252,6 +254,17 @@ class _ExploreMixin:
         rows = self._query("SELECT DISTINCT design FROM structure_mapping ORDER BY design")
         return [str(r[0]) for r in rows]
 
+    def structure_design_sources(self) -> dict[str, set[str]]:
+        """For each structure_mapping design key (suite/design), the sources of its runs."""
+        rows = self._query(
+            "SELECT DISTINCT m.design, r.source FROM structure_mapping m "
+            "JOIN run r ON r.run_id = m.run_id"
+        )
+        out: dict[str, set[str]] = {}
+        for d, s in rows:
+            out.setdefault(str(d), set()).add(str(s))
+        return out
+
     def structure_runs(self, design: str) -> list[str]:
         rows = self._query(
             "SELECT DISTINCT run_id FROM structure_mapping WHERE design = ? ORDER BY run_id",
@@ -333,7 +346,8 @@ class _ExploreMixin:
         info = dict(zip(cols, rows[0], strict=True))
         near = self._query(
             "SELECT metric, value FROM records r JOIN record_run u ON u.record_rowid = r.rowid "
-            "WHERE u.run_id = ? AND r.metric LIKE 'timing.nc_paths_%' ORDER BY metric", [run_id]
+            "WHERE u.run_id = ? AND r.metric LIKE 'timing.nc_paths_%' ORDER BY metric",
+            [run_id],
         )
         info.update({str(m): v for m, v in near})
         hist = [0] * HIST_BINS
@@ -347,7 +361,7 @@ class _ExploreMixin:
         """Bit rows of the given word objects only (in chunks, under SQLite's variable limit)."""
         bits: dict[str, list[tuple[int, float]]] = {}
         for i in range(0, len(keys), BIT_CHUNK):
-            chunk = list(keys[i:i + BIT_CHUNK])
+            chunk = list(keys[i : i + BIT_CHUNK])
             marks = ", ".join("?" * len(chunk))
             for key, bit, crit in self._query(
                 "SELECT object_key, bit, crit_max FROM timing_object WHERE run_id = ? "
@@ -387,10 +401,12 @@ class _ExploreMixin:
 
     def run_scatter(self, x_metric: str, y_metric: str) -> Scatter:
         """One point per run that has both metrics (through the record_run view)."""
+
         def per_run(metric: str) -> dict[str, float]:
             rows = self._query(
                 "SELECT u.run_id, r.value FROM records r JOIN record_run u "
-                "ON u.record_rowid = r.rowid WHERE r.metric = ?", [metric]
+                "ON u.record_rowid = r.rowid WHERE r.metric = ?",
+                [metric],
             )
             return {str(a): _f(b) for a, b in rows}
 
@@ -736,13 +752,13 @@ class MimirView(_ExploreMixin):
         """Per (source, design) the mean of each metric over the arms that have both."""
         xs = self._per_arm(x_metric, source)
         ys = self._per_arm(y_metric, source)
-        per: dict[str, list[tuple[float, float]]] = {}
+        per: dict[tuple[str, str], list[tuple[float, float]]] = {}
         for key in xs.keys() & ys.keys():
             s, _arm, d = key
-            per.setdefault(f"{s}/{d}", []).append((xs[key], ys[key]))
+            per.setdefault((s, d), []).append((xs[key], ys[key]))
         pts = [
-            Point(k, sum(x for x, _ in v) / len(v), sum(y for _, y in v) / len(v))
-            for k, v in sorted(per.items())
+            Point(f"{s}/{d}", sum(x for x, _ in v) / len(v), sum(y for _, y in v) / len(v), s, d)
+            for (s, d), v in sorted(per.items())
         ]
         return Scatter(pts[:SCATTER_LIMIT], len(pts))
 

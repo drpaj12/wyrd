@@ -86,7 +86,6 @@ class MainWindow(QMainWindow):
     ) -> None:
         super().__init__()
         self.settings = settings
-        HelpBox.settings = settings
         self.source_picker: Callable[[str], Path | None] = self._ask_source
         self.silent = silent
         self.project: Project | None = None
@@ -99,7 +98,7 @@ class MainWindow(QMainWindow):
         self.timing = TimingPanel()
         self.schematic = SchematicPanel()
         self.atlas = AtlasPanel()
-        self.mimir = MimirPanel()
+        self.mimir = MimirPanel(settings)
         self.editor = TomlEditor(silent)
         self.sim_panel = SimPanel(sim_backend)
         self.docks: dict[str, QDockWidget] = {}
@@ -342,7 +341,7 @@ class MainWindow(QMainWindow):
         content = QWidget()
         lay = QVBoxLayout(content)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.addWidget(HelpBox(name, panel=True))
+        lay.addWidget(HelpBox(name, panel=True, settings=self.settings))
         lay.addWidget(widget, 1)
         if scroll:
             return scrolled(content, width, height)

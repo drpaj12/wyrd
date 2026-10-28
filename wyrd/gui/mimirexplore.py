@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QSettings, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -64,7 +64,7 @@ class StructuresTab(QWidget):
 
     KEYS = ("sdesigns", "sfilters", "sdata")
 
-    def __init__(self, submit: Submit) -> None:
+    def __init__(self, submit: Submit, settings: QSettings | None = None) -> None:
         super().__init__()
         self._submit = submit
         self.view: MimirView | None = None
@@ -76,8 +76,11 @@ class StructuresTab(QWidget):
         self.pane = TablePane()
         self.chart = ScatterChart()
         self.hover = QLabel("")
+        self._loaded = False  # the design list has arrived
+        self._sources: dict[str, set[str]] = {}
+        self._pending: tuple[str, str] | None = None  # (source, design) asked for before that
         lay = QVBoxLayout(self)
-        lay.addWidget(HelpBox("Structures"))
+        lay.addWidget(HelpBox("Structures", settings=settings))
         lay.addLayout(_row("Design", self.design, "Run", self.run, "Level", self.level,
                            "Kind", self.kind))  # fmt: skip
         lay.addWidget(self.status)
@@ -104,6 +107,7 @@ class StructuresTab(QWidget):
 
     def set_view(self, view: MimirView | None) -> None:
         self.view = view
+        self._loaded, self._pending, self._sources = False, None, {}
         for c in (self.design, self.run, self.level, self.kind):
             _fill(c, [])
         self.pane.full_query = None
@@ -111,22 +115,45 @@ class StructuresTab(QWidget):
         self.chart.set_points([], "", "")
         self.status.setText("Reading structures ...")
         if view is not None:
-            self._submit("sdesigns", view.structure_designs)
+            self._submit(
+                "sdesigns", lambda: (view.structure_designs(), view.structure_design_sources())
+            )
 
     def _designs(self, result: object) -> None:
-        assert isinstance(result, list)
-        _fill(self.design, [str(x) for x in result])
-        if not result:
+        assert isinstance(result, tuple)
+        designs, self._sources = result
+        self._loaded = True
+        _fill(self.design, [str(x) for x in designs])
+        if not designs:
             self.status.setText("This store has no structure_mapping rows.")
+            return
+        pending, self._pending = self._pending, None
+        if pending is not None:
+            self.select_design(pending[1], pending[0])
             return
         self._design_changed()
 
-    def select_design(self, name: str) -> None:
+    def _match(self, names: list[str], name: str, source: str) -> str:
+        """The store's design key ("suite/design") for (source, design): the name must match
+        exactly or after the last "/", and, when the store says which sources ran it, the source
+        must be one of them."""
+        for n in names:
+            if n != name and n.rsplit("/", 1)[-1] != name:
+                continue
+            known = self._sources.get(n)
+            if not source or not known or source in known:
+                return n
+        return ""
+
+    def select_design(self, name: str, source: str | None = None) -> None:
         """Show one design; say so in plain words when the store has no structures for it."""
         if self.view is None:
             return
+        if not self._loaded:  # the list is still being read: apply this choice when it arrives
+            self._pending = (source or "", name)
+            return
         names = [self.design.itemText(i) for i in range(self.design.count())]
-        found = next((n for n in names if n == name or n.rsplit("/", 1)[-1] == name), "")
+        found = self._match(names, name, source or "")
         if not found:
             self.pane.full_query = None
             self.pane.set_table(Table("", (), []))
@@ -147,9 +174,8 @@ class StructuresTab(QWidget):
     def _filters(self, result: object) -> None:
         assert isinstance(result, tuple)
         runs, levels, kinds = result
-        _fill(self.run, [ALL, *runs])
-        _fill(self.level, [ALL, *levels])
-        _fill(self.kind, [ALL, *kinds])
+        for combo, items in ((self.run, runs), (self.level, levels), (self.kind, kinds)):
+            _fill(combo, [ALL, *items], combo.currentText())  # keep a pick that is still valid
         self.reload()
 
     def reload(self) -> None:
@@ -178,13 +204,15 @@ class TimingTab(QWidget):
     run_changed = Signal(str)  # the user picked a run in the combo
     KEYS = ("truns", "tdata", "tscatter", "tmetrics", "trows")
 
-    def __init__(self, submit: Submit) -> None:
+    def __init__(self, submit: Submit, settings: QSettings | None = None) -> None:
         super().__init__()
         self._submit = submit
         self.view: MimirView | None = None
         self._run_ids: list[str] = []
         self._all_runs: list[tuple[str, str]] = []
         self._design = ""
+        self._source = ""
+        self._requested = ""  # the run whose data was last asked for
         self.run = QComboBox()
         self.kind = QComboBox()
         self.kind.addItems(OBJECT_KINDS)
@@ -203,7 +231,7 @@ class TimingTab(QWidget):
         self.hover = QLabel("")
         self.scatter_status = QLabel("")
         lay = QVBoxLayout(self)
-        lay.addWidget(HelpBox("Timing"))
+        lay.addWidget(HelpBox("Timing", settings=settings))
         lay.addLayout(_row("Run", self.run, "Objects", self.kind, self.open_button))
         lay.addWidget(self.summary)
         lay.addWidget(self.hist, 1)
@@ -234,7 +262,7 @@ class TimingTab(QWidget):
         _fill(self.run, [])
         self._run_ids = []
         self._all_runs = []
-        self._design = ""
+        self._design, self._source, self._requested = "", "", ""
         self.pane.full_query = None
         self.pane.set_table(Table("", (), []))
         self.hist.set_counts([])
@@ -249,35 +277,55 @@ class TimingTab(QWidget):
         runs, metrics = result
         self._all_runs = list(runs)
         if not runs:
-            self.summary.setText(NO_TIMING)
+            self._no_data()
             return
         self._fill_runs()
         area = [m for m in metrics if is_area(m)]
         _fill(self.x_metric, area or list(metrics))
         note = "" if area else "No LUT/CLB records in this store: x lists all metrics (a proxy)."
         self.scatter_status.setText(note)
-        self.reload()
-
-    def _fill_runs(self) -> None:
-        prefix = self._design + " / "
-        runs = [r for r in self._all_runs if not self._design or r[1].startswith(prefix)]
-        self._run_ids = [r for r, _ in runs]
-        _fill(self.run, [label for _, label in runs])
-
-    def select_design(self, name: str) -> None:
-        """List the runs of one design (all runs for "") and select the first with timing data."""
-        self._design = name
-        if not self._all_runs:
-            return
-        self._fill_runs()
         if self._run_ids:
             self.reload()
-            return
+        else:
+            self._no_data()
+
+    def _wanted(self, label: str) -> bool:
+        """A run label is "design / source / arm / seed n [id]": match design and source fields."""
+        if not self._design:
+            return True
+        fields = label.split(" / ")
+        if fields[0] != self._design:
+            return False
+        return not self._source or (len(fields) > 1 and fields[1] == self._source)
+
+    def _fill_runs(self) -> None:
+        runs = [r for r in self._all_runs if self._wanted(r[1])]
+        self._run_ids = [r for r, _ in runs]
+        _fill(self.run, [label for _, label in runs], self.run.currentText())
+
+    def _no_data(self) -> None:
+        self._requested = ""
         self.hist.set_counts([])
         self.pane.full_query = None
         self.pane.set_table(Table("", (), []))
         self.open_button.setEnabled(False)
-        self.summary.setText(f"no timing data for {name} in this store")
+        if self._design:
+            self.summary.setText(f"no timing data for {self._design} in this store")
+        else:
+            self.summary.setText(NO_TIMING)
+
+    def select_design(self, name: str, source: str | None = None) -> None:
+        """List the runs of one (source, design) (all runs for "") and show the first/kept one."""
+        self._design, self._source = name, source or ""
+        if not self._all_runs:
+            if self.view is not None and not self.summary.text().startswith("Reading"):
+                self._no_data()
+            return
+        self._fill_runs()
+        if self._run_ids:
+            self.reload()
+        else:
+            self._no_data()
 
     def _picked(self) -> None:
         self.reload()
@@ -288,15 +336,20 @@ class TimingTab(QWidget):
         return self._run_ids[i] if 0 <= i < len(self._run_ids) else ""
 
     def select_run(self, run_id: str) -> None:
-        if run_id in self._run_ids:
-            self.run.setCurrentIndex(self._run_ids.index(run_id))
-            self.reload()
+        if run_id not in self._run_ids:
+            return
+        index = self._run_ids.index(run_id)
+        if index == self.run.currentIndex() and run_id == self._requested:
+            return  # already showing it
+        self.run.setCurrentIndex(index)
+        self.reload()
 
     def reload(self) -> None:
         run_id = self.current_run()
         if self.view is None or not run_id:
             return
         view, kind = self.view, self.kind.currentText()
+        self._requested = run_id
         self.pane.full_query = lambda: view.timing_top_objects(run_id, kind, 0)
         top = ROW_LIMIT
         self._submit(
@@ -390,5 +443,6 @@ def summary_text(info: mimirview.TimingRunInfo) -> str:
         f"{get('paths_used')} of {get('paths_requested')} paths used ({_truncation(s)}). "
         f"Near-critical paths {near}. Source: {get('source_kind')}."
         + (f" {exact[0].upper()}{exact[1:]}." if exact else "")
-        + spread + missing
+        + spread
+        + missing
     )
