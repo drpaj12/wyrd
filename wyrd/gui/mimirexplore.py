@@ -125,13 +125,15 @@ class StructuresTab(QWidget):
         """Show one design; say so in plain words when the store has no structures for it."""
         if self.view is None:
             return
-        if self.design.findText(name) < 0:
+        names = [self.design.itemText(i) for i in range(self.design.count())]
+        found = next((n for n in names if n == name or n.rsplit("/", 1)[-1] == name), "")
+        if not found:
             self.pane.full_query = None
             self.pane.set_table(Table("", (), []))
             self.chart.set_points([], "", "")
             self.status.setText(f"no structure data for {name} in this store")
             return
-        self.design.setCurrentText(name)
+        self.design.setCurrentText(found)
         self._design_changed()
 
     def _design_changed(self) -> None:

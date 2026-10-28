@@ -16,6 +16,8 @@ from tests import mimir_fixture
 HAVE_QT = importlib.util.find_spec("PySide6") is not None
 
 if HAVE_QT:
+    from PySide6.QtCore import Qt
+
     from tests.qt_helpers import dispose, qapp
     from tests.test_gui_mimir import settle, wait
     from wyrd.gui.mimirpanel import MimirPanel
@@ -127,3 +129,75 @@ class SummaryTextTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(HAVE_QT, "PySide6 not installed")
+class CurrentDesignTest(unittest.TestCase):
+    """The design list selection is the one current design of every tab."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = Path(tmp.name)
+        self.panel = MimirPanel()
+        self.addCleanup(dispose, self.panel)
+        db = mimir_fixture.build(self.dir / "s.db", version="5", timing=True)
+        p = self.panel
+        self.assertTrue(wait(p, "open", lambda: p.open_store(db)))
+        self.drain()
+
+    def drain(self) -> None:
+        for _ in range(6):
+            self.panel._pool.waitForDone()
+            settle()
+
+    def pick(self, name: str) -> None:
+        p = self.panel
+        for i in range(p.designs.count()):
+            item = p.designs.item(i)
+            data = item.data(Qt.ItemDataRole.UserRole) if item else None
+            if data and data[1] == name:
+                p.designs.setCurrentRow(i)
+                break
+        self.drain()
+
+    def test_design_loads_every_tab(self) -> None:
+        p = self.panel
+        self.pick("d1")
+        self.assertIn("d1", p.current_line.text())
+        self.assertIn("d1", p.design_label.text())
+        self.assertEqual(p.runs_pane.grid.rowCount(), 1)
+        self.assertIn(p._current_run, ("r1", "r3"))
+        self.assertEqual(p.params_pane.grid.rowCount(), 3)
+        self.assertEqual(p.structs.design.currentText(), "s/d1")
+        self.assertEqual(p.timing_tab.run.count(), 1)
+        self.assertTrue(p.timing_tab.run.currentText().startswith("d1 / "))
+        self.assertEqual(p.timing_tab.current_run(), "r1")
+        self.assertEqual(p.chart.highlight, "d1")
+
+    def test_timing_run_pick_sets_current_run(self) -> None:
+        p = self.panel
+        self.pick("d2")
+        self.assertEqual(p.timing_tab.current_run(), "r2")
+        self.assertEqual(p._current_run, "r2")
+        self.assertIn("run r2", p.current_line.text())
+
+    def test_nothing_for_a_design_is_said_plainly(self) -> None:
+        p = self.panel
+        self.pick("d3")
+        self.assertIn("no timing data for d3", p.timing_tab.summary.text())
+        self.assertIn("no structure data for d3", p.structs.status.text())
+        self.assertIn("no runs of d3", p.run_label.text())
+
+    def test_plot_ringed_and_store_switch_clears(self) -> None:
+        p = self.panel
+        self.pick("d1")
+        self.assertTrue(wait(p, "plot", p.plot))
+        self.assertEqual(len(p.chart.highlighted()), 1)
+        self.assertIn("d1 is ringed", p.plot_status.text())
+        db = mimir_fixture.build(self.dir / "t.db", version="5", timing=True)
+        self.assertTrue(wait(p, "open", lambda: p.open_store(db)))
+        self.drain()
+        self.assertEqual(p.chart.highlight, "")
+        self.assertIn("none", p.current_line.text())
+        self.assertEqual(p._current_run, "")

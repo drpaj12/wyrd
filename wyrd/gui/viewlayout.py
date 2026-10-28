@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QTreeView,
     QWidget,
 )
+from shiboken6 import isValid
 
 from wyrd.guimodel import layoutspec as spec
 
@@ -257,6 +258,8 @@ class ViewLayout(QObject):
     def hook_tabbars(self) -> None:
         """Catch double-clicks on the tab bars Qt makes for tabbed docks."""
         self._hook_pending = False
+        if not isValid(self.win):
+            return
         for bar in self.win.findChildren(QTabBar):
             if bar.parent() is self.win and not bar.property(_HOOKED):
                 bar.setProperty(_HOOKED, True)

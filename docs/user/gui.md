@@ -10,6 +10,26 @@ A step-by-step PDF tutorial does everything below in the interface, with a figur
 `wyrd-gui` needs the `gui` extra (PySide6). Without an argument it opens the last project (if its
 `wyrd.toml` still exists). Run it inside WSL: WSLg shows the window.
 
+## Layout, View menu and zoom
+
+Every panel is a dock: drag its title to move it, drag the borders to size it, use the title
+buttons to float (detach) or close it, and **View > Panels** to bring a closed one back. There is no
+fixed central area, so any panel, such as Mímir, can fill the window on its own.
+
+- **Maximise**: View > Maximise current panel (F11 or Ctrl+Shift+M), or double-click a dock title or
+  tab. The same again restores. The current panel is the one with the keyboard focus.
+- **Layouts** (View > Layout): *Project* (default), *Timing + source*, *Mímir explorer*,
+  *Everything tabbed*, and **Reset layout**. The last layout is saved on quit and restored; a saved
+  layout from another version is ignored.
+- **Zoom**: View > Zoom in / out / reset (Ctrl+=, Ctrl+-, Ctrl+0) changes the text size of the source
+  view, the editor, tables and trees. The size is remembered.
+- **About headers**: each panel starts with a collapsible About header (what it shows, why use it,
+  what you will see, how to read it). Its state is remembered; View > About headers shows or hides
+  all. Help > Wyrd guide holds the same text.
+
+On WSLg start the GUI with `QT_QPA_PLATFORM=xcb`: the Wayland plugin crashed on maximise with an
+xdg_surface size error. The code does not set the platform itself.
+
 ## The window
 
 - **Project** (left dock): the project as a tree of Designs (with their files), Recipes (with their
@@ -110,3 +130,179 @@ per design, optional log axes, hover names the design). Every table has Copy and
 The same data is on the command line: `wyrd mimir` (see `running.md`). Spec:
 `docs/specs/2026-10-28-mimir-browser.md`.
 
+## Wyrd guide
+
+<!-- wyrd-guide:begin -->
+## Wyrd guide
+
+Wyrd is a window onto your project: its files, its runs, what the tools said, how fast the circuit is, and what a Mímir store knows. Every part of the window is a panel. Each panel has an About header with the four parts below. View > Panels shows or hides a panel, View > Layout chooses a layout, F11 makes one panel fill the window, and Ctrl+= / Ctrl+- / Ctrl+0 change the text size.
+
+## The panels
+
+### Project
+
+**What this shows.** Your project as a tree: the designs (circuits) with their source files, the recipes (the steps the flow runs) and the architectures (the target chip descriptions).
+
+**Why use it.** Find a file of your project quickly and open it, without a file dialog.
+
+**What you will see.** Three groups: Designs (each with its files), Recipes (each with its steps) and Archs. The tree is empty until a project is open (File > Open Project).
+
+**How to read it.** Double click a file to show it in the Source panel. A recipe is an ordered list of tools (for example synthesis then place and route); an arch is the chip the circuit is built on.
+
+### Source
+
+**What this shows.** The text of one Verilog file, read only, with syntax colours. When a timing run is loaded it can also paint the text hot (red) or cold (blue).
+
+**Why use it.** Read the code that a message, a path or a table row points at, and see which parts of it decide the speed of the chip.
+
+**What you will see.** The file name, the code, and a margin with a share per line. With hot/cold on you also see a colour bar (blue to red) with a theta line, coloured words, small strips under buses, and dotted underlines.
+
+**How to read it.** Red means critical: the signal lies on a path that limits the clock speed. Blue means not critical: lots of spare time. The criticality (crit) runs from 0 (blue) to 1 (red). Theta is the near-critical threshold (0.90, 0.95 or 0.99): paths with crit at least theta count as near-critical. A bit strip under a bus word has one small box per bit, most significant bit first, each coloured by that bit's crit. A dotted underline means the colour was found by matching the name on that line, so it is a good guess, not a certain link.
+
+### Report
+
+**What this shows.** The results of the runs of your project: one tree entry per run and, for the selected run, its table of numbers, its log, or a comparison with another project.
+
+**Why use it.** See whether a run worked, what it measured, and how it compares, without opening files.
+
+**What you will see.** A tree of runs on the left; on the right a table of metrics (such as area and delay), a log page, and a compare page. A Floorplan button opens the chip layout of a run.
+
+**How to read it.** A run is one execution of the flow with one set of settings. Select a run to load its messages and timing into the other panels. A failed run shows its log.
+
+### wyrd.toml
+
+**What this shows.** The project file wyrd.toml: it says which designs, settings and recipes the runs use.
+
+**Why use it.** Change what the project runs. The text is checked while you type.
+
+**What you will see.** A text editor, a status line (the number of runs the file expands to, or the error) and a Save button.
+
+**How to read it.** A green status gives the number of runs. A red status names the problem and its line; click it to jump there. Ctrl+S saves. After a valid save the project reloads.
+
+### Simulate
+
+**What this shows.** Run a design in a simulator and watch its signals change over time, like a logic analyser.
+
+**Why use it.** Check that a circuit does what you expect, step by step, before you build it.
+
+**What you will see.** Controls (compile, step, run, reset), a table of signals with their values, a waveform and a list of diagnostics. Test vectors can be loaded or generated.
+
+**How to read it.** A step is one clock tick. A waveform is a signal's value drawn against time. A vector is one set of input values to apply. Radix chooses how numbers are shown (binary, decimal, hexadecimal).
+
+### Messages
+
+**What this shows.** The warnings and errors that the tools printed when they ran the selected run.
+
+**Why use it.** Find what went wrong, or what the tools were unsure about, and jump to the line.
+
+**What you will see.** A table with the severity, the tool, the text, and the file and line when there is one.
+
+**How to read it.** Errors stop a run, warnings do not. Double click a row that names a file to open it at that line in the Source panel.
+
+### Flow
+
+**What this shows.** The control for running your project's flow: the same as the wyrd run command.
+
+**Why use it.** Start, watch and stop the runs from the window.
+
+**What you will see.** Run, Cancel and Force controls, the number of jobs and the memory budget, a progress line and the output of the running steps.
+
+**How to read it.** Jobs is how many runs go at once; the memory budget stops too many big runs from starting together. Force repeats runs that already finished OK. Cancel keeps finished runs.
+
+### Timing
+
+**What this shows.** The timing of the selected run: how long the slowest paths are and which parts of the HDL they go through.
+
+**Why use it.** Find the signals, lines and modules that set the speed of the chip.
+
+**What you will see.** A summary, a table of paths and objects, and controls that choose how the Source panel is coloured (by margin, hot/cold, or both) and which paths count.
+
+**How to read it.** Slack is the spare time of a path: negative means the path is too slow. Crit is 1 minus slack divided by the clock period, so 1 is the slowest. Near-critical means crit is at least theta. Click a coloured word in the Source panel to list its paths.
+
+### Schematic
+
+**What this shows.** A drawing of the gates and wires of one module of a synthesised netlist.
+
+**Why use it.** See the structure the tools built from your code.
+
+**What you will see.** A module chooser, Open netlist and Draw buttons, and the drawing. Each gate is a box, each wire a line.
+
+**How to read it.** A netlist is the circuit after synthesis, written as gates and wires. Large modules are drawn in pieces; use the scroll bars or zoom.
+
+### Atlas
+
+**What this shows.** A map of where the parts of the circuit were placed on the chip, and how that changed between two settings.
+
+**Why use it.** See whether different placement settings put the logic in different places.
+
+**What you will see.** File and design choosers, two arm choosers (A and B, the two settings compared), a scan button and grids of the chip.
+
+**How to read it.** A placement is the position of every block on the chip grid. An arm is one setting of the experiment. Brighter cells hold more blocks or moved more between the arms.
+
+### Mímir
+
+**What this shows.** A viewer for a Mímir store, a database of measured values of many circuits: size, speed, and how the HDL turned into logic.
+
+**Why use it.** Compare experiments, look at one circuit in depth, and send timing to the Source panel.
+
+**What you will see.** A list of circuits on the left and tabs on the right: Summary, Design, Run, Compare, Plot, Structures, Timing. Each tab has its own About header.
+
+**How to read it.** The store is opened read only: Wyrd never changes it. Start with File > Open Mímir store, then read the Summary tab.
+
+## Mímir guide: from a store to a coloured source file
+
+Mímir is a database of measured values of circuits: how big they are, how fast, how their HDL
+turned into logic. Wyrd shows it read only: it never changes the file.
+
+### 1. Open a store
+
+File > Open Mímir store... and choose a `.db` file. The Summary tab says what is in it: records
+(measured values), runs (executions of the flow) and sources (experiments).
+
+### 2. Pick a design
+
+Choose a source and type in the filter box, then click a circuit. The Design tab fills in. Double
+click a run in its Runs table to see exactly how the run was made (Run tab).
+
+### 3. The Timing tab
+
+Pick a run. The summary line gives the clock period (CPD), the worst slack and how many of the
+reported paths were used. Criticality (crit) is 1 minus slack divided by the clock period: 1.0 is
+the slowest path, 0 has plenty of spare time. A path is near-critical when its crit is at least
+theta (0.90, 0.95 or 0.99). The histogram shows how many paths fall in each crit range; the
+table lists the most critical HDL objects, with a bit strip for buses.
+
+Exact or lower bound: when the summary says "crit is exact", the clock period was found from all
+paths. When it says "crit is a lower bound (dmax from report)", it came from a cut report and the
+true crit can only be higher.
+
+### 4. Open in source view
+
+Press "Open in source view". Wyrd finds the design's source from the store (the design's origin,
+for example `$VTR_ROOT/vtr_flow/benchmarks/verilog/mkPktMerge.v`; `$VTR_ROOT` comes from your
+environment or the machine settings), opens it read only, switches the Timing panel to
+near-critical, and selects the hottest token. When the file cannot be found the status line
+says exactly what is missing and a file dialog lets you pick it.
+
+### 5. What red and blue mean
+
+Red is critical (crit near 1), blue is not critical, light yellow is in between. A faint tint
+on a whole line says the line is on a near-critical path. For a bus such as `D_OUT[141:0]` the
+name is split into one coloured piece per bit, most significant bit first: a name of 6 letters
+for 3 bits gives 2 letters per bit. When the name is shorter than the number of bits, a bit
+strip under the name shows each bit and the name keeps the highest crit. A dotted underline
+marks a bit that is unknown. Hover a token to see its crit and every bit.
+
+### 6. Example: mkPktMerge
+
+Open `lane3-structures.db`, pick `mkPktMerge`, choose a run in the Timing tab and press Open
+in source view. The word `fi1__D_OUT` is a bus of at least 142 bits. Bits 134 and 141 have
+crit 1.0 and bit 132 has 0.995: those bits set the speed of the chip, while many others sit
+near 0.93. Click the token to list the paths through it in the Timing panel.
+
+### 7. Structures tab
+
+A structure is a piece of HDL that looks like a known building block (an adder, a multiplexer).
+Each row says how many LUTs and CLBs it became, where it was placed (bbox), its spread (how far
+apart its parts are) and crit_share (how much of the critical path it accounts for).
+<!-- wyrd-guide:end -->

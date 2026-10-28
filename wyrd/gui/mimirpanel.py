@@ -35,6 +35,7 @@ from wyrd.gui.tablepane import TablePane
 from wyrd.mimirview import MimirError, MimirView, Table
 
 NO_STORE = "No Mímir store open. Use File > Open Mímir store... or the button below."
+FETCH_TIP_READY = "Download the files of this run to a folder you choose."
 FETCH_TIP_MISSING = "The `mimir` command is not on PATH; install the mimir package to fetch."
 LIST_LIMIT = 500
 ROW_LIMIT = mimirview.DEFAULT_LIMIT  # rows per design table
@@ -379,7 +380,7 @@ class MimirPanel(QWidget):
     def set_last(self, path: str) -> None:
         self.last_path = path
         self.last_button.setEnabled(bool(path))
-        self.last_button.setToolTip(path)
+        self.last_button.setToolTip(path or "Open the store you used last time.")
 
     def choose(self) -> None:
         name, _ = QFileDialog.getOpenFileName(
@@ -460,7 +461,9 @@ class MimirPanel(QWidget):
         self._current_design = ""
         self.chart.set_highlight("")
         self._update_current()
+        self.designs.blockSignals(True)  # clearing must not select a design of the new store
         self.designs.clear()
+        self.designs.blockSignals(False)
         self.design_label.setText("")
         for pane in (
             self.metrics_pane, self.runs_pane, self.meta_pane, self.lineage_pane,
@@ -491,7 +494,9 @@ class MimirPanel(QWidget):
     def _listed(self, result: object) -> None:
         assert isinstance(result, Table)
         t = result
+        self.designs.blockSignals(True)
         self.designs.clear()
+        self.designs.blockSignals(False)
         for s, name, _slug, _suite, n in t.rows:
             item = QListWidgetItem(f"{name}   [{s}]  {n} runs")
             item.setData(Qt.ItemDataRole.UserRole, (str(s), str(name)))
@@ -607,7 +612,7 @@ class MimirPanel(QWidget):
         have = mimirview.mimir_on_path() is not None
         running = self._proc is not None
         self.fetch_button.setEnabled(have and bool(self._current_run) and not running)
-        self.fetch_button.setToolTip("" if have else FETCH_TIP_MISSING)
+        self.fetch_button.setToolTip(FETCH_TIP_READY if have else FETCH_TIP_MISSING)
         self.cancel_button.setEnabled(running)
 
     def _ask_dir(self) -> str:
