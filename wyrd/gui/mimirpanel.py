@@ -1,15 +1,14 @@
 """The Mímir dock: browse a Mimir store read only (designs, runs, compare, plot). Spec:
-docs/specs/2026-10-28-mimir-browser.md. Slow queries run on a worker thread; a token drops stale
-results."""
+docs/specs/2026-10-28-mimir-browser.md. Every store query runs on a worker thread; a token per
+request kind drops stale results. `mimir fetch` runs in a QProcess with its output shown."""
 
 from __future__ import annotations
 
-import subprocess
 import time
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal
+from PySide6.QtCore import QObject, QProcess, QRunnable, Qt, QThreadPool, Signal
 from PySide6.QtGui import QBrush, QColor, QGuiApplication
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -22,6 +21,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -43,6 +43,9 @@ CONF_COLOURS = {
 NO_STORE = "No Mímir store open. Use File > Open Mímir store... or the button below."
 FETCH_TIP_MISSING = "The `mimir` command is not on PATH; install the mimir package to fetch."
 LIST_LIMIT = 500
+ROW_LIMIT = mimirview.DEFAULT_LIMIT  # rows per design table
+MORE_NOTE = " (cut at the row limit: filter by level to narrow; Export CSV writes all rows)"
+RUN_TEXT = "Select a run in the Design tab (double click)."
 
 
 class TablePane(QWidget):
@@ -51,6 +54,7 @@ class TablePane(QWidget):
     def __init__(self, conf_column: str = "") -> None:
         super().__init__()
         self.table_data = Table("", (), [])
+        self.full_query: Callable[[], Table] | None = None  # the same query without the row cap
         self.conf_column = conf_column
         self.grid = QTableWidget()
         self.grid.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -77,21 +81,28 @@ class TablePane(QWidget):
         self.grid.setHorizontalHeaderLabels(list(t.columns))
         self.grid.setRowCount(len(t.rows))
         conf = t.columns.index(self.conf_column) if self.conf_column in t.columns else -1
+        flag = t.columns.index("mixed") if "mixed" in t.columns else -1
         for i, r in enumerate(t.rows):
             colour = CONF_COLOURS.get(str(r[conf])) if conf >= 0 else None
+            if flag >= 0 and r[flag] == "MIXED":
+                colour = CONF_COLOURS["default-unrecorded"]
             for j, c in enumerate(r):
                 item = QTableWidgetItem(mimirview.cell_text(c))
                 if colour:
                     item.setBackground(QBrush(QColor(colour)))
                 self.grid.setItem(i, j, item)
         self.grid.resizeColumnsToContents()
-        self.note.setText(f"{len(t.rows)} rows" + (" (more not shown)" if t.more else ""))
+        self.note.setText(f"{len(t.rows)} rows" + (MORE_NOTE if t.more else ""))
 
     def copy(self) -> None:
         QGuiApplication.clipboard().setText(mimirview.render_tsv(self.table_data))
 
     def export_csv(self, path: Path) -> None:
-        path.write_text(mimirview.render_csv(self.table_data), encoding="utf-8")
+        """Write the table; a table cut by the row cap is re-queried without the cap."""
+        t = self.table_data
+        if t.more and self.full_query is not None:
+            t = self.full_query()
+        path.write_text(mimirview.render_csv(t), encoding="utf-8")
 
     def export_dialog(self) -> None:
         name, _ = QFileDialog.getSaveFileName(self, "Export CSV", "", "CSV (*.csv)")
@@ -129,14 +140,19 @@ class MimirPanel(QWidget):
 
     finished = Signal(str)
     store_opened = Signal(str)
+    fetch_finished = Signal(int)
 
     def __init__(self) -> None:
         super().__init__()
         self.view: MimirView | None = None
         self.last_path = ""
         self.timings: dict[str, float] = {}
-        self.fetch_runner: Callable[[list[str]], int] = lambda argv: subprocess.run(argv).returncode
+        self.argv_for: Callable[[str, Path, Path], list[str]] = mimirview.fetch_argv
         self.fetch_dir: Callable[[], str] = self._ask_dir
+        self._proc: QProcess | None = None
+        self._pending: MimirView | None = None
+        self._design_key: tuple[str, str | None] | None = None
+        self._notes = ""
         self._tokens: dict[str, int] = {}
         self._pool = QThreadPool(self)
         self._pool.setMaxThreadCount(1)
@@ -172,6 +188,8 @@ class MimirPanel(QWidget):
 
     def _make_design_widgets(self) -> None:
         self.design_label = QLabel("")
+        self.design_level = QComboBox()
+        self.design_level.setToolTip("Show only metric records of this level")
         self.design_tabs = QTabWidget()
         self.metrics_pane = TablePane()
         self.runs_pane = TablePane()
@@ -186,11 +204,16 @@ class MimirPanel(QWidget):
             self.design_tabs.addTab(pane, name)
 
     def _make_run_widgets(self) -> None:
-        self.run_label = QLabel("Select a run in the Design tab (double click).")
+        self.run_label = QLabel(RUN_TEXT)
         self.run_label.setWordWrap(True)
         self.params_pane = TablePane("conf")
         self.artifacts_pane = TablePane()
         self.fetch_button = QPushButton("Fetch artifacts...")
+        self.cancel_button = QPushButton("Cancel fetch")
+        self.cancel_button.setEnabled(False)
+        self.fetch_log = QPlainTextEdit()
+        self.fetch_log.setReadOnly(True)
+        self.fetch_log.setMaximumHeight(110)
 
     def _make_compare_widgets(self) -> None:
         self.cmp_prefix = QLineEdit()
@@ -204,6 +227,9 @@ class MimirPanel(QWidget):
         self.cmp_go = QPushButton("Compare")
         self.cmp_pane = TablePane()
         self.cmp_chart = DotChart()
+        self.cmp_scroll = QScrollArea()
+        self.cmp_scroll.setWidgetResizable(True)
+        self.cmp_scroll.setWidget(self.cmp_chart)
         self.cmp_status = QLabel("")
 
     def _make_plot_widgets(self) -> None:
@@ -252,7 +278,11 @@ class MimirPanel(QWidget):
     def _design_tab(self) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
-        lay.addWidget(self.design_label)
+        top = QHBoxLayout()
+        top.addWidget(self.design_label, 1)
+        top.addWidget(QLabel("Metrics level"))
+        top.addWidget(self.design_level)
+        lay.addLayout(top)
         lay.addWidget(self.design_tabs, 1)
         return w
 
@@ -264,7 +294,12 @@ class MimirPanel(QWidget):
         lay.addWidget(self.params_pane, 3)
         lay.addWidget(QLabel("Artifacts"))
         lay.addWidget(self.artifacts_pane, 1)
-        lay.addWidget(self.fetch_button)
+        row = QHBoxLayout()
+        row.addWidget(self.fetch_button)
+        row.addWidget(self.cancel_button)
+        row.addStretch(1)
+        lay.addLayout(row)
+        lay.addWidget(self.fetch_log)
         return w
 
     @staticmethod
@@ -282,7 +317,7 @@ class MimirPanel(QWidget):
                                 "Level", self.cmp_level, self.cmp_go))  # fmt: skip
         lay.addWidget(self.cmp_status)
         lay.addWidget(self.cmp_pane, 2)
-        lay.addWidget(self.cmp_chart, 1)
+        lay.addWidget(self.cmp_scroll, 1)
         return w
 
     def _plot_tab(self) -> QWidget:
@@ -303,6 +338,8 @@ class MimirPanel(QWidget):
         self.designs.itemSelectionChanged.connect(self._design_selected)
         self.runs_pane.grid.cellDoubleClicked.connect(self._run_row_activated)
         self.fetch_button.clicked.connect(self.fetch)
+        self.cancel_button.clicked.connect(self.cancel_fetch)
+        self.design_level.activated.connect(self._refresh_design)
         self.cmp_load.clicked.connect(self.list_configs)
         self.cmp_go.clicked.connect(self.compare)
         self.plot_go.clicked.connect(self.plot)
@@ -325,7 +362,8 @@ class MimirPanel(QWidget):
         self.timings[key] = seconds
         handler = {
             "open": self._opened, "compare": self._compared, "plot": self._plotted,
-            "configs": self._configs,
+            "configs": self._configs, "list": self._listed, "design": self._designed,
+            "run": self._ran,
         }[key]  # fmt: skip
         handler(result)
         self.finished.emit(key)
@@ -333,8 +371,15 @@ class MimirPanel(QWidget):
     def _on_failed(self, token: int, key: str, reason: str) -> None:
         if token != self._tokens.get(key):
             return
+        if key == "open":
+            self._pending = None
         self.status.setText(f"{key}: {reason}")
         self.finished.emit(key)
+
+    def _invalidate(self) -> None:
+        """Drop every request still in flight (their tokens no longer match)."""
+        for key in ("open", "list", "design", "run", "configs", "compare", "plot"):
+            self._tokens[key] = self._tokens.get(key, 0) + 1
 
     # ---- opening ----
 
@@ -355,30 +400,46 @@ class MimirPanel(QWidget):
             self.open_store(Path(self.last_path))
 
     def open_store(self, path: Path) -> bool:
-        """Check the file inline (cheap) and load the summary on the worker. False: not usable."""
+        """Check the file (cheap), then read the summary on the worker. False: not usable.
+
+        Nothing of the previous store changes until the new one has been read.
+        """
         try:
-            self.view = MimirView(path)
+            view = MimirView(path)
         except MimirError as e:
-            self.view = None
             self.status.setText(str(e))
             return False
+        self._invalidate()
+        self._pending = view
         self.status.setText(f"Reading {path.name} ...")
-        view = self.view
-        self._submit("open", lambda: (view.summary(), view.metric_names(), view.sources()))
-        self.set_last(str(path))
-        self.store_opened.emit(str(path))
+        self._submit(
+            "open",
+            lambda: (
+                view.summary(), view.metric_names(), view.sources(), mimirview.metric_descriptions()
+            ),
+        )  # fmt: skip
         return True
 
     def _opened(self, result: object) -> None:
-        assert isinstance(result, tuple)
-        summary, metrics, sources = result
-        assert self.view is not None
-        self.status.setText(f"{self.view.path}  (schema version {summary.version}, read only)")
+        assert isinstance(result, tuple) and self._pending is not None
+        summary, metrics, sources, descriptions = result
+        self.view, self._pending = self._pending, None
+        self._reset()
+        self.set_last(str(self.view.path))
+        wal = "; a -wal file exists beside it, another process may have it open"
+        self.status.setText(
+            f"{self.view.path}  (schema version {summary.version}, read only"
+            + (wal if self.view.wal_present else "")
+            + ")"
+        )
         counts = ", ".join(f"{k}={n}" for k, n in summary.counts.items())
+        self._notes = summary.note
         self.summary_text.setPlainText(
             f"{self.view.path.name}  {summary.size_bytes} bytes\nrows: {counts}\n"
             f"levels: {', '.join(summary.levels)}\ndistinct metrics: {summary.n_metrics}\n"
+            + (f"NOTE: {summary.note}\n" if summary.note else "")
         )
+        self.cmp_status.setText(summary.note)
         self.sources_pane.set_table(summary.sources)
         self.source.clear()
         self.source.addItems(["(all sources)", *sources])
@@ -387,24 +448,51 @@ class MimirPanel(QWidget):
         for combo in (self.cmp_metric, self.plot_x, self.plot_y):
             combo.clear()
             combo.addItems(metrics)
+            for i, name in enumerate(metrics):
+                combo.setItemData(i, descriptions.get(name, ""), Qt.ItemDataRole.ToolTipRole)
         if self.plot_y.count() > 1:
             self.plot_y.setCurrentIndex(1)
-        self.cmp_level.clear()
-        self.cmp_level.addItems(["", *summary.levels])
+        for combo, first in ((self.cmp_level, ""), (self.design_level, "")):
+            combo.clear()
+            combo.addItems([first, *summary.levels])
+        self.store_opened.emit(str(self.view.path))
         self.fill_designs()
 
-    # ---- design list and views (indexed, inline) ----
+    def _reset(self) -> None:
+        """Clear everything that belonged to the previous store."""
+        self.cancel_fetch()
+        self._current_run, self._design_key, self._notes = "", None, ""
+        self.designs.clear()
+        self.design_label.setText("")
+        for pane in (
+            self.metrics_pane, self.runs_pane, self.meta_pane, self.lineage_pane,
+            self.struct_pane, self.params_pane, self.artifacts_pane, self.cmp_pane,
+        ):  # fmt: skip
+            pane.full_query = None
+            pane.set_table(Table("", (), []))
+        self.run_label.setText(RUN_TEXT)
+        self.fetch_log.clear()
+        self.cmp_chart.set_rows([])
+        self.cmp_base.clear()
+        self.cmp_status.setText("")
+        self.chart.set_points([], "", "")
+        self.plot_status.setText("")
+        self.hover.setText("")
+        self._set_fetch_enabled()
+
+    # ---- design list and views ----
 
     def fill_designs(self) -> None:
         if self.view is None:
             return
+        view, text = self.view, self.filter.text().strip()
         src = self.source.currentText()
         source = None if src in ("", "(all sources)") else src
-        try:
-            t = self.view.designs(source, self.filter.text().strip(), LIST_LIMIT)
-        except MimirError as e:
-            self.status.setText(str(e))
-            return
+        self._submit("list", lambda: view.designs(source, text, LIST_LIMIT))
+
+    def _listed(self, result: object) -> None:
+        assert isinstance(result, Table)
+        t = result
         self.designs.clear()
         for s, name, _slug, _suite, n in t.rows:
             item = QListWidgetItem(f"{name}   [{s}]  {n} runs")
@@ -422,12 +510,21 @@ class MimirPanel(QWidget):
     def show_design(self, name: str, source: str | None = None) -> None:
         if self.view is None:
             return
-        try:
-            d = self.view.design(name, source)
-        except MimirError as e:
-            self.status.setText(str(e))
-            return
+        view, level = self.view, self.design_level.currentText() or None
+        self._design_key = (name, source)
+        self._submit("design", lambda: (view, view.design(name, source, ROW_LIMIT, level), level))
+
+    def _refresh_design(self) -> None:
+        if self._design_key is not None:
+            self.show_design(*self._design_key)
+
+    def _designed(self, result: object) -> None:
+        assert isinstance(result, tuple)
+        view, d, level = result
         self.design_label.setText(f"{d.name}  ({', '.join(d.sources)})")
+        source = self._design_key[1] if self._design_key else None
+        self.metrics_pane.full_query = lambda: view.design(d.name, source, 0, level).metrics
+        self.runs_pane.full_query = lambda: view.design(d.name, source, 0, level).runs
         for pane, t in (
             (self.metrics_pane, d.metrics), (self.runs_pane, d.runs), (self.meta_pane, d.meta),
             (self.lineage_pane, d.lineage), (self.struct_pane, d.structures),
@@ -443,15 +540,16 @@ class MimirPanel(QWidget):
     def show_run(self, run_id: str) -> None:
         if self.view is None:
             return
-        try:
-            r = self.view.run(run_id)
-        except MimirError as e:
-            self.status.setText(str(e))
-            return
-        self._current_run = run_id
+        view = self.view
+        self._submit("run", lambda: view.run(run_id))
+
+    def _ran(self, result: object) -> None:
+        assert isinstance(result, mimirview.RunInfo)
+        r = result
+        self._current_run = r.run_id
         h = r.header
         self.run_label.setText(
-            f"run {run_id}: {h['design']}  {h['source']}  arch {h['arch']}  arm {h['arm']}  "
+            f"run {r.run_id}: {h['design']}  {h['source']}  arch {h['arch']}  arm {h['arm']}  "
             f"seed {h['seed']}  tools {h['tool_commits']}  time {h['time_s']}  "
             f"peak RSS {h['peak_rss_mib']}  host {h['host']}\n"
             f"config {r.config.get('name', '?')} ({r.config.get('status', '?')}, "
@@ -466,22 +564,68 @@ class MimirPanel(QWidget):
 
     def _set_fetch_enabled(self) -> None:
         have = mimirview.mimir_on_path() is not None
-        self.fetch_button.setEnabled(have and bool(self._current_run))
+        running = self._proc is not None
+        self.fetch_button.setEnabled(have and bool(self._current_run) and not running)
         self.fetch_button.setToolTip("" if have else FETCH_TIP_MISSING)
+        self.cancel_button.setEnabled(running)
 
     def _ask_dir(self) -> str:
         return QFileDialog.getExistingDirectory(self, "Fetch artifacts into")
 
-    def fetch(self) -> int | None:
-        """Run `mimir fetch --run ID --db DB --out DIR` (no shell); returns its exit code."""
-        if self.view is None or not self._current_run:
-            return None
+    def fetch(self) -> bool:
+        """Start `mimir fetch --run ID --db DB --out DIR` (QProcess, no shell); True: started."""
+        if self.view is None or not self._current_run or self._proc is not None:
+            return False
         out = self.fetch_dir()
         if not out:
-            return None
-        code = self.fetch_runner(mimirview.fetch_argv(self._current_run, self.view.path, Path(out)))
-        self.status.setText(f"mimir fetch exited {code}")
-        return code
+            return False
+        argv = self.argv_for(self._current_run, self.view.path, Path(out))
+        proc = QProcess(self)
+        proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        proc.readyReadStandardOutput.connect(self._fetch_output)
+        proc.finished.connect(self._fetch_done)
+        proc.errorOccurred.connect(self._fetch_error)
+        self._proc = proc
+        self.fetch_log.setPlainText("$ " + " ".join(argv) + "\n")
+        self.status.setText("mimir fetch running ...")
+        proc.start(argv[0], argv[1:])
+        self._set_fetch_enabled()
+        return True
+
+    def _fetch_output(self) -> None:
+        if self._proc is not None:
+            self._fetch_output_of(self._proc)
+
+    def _fetch_done(self, code: int, status: QProcess.ExitStatus) -> None:
+        proc, self._proc = self._proc, None
+        if proc is not None:
+            self._fetch_output_of(proc)
+            proc.deleteLater()
+        crashed = status != QProcess.ExitStatus.NormalExit
+        self.status.setText("mimir fetch cancelled" if crashed else f"mimir fetch exited {code}")
+        self._set_fetch_enabled()
+        self.fetch_finished.emit(-1 if crashed else code)
+
+    def _fetch_output_of(self, proc: QProcess) -> None:
+        text = bytes(proc.readAllStandardOutput().data()).decode(errors="replace").rstrip()
+        if text:
+            self.fetch_log.appendPlainText(text)
+
+    def _fetch_error(self, error: QProcess.ProcessError) -> None:
+        if error != QProcess.ProcessError.FailedToStart:
+            return
+        proc, self._proc = self._proc, None
+        if proc is not None:
+            proc.deleteLater()
+        self.status.setText("mimir fetch failed to start")
+        self.fetch_log.appendPlainText("failed to start")
+        self._set_fetch_enabled()
+        self.fetch_finished.emit(-1)
+
+    def cancel_fetch(self) -> None:
+        """Kill a running fetch (the finished handler reports it)."""
+        if self._proc is not None:
+            self._proc.kill()
 
     # ---- compare ----
 
@@ -509,9 +653,12 @@ class MimirPanel(QWidget):
     def _compared(self, result: object) -> None:
         assert isinstance(result, mimirview.Compare)
         self.cmp_pane.set_table(result.as_table())
-        self.cmp_chart.set_rows(result.rows)
+        self.cmp_chart.set_rows(result.rows, result.multi_level)
+        mixed = sum(1 for r in result.rows if r.mixed)
         self.cmp_status.setText(
-            f"{len(result.rows)} configs; ratio < 1 is lower than {result.base}"
+            f"{len(result.rows)} rows; ratio < 1 is lower than {result.base}"
+            + (f"; {mixed} MIXED (more than one tool commit or config)" if mixed else "")
+            + (" (levels shown separately)" if result.multi_level else "")
         )
 
     # ---- plot ----
@@ -528,9 +675,9 @@ class MimirPanel(QWidget):
 
     def _plotted(self, result: object) -> None:
         assert isinstance(result, tuple)
-        x, y, pts = result
-        self.chart.set_points(pts, x, y)
-        self.plot_status.setText(f"{len(pts)} designs")
+        x, y, sc = result
+        self.chart.set_points(sc.points, x, y)
+        self.plot_status.setText(sc.note)
 
     def _log_changed(self) -> None:
         self.chart.set_log(self.log_x.isChecked(), self.log_y.isChecked())

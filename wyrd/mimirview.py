@@ -189,6 +189,11 @@ def metric_registry() -> dict[str, str]:
         return {}
 
 
+def metric_descriptions() -> dict[str, str]:
+    """Tooltip text per metric key: the Mimir registry when importable, plus the run.* metrics."""
+    return {**metric_registry(), **RUN_METRICS}
+
+
 class MimirView:
     """Read-only access to one Mimir store. Opening checks the file and its schema version."""
 
