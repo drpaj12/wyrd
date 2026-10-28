@@ -79,6 +79,7 @@ class StructuresTab(QWidget):
         self._loaded = False  # the design list has arrived
         self._sources: dict[str, set[str]] = {}
         self._pending: tuple[str, str] | None = None  # (source, design) asked for before that
+        self._note = ""  # says the structures come from another source than the picked one
         lay = QVBoxLayout(self)
         lay.addWidget(HelpBox("Structures", settings=settings))
         lay.addLayout(_row("Design", self.design, "Run", self.run, "Level", self.level,
@@ -154,6 +155,15 @@ class StructuresTab(QWidget):
             return
         names = [self.design.itemText(i) for i in range(self.design.count())]
         found = self._match(names, name, source or "")
+        self._note = ""
+        if not found and source:  # the picked source has none: use any other source
+            found = self._match(names, name, "")
+            others = sorted(self._sources.get(found, set())) if found else []
+            if others:
+                self._note = (
+                    f"Structures from source {', '.join(others)}; the picked source "
+                    f"{source} has none. "
+                )
         if not found:
             self.pane.full_query = None
             self.pane.set_table(Table("", (), []))
@@ -193,7 +203,8 @@ class StructuresTab(QWidget):
         self.pane.set_table(table)
         self.chart.set_points(scatter.points, "placement spread", "crit_share")
         self.status.setText(
-            f"{len(table.rows)} structure rows; {len(scatter.points)} with spread and crit_share"
+            f"{self._note}{len(table.rows)} structure rows; "
+            f"{len(scatter.points)} with spread and crit_share"
         )
 
 
@@ -202,6 +213,7 @@ class TimingTab(QWidget):
 
     heat_requested = Signal(object)  # a HeatModel from the run's timing_object rows
     run_changed = Signal(str)  # the user picked a run in the combo
+    heat_ready = Signal(bool)  # the shown run can be opened as a hot/cold source view
     KEYS = ("truns", "tdata", "tscatter", "tmetrics", "trows")
 
     def __init__(self, submit: Submit, settings: QSettings | None = None) -> None:
@@ -213,6 +225,7 @@ class TimingTab(QWidget):
         self._design = ""
         self._source = ""
         self._requested = ""  # the run whose data was last asked for
+        self._note = ""  # says the runs come from another source than the picked one
         self.run = QComboBox()
         self.kind = QComboBox()
         self.kind.addItems(OBJECT_KINDS)
@@ -250,7 +263,7 @@ class TimingTab(QWidget):
         self.run.activated.connect(self._picked)
         self.kind.activated.connect(self.reload)
         self.go.clicked.connect(self.plot)
-        self.open_button.clicked.connect(self._open_clicked)
+        self.open_button.clicked.connect(self.open_clicked)
         self.chart.hovered.connect(self.hover.setText)
 
     def handlers(self) -> dict[str, Callable[[object], None]]:
@@ -262,12 +275,12 @@ class TimingTab(QWidget):
         _fill(self.run, [])
         self._run_ids = []
         self._all_runs = []
-        self._design, self._source, self._requested = "", "", ""
+        self._design, self._source, self._requested, self._note = "", "", "", ""
         self.pane.full_query = None
         self.pane.set_table(Table("", (), []))
         self.hist.set_counts([])
         self.chart.set_points([], "", "")
-        self.open_button.setEnabled(False)
+        self._set_open(False)
         self.summary.setText("Reading timing ..." if view is not None else NO_TIMING)
         if view is not None:
             self._submit("truns", lambda: (view.timing_runs(), view.metric_names()))
@@ -289,17 +302,36 @@ class TimingTab(QWidget):
         else:
             self._no_data()
 
-    def _wanted(self, label: str) -> bool:
+    def _set_open(self, enabled: bool) -> None:
+        self.open_button.setEnabled(enabled)
+        self.heat_ready.emit(enabled)
+
+    def has_timing_for(self, design: str) -> bool:
+        """True when some run of the design (any source) has timing."""
+        return any(label.split(" / ")[0] == design for _, label in self._all_runs)
+
+    def _wanted(self, label: str, any_source: bool = False) -> bool:
         """A run label is "design / source / arm / seed n [id]": match design and source fields."""
         if not self._design:
             return True
         fields = label.split(" / ")
         if fields[0] != self._design:
             return False
-        return not self._source or (len(fields) > 1 and fields[1] == self._source)
+        if any_source or not self._source:
+            return True
+        return len(fields) > 1 and fields[1] == self._source
 
     def _fill_runs(self) -> None:
         runs = [r for r in self._all_runs if self._wanted(r[1])]
+        self._note = ""
+        if not runs and self._design and self._source:  # the picked source has none: use others
+            runs = [r for r in self._all_runs if self._wanted(r[1], any_source=True)]
+            others = sorted({r[1].split(" / ")[1] for r in runs if " / " in r[1]})
+            if runs:
+                self._note = (
+                    f"Timing from source {', '.join(others)}; the picked source "
+                    f"{self._source} has none."
+                )
         self._run_ids = [r for r, _ in runs]
         _fill(self.run, [label for _, label in runs], self.run.currentText())
 
@@ -308,7 +340,7 @@ class TimingTab(QWidget):
         self.hist.set_counts([])
         self.pane.full_query = None
         self.pane.set_table(Table("", (), []))
-        self.open_button.setEnabled(False)
+        self._set_open(False)
         if self._design:
             self.summary.setText(f"no timing data for {self._design} in this store")
         else:
@@ -362,8 +394,8 @@ class TimingTab(QWidget):
         assert isinstance(info, mimirview.TimingRunInfo) and isinstance(table, Table)
         self.hist.set_counts(info.hist)
         self.pane.set_table(table)
-        self.summary.setText(summary_text(info))
-        self.open_button.setEnabled(True)
+        self.summary.setText((self._note + "\n" if self._note else "") + summary_text(info))
+        self._set_open(True)
 
     def plot(self) -> None:
         if self.view is None:
@@ -384,7 +416,7 @@ class TimingTab(QWidget):
     def _metrics(self, result: object) -> None:
         pass
 
-    def _open_clicked(self) -> None:
+    def open_clicked(self) -> None:
         run_id = self.current_run()
         if self.view is None or not run_id:
             return

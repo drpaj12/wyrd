@@ -85,7 +85,7 @@ class ExploreTabsTest(unittest.TestCase):
         self.drain()
         got: list[object] = []
         p.heat_requested.connect(got.append)
-        p.timing_tab._open_clicked()
+        p.timing_tab.open_clicked()
         self.drain()
         self.assertEqual(len(got), 1)
         model = got[0]
@@ -257,8 +257,9 @@ class CurrentDesignTest(unittest.TestCase):
     def test_sync_is_source_aware(self) -> None:
         p = self.panel
         self.pick("d1", "exp-a-2")  # d1 has timing and structures only in exp-a-1
-        self.assertIn("no timing data for d1", p.timing_tab.summary.text())
-        self.assertIn("no structure data for d1", p.structs.status.text())
+        self.assertIn("from source exp-a-1; the picked source exp-a-2 has none",
+                      p.timing_tab.summary.text())  # fmt: skip
+        self.assertIn("Structures from source exp-a-1", p.structs.status.text())
         self.assertIn("exp-a-2", p.chart.highlight[0])
         self.pick("d1", "exp-a-1")
         self.assertEqual(p.timing_tab.current_run(), "r1")

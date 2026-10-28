@@ -41,6 +41,19 @@ LIST_LIMIT = 500
 ROW_LIMIT = mimirview.DEFAULT_LIMIT  # rows per design table
 RUN_TEXT = "Select a run in the Design tab (double click)."
 NO_CURRENT = "Current design: none. Click a design in the list."
+HEAT_TEXT = "Show HDL heat (hot/cold)"
+HEAT_TIP_READY = (
+    "Open this design's HDL in the source view, coloured by timing: hot = on or near the "
+    "critical path, cold = spare time."
+)
+HEAT_TIP_NO_STORE = "Open a Mímir store first."
+HEAT_TIP_NO_TIMING = "This store has no timing tables, so there is no heat to show."
+HEAT_TIP_NO_DESIGN = "Click a design in the list first."
+HEAT_TIP_NO_ROWS = (
+    "No timing for this design in this store; pick a list entry marked 'timing' "
+    "(for example the [mimir-structures] one)."
+)
+TIMING_MARK = "  timing"
 
 
 class _Signals(QObject):
@@ -97,6 +110,9 @@ class MimirPanel(QWidget):
         self._current_run = ""
         self._current_design = ""
         self._current_source: str | None = None
+        self._timing_pairs: set[tuple[str, str]] = set()  # (source, design) with timing
+        self._restore: tuple[str, str] | None = None  # (source, design) to select once listed
+        self._restore_next: tuple[str, str] | None = None
         self._switch_run_tab = True
         self._make_widgets()
         self._layout()
@@ -111,6 +127,8 @@ class MimirPanel(QWidget):
         self.status.setWordWrap(True)
         self.current_line = QLabel(NO_CURRENT)
         self.current_line.setWordWrap(True)
+        self.heat_button = QPushButton(HEAT_TEXT)
+        self.heat_button.setEnabled(False)
         self.open_button = QPushButton("Open Mímir store...")
         self.last_button = QPushButton("Reopen last")
         self.last_button.setEnabled(False)
@@ -195,6 +213,7 @@ class MimirPanel(QWidget):
             self.filter: "Type part of a design name (or slug) to narrow the list.",
             self.designs: "The designs in the store. Click one to see it in every tab.",
             self.current_line: "The design and run every tab is showing now.",
+            self.heat_button: HEAT_TIP_NO_STORE,
             self.tabs: "Views of the open store. Each has an About header at the top.",
             self.design_label: "The design shown in this tab.",
             self.design_tabs: "What the store knows about this design: values, runs, "
@@ -252,7 +271,10 @@ class MimirPanel(QWidget):
         split.setStretchFactor(1, 1)
         lay = QVBoxLayout(self)
         lay.addWidget(self.status)
-        lay.addWidget(self.current_line)
+        cur = QHBoxLayout()
+        cur.addWidget(self.current_line, 1)
+        cur.addWidget(self.heat_button)
+        lay.addLayout(cur)
         lay.addLayout(top)
         lay.addWidget(split, 1)
 
@@ -341,6 +363,8 @@ class MimirPanel(QWidget):
         self.chart.hovered.connect(self.hover.setText)
         self.timing_tab.heat_requested.connect(self.heat_requested)
         self.timing_tab.run_changed.connect(self._timing_run_picked)
+        self.timing_tab.heat_ready.connect(self._update_heat)
+        self.heat_button.clicked.connect(self.timing_tab.open_clicked)
 
     # ---- workers ----
 
@@ -397,10 +421,25 @@ class MimirPanel(QWidget):
             self.open_store(Path(name))
 
     def _reopen(self) -> None:
-        if self.last_path:
-            self.open_store(Path(self.last_path))
+        if not self.last_path:
+            return
+        got = self._saved_design()
+        self.open_store(Path(self.last_path), got)
 
-    def open_store(self, path: Path) -> bool:
+    def _saved_design(self) -> tuple[str, str] | None:
+        """(source, design) kept from the last session, if any."""
+        if self.settings is None:
+            return None
+        design = str(self.settings.value("lastMimirDesign", "") or "")
+        source = str(self.settings.value("lastMimirSource", "") or "")
+        return (source, design) if design else None
+
+    def _save_design(self, name: str, source: str | None) -> None:
+        if self.settings is not None:
+            self.settings.setValue("lastMimirDesign", name)
+            self.settings.setValue("lastMimirSource", source or "")
+
+    def open_store(self, path: Path, restore: tuple[str, str] | None = None) -> bool:
         """Check the file (cheap), then read the summary on the worker. False: not usable.
 
         Nothing of the previous store changes until the new one has been read.
@@ -412,6 +451,7 @@ class MimirPanel(QWidget):
             return False
         self._invalidate()
         self._pending = view
+        self._restore_next = restore
         self.status.setText(f"Reading {path.name} ...")
         self._submit(
             "open",
@@ -459,6 +499,7 @@ class MimirPanel(QWidget):
         self.structs.set_view(self.view)
         self.timing_tab.set_view(self.view if self.view.has_timing() else None)
         self.store_opened.emit(str(self.view.path))
+        self._restore, self._restore_next = self._restore_next, None
         self.fill_designs()
 
     def _reset(self) -> None:
@@ -496,20 +537,54 @@ class MimirPanel(QWidget):
         view, text = self.view, self.filter.text().strip()
         src = self.source.currentText()
         source = None if src in ("", "(all sources)") else src
-        self._submit("list", lambda: view.designs(source, text, LIST_LIMIT))
+        self._submit("list", lambda: (view.designs(source, text, LIST_LIMIT),
+                                      view.timing_design_sources()))  # fmt: skip
 
     def _listed(self, result: object) -> None:
-        assert isinstance(result, Table)
-        t = result
+        assert isinstance(result, tuple)
+        t, self._timing_pairs = result
+        assert isinstance(t, Table)
         self.designs.blockSignals(True)
         self.designs.clear()
-        self.designs.blockSignals(False)
         for s, name, _slug, _suite, n in t.rows:
-            item = QListWidgetItem(f"{name}   [{s}]  {n} runs")
+            mark = TIMING_MARK if (str(s), str(name)) in self._timing_pairs else ""
+            item = QListWidgetItem(f"{name}   [{s}]  {n} runs{mark}")
             item.setData(Qt.ItemDataRole.UserRole, (str(s), str(name)))
             self.designs.addItem(item)
         if t.more:
             self.designs.addItem(QListWidgetItem(f"... more than {LIST_LIMIT}; narrow the filter"))
+        self._reselect()
+        self.designs.blockSignals(False)
+        self._apply_restore(t.more)
+
+    def _reselect(self) -> None:
+        """Highlight the current design if it is listed, else nothing. Never changes it."""
+        self.designs.setCurrentRow(-1)
+        self.designs.clearSelection()
+        if not self._current_design:
+            return
+        for i in range(self.designs.count()):
+            data = self.designs.item(i).data(Qt.ItemDataRole.UserRole)
+            if data and data[1] == self._current_design and (
+                self._current_source is None or data[0] == self._current_source
+            ):
+                self.designs.setCurrentRow(i)
+                return
+
+    def _apply_restore(self, more: bool) -> None:
+        """Select the design of the last session once, when the first list has arrived."""
+        want, self._restore = self._restore, None
+        if want is None or self._current_design:
+            return
+        for i in range(self.designs.count()):
+            data = self.designs.item(i).data(Qt.ItemDataRole.UserRole)
+            if data and (data[0], data[1]) == want:
+                self.designs.setCurrentRow(i)  # selection signal shows the design
+                return
+        if more and self.source.currentIndex() == 0 and self.source.findText(want[0]) > 0:
+            self._restore = want  # not within the first rows: list only its source
+            self.source.setCurrentText(want[0])
+            self.fill_designs()
 
     def _design_selected(self) -> None:
         items = self.designs.selectedItems()
@@ -526,6 +601,7 @@ class MimirPanel(QWidget):
             self._current_run = ""
         self._design_key = (name, source)
         self._current_design, self._current_source = name, source
+        self._save_design(name, source)
         self.structs.select_design(name, source)
         self.timing_tab.select_design(name, source)
         self.chart.set_highlight(source, name)
@@ -609,11 +685,29 @@ class MimirPanel(QWidget):
             self.show_run(run_id, switch=False)
 
     def _update_current(self) -> None:
+        self._update_heat()
         if not self._current_design:
             self.current_line.setText(NO_CURRENT)
             return
         run = f"run {self._current_run[:8]}" if self._current_run else "no run"
         self.current_line.setText(f"Current design: {self._current_design}    {run}")
+
+    def _update_heat(self, _ready: bool = False) -> None:
+        """Enable the heat button when the shown design has timing; else say why not."""
+        tab = self.timing_tab
+        ready = tab.open_button.isEnabled() and bool(self._current_design)
+        if ready:
+            tip = HEAT_TIP_READY
+        elif self.view is None:
+            tip = HEAT_TIP_NO_STORE
+        elif not self.view.has_timing():
+            tip = HEAT_TIP_NO_TIMING
+        elif not self._current_design:
+            tip = HEAT_TIP_NO_DESIGN
+        else:
+            tip = HEAT_TIP_NO_ROWS
+        self.heat_button.setEnabled(ready)
+        self.heat_button.setToolTip(tip)
 
     def _note_compare(self) -> None:
         if self._current_design and self.cmp_pane.table_data.rows:

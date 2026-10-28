@@ -78,7 +78,8 @@ TABS: dict[str, tuple[str, str, str, str]] = {
         "how many other paths are almost as slow.",
         "A summary line, a histogram of path criticality, a table of the most critical objects "
         "(words, source lines, modules, structures), and a plot of near-critical paths against "
-        "area. 'Open in source view' paints the HDL red (critical) to blue (not critical).",
+        "area. 'Open in source view' (or Show HDL heat beside the Current design line) paints "
+        "the HDL red (critical) to blue (not critical).",
         "Crit (criticality) is how close a path is to being the slowest one: 1 is the slowest, "
         "0 has lots of spare time. It is 1 - slack / (the largest required time of the clock "
         "pair of the path); when the worst slack is negative, all slacks are shifted so that the "
@@ -182,6 +183,13 @@ File > Open Mímir store... and choose a `.db` file. The Summary tab says what i
 Choose a source and type in the filter box, then click a circuit. The Design tab fills in. Double
 click a run in its Runs table to see exactly how the run was made (Run tab).
 
+The same circuit can be listed once per source. Only the entries that carry timing end in the word
+"timing" (for example `mkPktMerge [mimir-structures]`). The line above the list says "Current
+design" and always names the highlighted entry. Typing in the filter box or changing the source
+never changes the current design; only your click (or the arrow keys on the list) does. When you
+pick an entry without timing, the Timing and Structures tabs use the timing of the same circuit
+from another source and say so. "Reopen last" opens the last store with the last design selected.
+
 ### 3. The Timing tab
 
 Pick a run. The summary line gives the clock period (CPD), the worst slack and how many of the
@@ -196,13 +204,15 @@ Exact or lower bound: when the summary says "crit is exact", the clock period wa
 paths. When it says "crit is a lower bound (dmax from report)", it came from a cut report and the
 true crit can only be higher.
 
-### 4. Open in source view
+### 4. See the HDL heat: Show HDL heat (hot/cold)
 
-Press "Open in source view". Wyrd finds the design's source from the store (the design's origin,
-for example `$VTR_ROOT/vtr_flow/benchmarks/verilog/mkPktMerge.v`; `$VTR_ROOT` comes from your
-environment or the machine settings), opens it read only, switches the Timing panel to
-near-critical, and selects the hottest token. When the file cannot be found the status line
-says exactly what is missing and a file dialog lets you pick it.
+Press "Show HDL heat (hot/cold)", the button beside the Current design line (it is always there;
+the "Open in source view" button of the Timing tab does the same). It is grey when the current
+design has no timing; hover over it to see why. Wyrd finds the design's source from the store
+(the design's origin, for example `$VTR_ROOT/vtr_flow/benchmarks/verilog/mkPktMerge.v`;
+`$VTR_ROOT` comes from your environment or the machine settings), opens it read only, switches the
+Timing panel to near-critical, and selects the hottest token. When the file cannot be found the
+status line says exactly what is missing and a file dialog lets you pick it.
 
 ### 5. What red and blue mean
 
@@ -220,10 +230,11 @@ the bits run from the most or the least significant bit.
 
 ### 6. Example: mkPktMerge
 
-Open `lane3-structures.db`, pick `mkPktMerge`, choose a run in the Timing tab and press Open
-in source view. The word `fi1__D_OUT` is a bus of at least 142 bits. Bits 134 and 141 have
-crit 1.0 and bit 132 has 0.995: those bits set the speed of the chip, while many others sit
-near 0.93. Click the token to list the paths through it in the Timing panel.
+Open `lane3-structures.db`, click `mkPktMerge` (either entry; the one marked "timing" owns the
+data), choose a run in the Timing tab if you want another one, and press Show HDL heat. The word
+`fi1__D_OUT` is a bus of at least 142 bits. Bits 134 and 141 have crit 1.0 and bit 132 has 0.995:
+those bits set the speed of the chip, while many others sit near 0.93. Click the token to list the
+paths through it in the Timing panel.
 
 ### 7. Structures tab
 
