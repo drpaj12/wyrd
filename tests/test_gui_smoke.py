@@ -124,8 +124,8 @@ class ShellTest(unittest.TestCase):
         self.assertTrue(w.open_project(d))
         self.assertIsNone(w.project)
         self.assertIn("wyrd.toml:", w.statusBar().currentMessage())
-        self.assertTrue(w.tabs.isTabEnabled(2))
-        self.assertIs(w.tabs.currentWidget(), w.editor)
+        self.assertTrue(w.contents["wyrd.toml"].isEnabled())
+        self.assertIs(w.shown_panel, w.editor)
         diag = validate_text(d / "wyrd.toml", w.editor.text.toPlainText()).diagnostic
         assert diag is not None and diag.line is not None
         self.assertTrue(w.editor.status.text().startswith(f"line {diag.line}: "))
@@ -786,7 +786,7 @@ class EditorTest(unittest.TestCase):
         self.assertNotEqual(w.editor.text.toPlainText(), before)
         self.assertIn('name = "newd"', w.editor.text.toPlainText())
         self.assertTrue(w.editor.is_modified())
-        self.assertIs(w.tabs.currentWidget(), w.editor)
+        self.assertIs(w.shown_panel, w.editor)
 
     def test_save_keeps_editor_state(self) -> None:
         root = copy_project(self.tmp)
