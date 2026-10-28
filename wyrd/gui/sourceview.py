@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import stat
+from bisect import bisect_left, bisect_right
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QPoint, QRect, QSize, Qt, Signal
@@ -62,6 +63,8 @@ def heat_color(share: float) -> QColor:
 
 LINE_TINT_ALPHA = 55
 STRIP_HEIGHT = 4
+SELECTION_MARGIN = 300  # blocks above and below the viewport that get selections
+UNKNOWN_FILL = "#c8c8c8"
 
 
 def _qcolor(crit: float, alpha: int = 255) -> QColor:
@@ -71,6 +74,12 @@ def _qcolor(crit: float, alpha: int = 255) -> QColor:
 
 def _token_format(crit: float, unknown: bool) -> QTextCharFormat:
     fmt = QTextCharFormat()
+    if crit < 0:  # a bit that was never seen with a bit index
+        fmt.setBackground(QColor(UNKNOWN_FILL))
+        fmt.setForeground(QColor("#000000"))
+        fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.DotLine)
+        fmt.setUnderlineColor(QColor("#000000"))
+        return fmt
     fmt.setBackground(_qcolor(crit))
     dark = heatview.text_is_dark(heatview.crit_rgb(crit))
     fmt.setForeground(QColor("#000000") if dark else QColor("#ffffff"))
@@ -86,7 +95,7 @@ class HeatLegend(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self.theta: float | None = None
-        self.setMinimumHeight(34)
+        self.setMinimumHeight(48)
 
     def set_theta(self, theta: float | None) -> None:
         self.theta = theta
@@ -98,12 +107,19 @@ class HeatLegend(QWidget):
         for i in range(bar.width()):
             p.fillRect(bar.left() + i, bar.top(), 1, bar.height(), _qcolor(i / bar.width()))
         p.setPen(Qt.GlobalColor.black)
-        ticks = [0.0, 0.5, 1.0] + ([self.theta] if self.theta is not None else [])
+        self._tick_row(p, bar, [0.0, 0.5, 1.0], 15, "")
+        if self.theta is not None:  # its own row, so its label never meets the others
+            self._tick_row(p, bar, [self.theta], 28, "theta ")
+        p.end()
+
+    @staticmethod
+    def _tick_row(p: QPainter, bar: QRect, ticks: list[float], y: int, prefix: str) -> None:
         for t in ticks:
             x = bar.left() + round(t * (bar.width() - 1))
-            p.drawLine(x, bar.top(), x, bar.bottom() + 3)
-            p.drawText(min(max(x - 14, 0), self.width() - 30), bar.bottom() + 15, f"{t:.2f}")
-        p.end()
+            p.drawLine(x, bar.top(), x, bar.bottom() + (3 if y < 20 else 16))
+            width = p.fontMetrics().horizontalAdvance(f"{prefix}{t:.2f}")
+            left = min(max(x - width // 2, 0), max(bar.right() + 8 - width, 0))
+            p.drawText(left, bar.bottom() + y, f"{prefix}{t:.2f}")
 
 
 class _HeatMargin(QWidget):
@@ -128,8 +144,12 @@ class HeatTextEdit(QPlainTextEdit):
         self.heat: dict[int, float] = {}
         self.file_heat: FileHeat | None = None
         self._goto_selection: QTextEdit.ExtraSelection | None = None
+        self._range_lines: list[int] = []
+        self._tint_lines: list[int] = []
+        self._built: tuple[int, int] | None = None
         self._margin = _HeatMargin(self)
         self.updateRequest.connect(self._scroll_margin)
+        self.verticalScrollBar().valueChanged.connect(self._scrolled)
         self.setViewportMargins(0, 0, 0, 0)
 
     def heat_width(self) -> int:
@@ -144,6 +164,9 @@ class HeatTextEdit(QPlainTextEdit):
 
     def set_file_heat(self, fh: FileHeat | None) -> None:
         self.file_heat = fh
+        self._range_lines = [r.line for r in fh.ranges] if fh is not None else []
+        self._tint_lines = sorted(fh.lines) if fh is not None else []
+        self._built = None
         self.apply_selections()
         self.viewport().update()
 
@@ -151,41 +174,67 @@ class HeatTextEdit(QPlainTextEdit):
         self._goto_selection = sel
         self.apply_selections()
 
+    def _window(self) -> tuple[int, int]:
+        """1-based first and last line that get selections: the viewport plus a margin."""
+        first = self.firstVisibleBlock().blockNumber()
+        bottom = self.cursorForPosition(QPoint(0, max(self.viewport().height() - 1, 0)))
+        last = max(bottom.blockNumber(), first)
+        return max(first - SELECTION_MARGIN, 0) + 1, last + SELECTION_MARGIN + 1
+
+    def _scrolled(self) -> None:
+        """Rebuild the selections when the viewport leaves the built window."""
+        if self.file_heat is None or self._built is None:
+            return
+        first = self.firstVisibleBlock().blockNumber() + 1
+        bottom = self.cursorForPosition(QPoint(0, max(self.viewport().height() - 1, 0)))
+        last = bottom.blockNumber() + 1
+        if first < self._built[0] or last > self._built[1]:
+            self.apply_selections()
+
     def apply_selections(self) -> None:
         out: list[QTextEdit.ExtraSelection] = []
         if self.file_heat is not None:
-            out += self._tint_selections(self.file_heat)
-            out += self._range_selections(self.file_heat)
+            lo, hi = self._window()
+            self._built = (lo, hi)
+            out += self._tint_selections(self.file_heat, lo, hi)
+            out += self._range_selections(self.file_heat, lo, hi)
         if self._goto_selection is not None:
             out.append(self._goto_selection)
         self.setExtraSelections(out)
 
     def _block_cursor(self, line: int, c0: int, c1: int) -> QTextCursor | None:
+        """Cursor over the code-point columns c0..c1 of a line (Qt counts UTF-16 units)."""
         block = self.document().findBlockByNumber(line - 1)
         if not block.isValid():
             return None
+        text = block.text()
         cursor = QTextCursor(block)
-        cursor.setPosition(block.position() + c0)
-        cursor.setPosition(min(block.position() + c1, block.position() + block.length() - 1),
-                           QTextCursor.MoveMode.KeepAnchor)
+        cursor.setPosition(block.position() + heatview.utf16_col(text, c0))
+        cursor.setPosition(
+            min(block.position() + heatview.utf16_col(text, c1),
+                block.position() + block.length() - 1),
+            QTextCursor.MoveMode.KeepAnchor,
+        )  # fmt: skip
         return cursor
 
-    def _tint_selections(self, fh: FileHeat) -> list[QTextEdit.ExtraSelection]:
+    def _tint_selections(self, fh: FileHeat, lo: int, hi: int) -> list[QTextEdit.ExtraSelection]:
         out: list[QTextEdit.ExtraSelection] = []
-        for line, crit in fh.lines.items():
+        keys = self._tint_lines
+        for line in keys[bisect_left(keys, lo):bisect_right(keys, hi)]:
             block = self.document().findBlockByNumber(line - 1)
             if not block.isValid():
                 continue
             sel = QTextEdit.ExtraSelection()
             sel.cursor = QTextCursor(block)
-            sel.format.setBackground(_qcolor(crit, LINE_TINT_ALPHA))
+            sel.format.setBackground(_qcolor(fh.lines[line], LINE_TINT_ALPHA))
             sel.format.setProperty(QTextFormat.Property.FullWidthSelection, True)
             out.append(sel)
         return out
 
-    def _range_selections(self, fh: FileHeat) -> list[QTextEdit.ExtraSelection]:
+    def _range_selections(self, fh: FileHeat, lo: int, hi: int) -> list[QTextEdit.ExtraSelection]:
         out: list[QTextEdit.ExtraSelection] = []
-        for r in fh.ranges:
+        keys = self._range_lines
+        for r in fh.ranges[bisect_left(keys, lo):bisect_right(keys, hi)]:
             parts = (
                 [(g.col_start, g.col_end, g.crit) for g in r.segments]
                 if r.segments
@@ -206,7 +255,9 @@ class HeatTextEdit(QPlainTextEdit):
         if self.file_heat is None:
             return
         p = QPainter(self.viewport())
-        for r in self.file_heat.ranges:
+        lo, hi = self._window()
+        keys = self._range_lines
+        for r in self.file_heat.ranges[bisect_left(keys, lo):bisect_right(keys, hi)]:
             if r.strip:
                 self._paint_strip(p, r)
         p.end()
@@ -215,10 +266,11 @@ class HeatTextEdit(QPlainTextEdit):
         block = self.document().findBlockByNumber(r.line - 1)
         if not block.isValid():
             return
+        text = block.text()
         a = QTextCursor(block)
-        a.setPosition(block.position() + r.col_start)
+        a.setPosition(block.position() + heatview.utf16_col(text, r.col_start))
         b = QTextCursor(block)
-        b.setPosition(block.position() + r.col_end)
+        b.setPosition(block.position() + heatview.utf16_col(text, r.col_end))
         ra, rb = self.cursorRect(a), self.cursorRect(b)
         width = max(rb.left() - ra.left(), len(r.strip))
         n = len(r.strip)
@@ -229,7 +281,8 @@ class HeatTextEdit(QPlainTextEdit):
 
     def position_of(self, pos: QPoint) -> tuple[int, int]:
         cursor = self.cursorForPosition(pos)
-        return cursor.blockNumber() + 1, cursor.positionInBlock()
+        text = cursor.block().text()
+        return cursor.blockNumber() + 1, heatview.codepoint_col(text, cursor.positionInBlock())
 
     def event(self, e: QEvent) -> bool:
         if isinstance(e, QHelpEvent) and self.file_heat is not None:

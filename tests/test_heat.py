@@ -365,6 +365,25 @@ class FixRoundTest(unittest.TestCase):
         self.assertEqual([s.crit for s in r.segments], [heatview.UNKNOWN_CRIT, 1.0])
         self.assertEqual(r.segments[-1].bit, 0)
 
+    def test_l7_utf16_columns(self) -> None:
+        text = "a\U0001F600b x"
+        self.assertEqual(heatview.utf16_col(text, 3), 4)
+        self.assertEqual(heatview.codepoint_col(text, 4), 3)
+        self.assertEqual(heatview.codepoint_col(text, 2), 1)
+        self.assertEqual(heatview.codepoint_col("ab", 9), 2)
+
+    def test_l7_big_file_builds_fast(self) -> None:
+        import time
+
+        n = 3000
+        src = "module top(input [2:0] SIGNAL, output y);\n" + "  assign y = SIGNAL[1];\n" * n
+        nodes = [_node(f"top.v:{i + 2}", "SIGNAL", i % 3, "name") for i in range(n)]
+        model = heat.parse_heat({"schema_version": 1, "words": [],
+                                 "paths": [_path(1, -1.0, nodes)]})
+        t = time.monotonic()
+        heatview.build_file_heat(model, model.select(Scope()), {"top.v"}, src)
+        self.assertLess(time.monotonic() - t, 5.0)  # was quadratic: 10k lines took 59 s
+
     def test_l4_note_states_remainder_rule(self) -> None:
         self.assertIn("extra characters to the leading segments", heatview.LEGEND_NOTE)
 

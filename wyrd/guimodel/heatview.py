@@ -92,6 +92,21 @@ class FileHeat:
         return None
 
 
+def utf16_col(text: str, col: int) -> int:
+    """Qt column (UTF-16 units) of the code-point column ``col`` of ``text``."""
+    return col + sum(1 for ch in text[:col] if ord(ch) > 0xFFFF)
+
+
+def codepoint_col(text: str, col16: int) -> int:
+    """Code-point column of the Qt (UTF-16) column ``col16`` of ``text``."""
+    units = 0
+    for i, ch in enumerate(text):
+        if units >= col16:
+            return i
+        units += 2 if ord(ch) > 0xFFFF else 1
+    return len(text)
+
+
 def _code_mask(text: str) -> list[list[bool]]:
     """Per line, per column: True where the character is code (not a comment or string)."""
     out: list[list[bool]] = []
@@ -308,6 +323,7 @@ class _Source:
         self.mask = _code_mask(text)
         self.strict = strict_modules
         self._modules: dict[str, LineRange | None] = {}
+        self._widths: dict[tuple[str, str], tuple[int, int] | None] = {}
 
     def module(self, name: str) -> LineRange | None:
         if name not in self._modules:
@@ -317,8 +333,10 @@ class _Source:
     def order_args(
         self, model: HeatModel, module: str, word: str, msb_first: bool
     ) -> tuple[tuple[int, int] | None, int, bool]:
-        width = declared_range(word, self.lines, self.mask, self.module(module))
-        return width, model.seen_width.get((module, word), 0), msb_first
+        key = (module, word)
+        if key not in self._widths:
+            self._widths[key] = declared_range(word, self.lines, self.mask, self.module(module))
+        return self._widths[key], model.seen_width.get((module, word), 0), msb_first
 
 
 def build_file_heat(

@@ -245,9 +245,24 @@ class TimingPanel(QWidget):
         target = path.resolve()
         names = {n for n in model.files() if self._same_file(n, target)}
         if model.source != "attribution":
-            names = names or {n for n in model.files() if Path(n).name == path.name}
+            names = names or self._mimir_names(model, target)
         facts = model.select(self.heat_scope())
         return heatview.build_file_heat(model, facts, names, text, self.msb_first.isChecked())
+
+    def _mimir_names(self, model: heat.HeatModel, target: Path) -> set[str]:
+        """Model file names for ``target``: by full relative path; by base name only when the name
+        has no directory part and the match is flagged in the model notes."""
+        full = {
+            n for n in model.files()
+            if Path(n).parts[:-1] and target.as_posix().endswith("/" + Path(n).as_posix())
+        }  # fmt: skip
+        if full:
+            return full
+        bare = {n for n in model.files() if len(Path(n).parts) == 1 and n == target.name}
+        note = f"{target.name}: matched by base name only (the store names no directory)"
+        if bare and note not in model.notes:
+            model.notes.append(note)
+        return bare
 
     def set_roots(self, roots: list[Path]) -> None:
         """Set the project roots used to find source files (without loading a run)."""
@@ -289,4 +304,4 @@ class TimingPanel(QWidget):
         if model is None:
             return 0
         theta = self.heat_scope().theta
-        return sum(1 for p in model.paths.values() if p.crit >= theta)
+        return sum(1 for p in model.paths.values() if heat.round_crit(p.crit) >= theta)
