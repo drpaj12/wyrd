@@ -124,7 +124,13 @@ Read-only, worker threads, copy and CSV export as the existing tabs (#34).
    (`n_luts`, `n_clbs` records) across runs; the top near-critical HDL objects of a run (`timing_object`
    by `crit_max`, with the bit strip of word rows); "Open in source view" when the attribution of
    the run is reachable (a run directory of the open project).
-3. Store schema version: Wyrd reads 4 and 5 (5 is additive on 4).
+3. Store schema version: Wyrd reads 4 and 5 (5 is additive on 4). Built as: the area axis of the
+   Timing scatter lists the record metrics whose name holds `lut`, `clb` or `block` (first one
+   by default; all metrics when none), one point per run through the `record_run` view. The
+   lane-3 store has no LUT/CLB record, so its default x is `structure.blocks_reached`.
+4. "Open in source view" turns the run's `timing_object` span and word rows into a hot/cold model
+   (adapter B, near-critical scope only) and opens the first source file it can resolve in the
+   project; any later opened file with a matching base name is coloured too.
 
 ## 5. Limits
 

@@ -102,7 +102,7 @@ class HeatLegend(QWidget):
         for t in ticks:
             x = bar.left() + round(t * (bar.width() - 1))
             p.drawLine(x, bar.top(), x, bar.bottom() + 3)
-            p.drawText(x - 14, bar.bottom() + 15, f"{t:.2f}")
+            p.drawText(min(max(x - 14, 0), self.width() - 30), bar.bottom() + 15, f"{t:.2f}")
         p.end()
 
 
