@@ -97,3 +97,18 @@ fetching blobs by URL (that is `mimir fetch`).
 - `tests/test_cli_mimir.py`: every subcommand, `--csv`, exit codes.
 - `tests/test_gui_mimir.py` (offscreen): open, filter, design, run, compare, plot, export CSV.
 - Manual, read only, on mimir-main.db, structures.db, e10.db: timings and a screenshot per tab.
+
+## As built (2026-10-28)
+
+- Model `wyrd/mimirview.py`, CLI `wyrd/mimircli.py` (wired in `wyrd/cli.py`), dock
+  `wyrd/gui/mimirpanel.py` with charts in `wyrd/gui/mimircharts.py`. Table rendering (text, CSV,
+  TSV) is shared by CLI and GUI in `mimirview.py`.
+- The design list is keyed by (source, name); selecting a row shows that source only; the CLI
+  `design NAME` without `--source` shows all sources.
+- Metric tables stop at 500 rows (the note says so); a design with 50 runs has more.
+- Worker thread: opening (summary, metric and source lists), configs, compare, plot. Design list,
+  design and run views are inline (indexed queries).
+- `cited` in the brief is not a `conf` value in schema v4; the colours are given, default,
+  default-unrecorded, unknown. `run_artifact` holds no size.
+- Fetch hook: button runs `mimir fetch --run ID --db DB --out DIR` through `subprocess` (no
+  shell) after a directory dialog; disabled with a tooltip when `mimir` is not on PATH.

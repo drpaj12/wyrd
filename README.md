@@ -74,6 +74,12 @@ that sat in a different CLB in A, and the hover text names where they came from.
 round 7, VPR runs with VTR (Rose et al., FPGA 2012) and VTR 9 (Elgammal et al., TRETS 2025), commit
 3c9a4d23b2. Spec and measured load/draw time: `docs/specs/2026-10-26-placement-atlas.md`.
 
+### Mímir browser
+
+`wyrd mimir summary|designs|design|run|compare DB` and the Mímir dock browse a Mímir store (schema
+version 4) read only: designs, metric records with their run provenance, flow parameters, and
+config-versus-base comparisons. See `docs/user/gui.md`.
+
 ## Simulation (`wyrd[sim]`)
 
     pip install -e ".[sim]"      # Odin III 1.0.3 or later; odin3 is not on PyPI, install its release wheel

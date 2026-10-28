@@ -12,6 +12,7 @@ from wyrd.mimirview import CompareRow, Point
 
 MARGIN = 40
 DOT = 4.0
+LABEL_W = 170
 
 
 class DotChart(QWidget):
@@ -34,7 +35,7 @@ class DotChart(QWidget):
 
     def x_of(self, ratio: float, width: float) -> float:
         lo, hi = self.x_range()
-        return MARGIN * 3 + (ratio - lo) / (hi - lo) * (width - MARGIN * 3 - 10)
+        return LABEL_W + (ratio - lo) / (hi - lo) * (width - LABEL_W - 10)
 
     def paintEvent(self, _event: QPaintEvent) -> None:
         p = QPainter(self)
@@ -52,7 +53,7 @@ class DotChart(QWidget):
                 continue
             y = 14 + i * step
             p.setPen(QColor("#333333"))
-            p.drawText(QRectF(2, y - 8, MARGIN * 3 - 6, 16), r.label)
+            p.drawText(QRectF(2, y - 8, LABEL_W - 6, 16), r.label)
             p.setBrush(QColor("#2a6fdb"))
             p.drawEllipse(QPointF(self.x_of(r.ratio, w), y), DOT, DOT)
             p.drawText(QPointF(self.x_of(r.ratio, w) + 8, y + 4), f"{r.ratio:.3f}")
