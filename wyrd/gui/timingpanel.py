@@ -249,6 +249,15 @@ class TimingPanel(QWidget):
         facts = model.select(self.heat_scope())
         return heatview.build_file_heat(model, facts, names, text, self.msb_first.isChecked())
 
+    def set_roots(self, roots: list[Path]) -> None:
+        """Set the project roots used to find source files (without loading a run)."""
+        self._roots = list(roots)
+        hints = timing.source_hints(self._att_path) if self._att_path is not None else None
+        self._resolver = timing.SourceResolver(self._roots, hints)
+
+    def resolve_source(self, name: str) -> Path | None:
+        return self._resolver.resolve(name)
+
     def _same_file(self, name: str, target: Path) -> bool:
         found = self._resolver.resolve(name)
         return found is not None and found.resolve() == target

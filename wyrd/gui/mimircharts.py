@@ -8,6 +8,7 @@ from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QHelpEvent, QMouseEvent, QPainter, QPaintEvent, QPen
 from PySide6.QtWidgets import QToolTip, QWidget
 
+from wyrd.guimodel import heatview
 from wyrd.mimirview import CompareRow, Point
 
 MARGIN = 40
@@ -234,3 +235,41 @@ class ScatterChart(QWidget):
             q.drawLine(QPointF(LEFT, y), QPointF(LEFT + w, y))
             q.setPen(QColor(TEXT))
             q.drawText(QPointF(4, y + 4), text)
+
+
+class HistChart(QWidget):
+    """Bar chart of the path criticality histogram (20 bins), bars coloured by bin crit."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.counts: list[int] = []
+        self.setMinimumHeight(140)
+
+    def set_counts(self, counts: list[int]) -> None:
+        self.counts = list(counts)
+        self.update()
+
+    def bar_rects(self, w: float, h: float) -> list[QRectF]:
+        top = max(self.counts, default=0) or 1
+        n = len(self.counts) or 1
+        bw = w / n
+        return [QRectF(LEFT + i * bw, TOP + h * (1 - c / top), bw - 1, h * c / top)
+                for i, c in enumerate(self.counts)]  # fmt: skip
+
+    def paintEvent(self, _event: QPaintEvent) -> None:
+        q = QPainter(self)
+        q.fillRect(self.rect(), self.palette().base())
+        w = max(self.width() - LEFT - MARGIN, 10.0)
+        h = max(self.height() - TOP - AXIS_H, 10.0)
+        q.setPen(QColor("#888888"))
+        q.drawRect(QRectF(LEFT, TOP, w, h))
+        n = len(self.counts) or 1
+        for i, r in enumerate(self.bar_rects(w, h)):
+            red, green, blue = heatview.crit_rgb((i + 0.5) / n)
+            q.fillRect(r, QColor(red, green, blue))
+        q.setPen(QColor(TEXT))
+        top = max(self.counts, default=0)
+        q.drawText(QPointF(4, 14), f"paths per crit bin (max {top})")
+        for t in (0.0, 0.5, 0.9, 1.0):
+            q.drawText(QPointF(LEFT + t * (w - 18), TOP + h + 14), f"{t:.1f}")
+        q.drawText(QPointF(LEFT, self.height() - 6), "path criticality")

@@ -37,6 +37,7 @@ from wyrd.gui.stepload import LoadSignals, LoadTask
 from wyrd.gui.timingpanel import MODE_BOTH, MODE_HOT, MODE_MARGIN, TimingPanel
 from wyrd.gui.weakslot import weak
 from wyrd.guimodel.floorplan import FloorplanPlan
+from wyrd.guimodel.heat import HeatModel
 from wyrd.guimodel.logparse import Message
 from wyrd.guimodel.projmodel import project_tree
 from wyrd.guimodel.runs import RunInfo
@@ -112,6 +113,7 @@ class MainWindow(QMainWindow):
         self.project_tree.file_activated.connect(self.show_source)
         self.messages.location_activated.connect(self.show_source)
         self.mimir.store_opened.connect(self._remember_mimir)
+        self.mimir.heat_requested.connect(self._on_mimir_heat)
         self.mimir.set_last(str(self.settings.value("lastMimirStore", "") or ""))
         self.sim_panel.location_activated.connect(self.show_source)
         self.timing.location_activated.connect(self.show_source)
@@ -248,6 +250,23 @@ class MainWindow(QMainWindow):
         theta = scope.theta if scope.kind == "near" else None
         model = self.timing.heat_model()
         self.source_view.set_file_heat(fh, theta, model.notes if model is not None else None)
+
+    def _on_mimir_heat(self, model: object) -> None:
+        """Show a Mímir timing model in the source view (near-critical scope)."""
+        if not isinstance(model, HeatModel):
+            return
+        self.timing.set_roots(self._timing_roots())
+        self.timing.use_heat_model(model)
+        self.timing.scope.setCurrentIndex(2)
+        self.timing.mode.setCurrentIndex(MODE_HOT)
+        for name in sorted(model.files()):
+            found = self.timing.resolve_source(name)
+            if found is not None:
+                self.show_source(found)
+                return
+        self.statusBar().showMessage(
+            "Hot/cold view from Mímir is set; open the design's source file to see it"
+        )
 
     def _on_heat_click(self, line: int, col: int) -> None:
         fh = self.source_view.text.file_heat
