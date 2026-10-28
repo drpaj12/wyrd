@@ -9,7 +9,6 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QProcess, QRunnable, Qt, QThreadPool, Signal
-from PySide6.QtGui import QBrush, QColor, QGuiApplication
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -23,91 +22,23 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSplitter,
-    QTableWidget,
-    QTableWidgetItem,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from wyrd import mimirview
+from wyrd.gui.helpbox import HelpBox
 from wyrd.gui.mimircharts import DotChart, ScatterChart
+from wyrd.gui.mimirexplore import StructuresTab, TimingTab
+from wyrd.gui.tablepane import TablePane
 from wyrd.mimirview import MimirError, MimirView, Table
 
-CONF_COLOURS = {
-    "given": "#c9ecc9",
-    "default": "#e2e2e2",
-    "default-unrecorded": "#ffe2a8",
-    "unknown": "#ffb8b8",
-}
 NO_STORE = "No Mímir store open. Use File > Open Mímir store... or the button below."
 FETCH_TIP_MISSING = "The `mimir` command is not on PATH; install the mimir package to fetch."
 LIST_LIMIT = 500
 ROW_LIMIT = mimirview.DEFAULT_LIMIT  # rows per design table
-MORE_NOTE = " (cut at the row limit: filter by level to narrow; Export CSV writes all rows)"
 RUN_TEXT = "Select a run in the Design tab (double click)."
-
-
-class TablePane(QWidget):
-    """A table with Copy and Export CSV."""
-
-    def __init__(self, conf_column: str = "") -> None:
-        super().__init__()
-        self.table_data = Table("", (), [])
-        self.full_query: Callable[[], Table] | None = None  # the same query without the row cap
-        self.conf_column = conf_column
-        self.grid = QTableWidget()
-        self.grid.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.grid.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.copy_button = QPushButton("Copy")
-        self.export_button = QPushButton("Export CSV...")
-        self.note = QLabel("")
-        row = QHBoxLayout()
-        for w in (self.copy_button, self.export_button, self.note):
-            row.addWidget(w)
-        row.addStretch(1)
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.addLayout(row)
-        lay.addWidget(self.grid, 1)
-        self.copy_button.clicked.connect(self.copy)
-        self.export_button.clicked.connect(self.export_dialog)
-
-    def set_table(self, t: Table) -> None:
-        self.table_data = t
-        self.grid.setSortingEnabled(False)
-        self.grid.clear()
-        self.grid.setColumnCount(len(t.columns))
-        self.grid.setHorizontalHeaderLabels(list(t.columns))
-        self.grid.setRowCount(len(t.rows))
-        conf = t.columns.index(self.conf_column) if self.conf_column in t.columns else -1
-        flag = t.columns.index("mixed") if "mixed" in t.columns else -1
-        for i, r in enumerate(t.rows):
-            colour = CONF_COLOURS.get(str(r[conf])) if conf >= 0 else None
-            if flag >= 0 and r[flag] == "MIXED":
-                colour = CONF_COLOURS["default-unrecorded"]
-            for j, c in enumerate(r):
-                item = QTableWidgetItem(mimirview.cell_text(c))
-                if colour:
-                    item.setBackground(QBrush(QColor(colour)))
-                self.grid.setItem(i, j, item)
-        self.grid.resizeColumnsToContents()
-        self.note.setText(f"{len(t.rows)} rows" + (MORE_NOTE if t.more else ""))
-
-    def copy(self) -> None:
-        QGuiApplication.clipboard().setText(mimirview.render_tsv(self.table_data))
-
-    def export_csv(self, path: Path) -> None:
-        """Write the table; a table cut by the row cap is re-queried without the cap."""
-        t = self.table_data
-        if t.more and self.full_query is not None:
-            t = self.full_query()
-        path.write_text(mimirview.render_csv(t), encoding="utf-8")
-
-    def export_dialog(self) -> None:
-        name, _ = QFileDialog.getSaveFileName(self, "Export CSV", "", "CSV (*.csv)")
-        if name:
-            self.export_csv(Path(name))
 
 
 class _Signals(QObject):
@@ -141,6 +72,7 @@ class MimirPanel(QWidget):
     finished = Signal(str)
     store_opened = Signal(str)
     fetch_finished = Signal(int)
+    heat_requested = Signal(object)
 
     def __init__(self) -> None:
         super().__init__()
@@ -185,6 +117,8 @@ class MimirPanel(QWidget):
         self._make_run_widgets()
         self._make_compare_widgets()
         self._make_plot_widgets()
+        self.structs = StructuresTab(self._submit)
+        self.timing_tab = TimingTab(self._submit)
 
     def _make_design_widgets(self) -> None:
         self.design_label = QLabel("")
@@ -259,6 +193,8 @@ class MimirPanel(QWidget):
         self.tabs.addTab(self._run_tab(), "Run")
         self.tabs.addTab(self._compare_tab(), "Compare")
         self.tabs.addTab(self._plot_tab(), "Plot")
+        self.tabs.addTab(self.structs, "Structures")
+        self.tabs.addTab(self.timing_tab, "Timing")
         split = QSplitter(Qt.Orientation.Horizontal)
         split.addWidget(left)
         split.addWidget(self.tabs)
@@ -271,6 +207,7 @@ class MimirPanel(QWidget):
     def _summary_tab(self) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
+        lay.addWidget(HelpBox("Summary"))
         lay.addWidget(self.summary_text, 1)
         lay.addWidget(self.sources_pane, 2)
         return w
@@ -278,6 +215,7 @@ class MimirPanel(QWidget):
     def _design_tab(self) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
+        lay.addWidget(HelpBox("Design"))
         top = QHBoxLayout()
         top.addWidget(self.design_label, 1)
         top.addWidget(QLabel("Metrics level"))
@@ -289,6 +227,7 @@ class MimirPanel(QWidget):
     def _run_tab(self) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
+        lay.addWidget(HelpBox("Run"))
         lay.addWidget(self.run_label)
         lay.addWidget(QLabel("Flow parameters (colour = how the value is known)"))
         lay.addWidget(self.params_pane, 3)
@@ -312,6 +251,7 @@ class MimirPanel(QWidget):
     def _compare_tab(self) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
+        lay.addWidget(HelpBox("Compare"))
         lay.addLayout(self._row("Prefix", self.cmp_prefix, self.cmp_load))
         lay.addLayout(self._row("Base", self.cmp_base, "Metric", self.cmp_metric,
                                 "Level", self.cmp_level, self.cmp_go))  # fmt: skip
@@ -323,6 +263,7 @@ class MimirPanel(QWidget):
     def _plot_tab(self) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
+        lay.addWidget(HelpBox("Plot"))
         lay.addLayout(self._row("x", self.plot_x, "y", self.plot_y, "source", self.plot_source,
                                 self.log_x, self.log_y, self.plot_go))  # fmt: skip
         lay.addWidget(self.plot_status)
@@ -346,6 +287,7 @@ class MimirPanel(QWidget):
         self.log_x.toggled.connect(self._log_changed)
         self.log_y.toggled.connect(self._log_changed)
         self.chart.hovered.connect(self.hover.setText)
+        self.timing_tab.heat_requested.connect(self.heat_requested)
 
     # ---- workers ----
 
@@ -364,6 +306,7 @@ class MimirPanel(QWidget):
             "open": self._opened, "compare": self._compared, "plot": self._plotted,
             "configs": self._configs, "list": self._listed, "design": self._designed,
             "run": self._ran,
+            **self.structs.handlers(), **self.timing_tab.handlers(),
         }[key]  # fmt: skip
         handler(result)
         self.finished.emit(key)
@@ -378,7 +321,8 @@ class MimirPanel(QWidget):
 
     def _invalidate(self) -> None:
         """Drop every request still in flight (their tokens no longer match)."""
-        for key in ("open", "list", "design", "run", "configs", "compare", "plot"):
+        keys = ("open", "list", "design", "run", "configs", "compare", "plot")
+        for key in (*keys, *StructuresTab.KEYS, *TimingTab.KEYS):
             self._tokens[key] = self._tokens.get(key, 0) + 1
 
     # ---- opening ----
@@ -455,6 +399,8 @@ class MimirPanel(QWidget):
         for combo, first in ((self.cmp_level, ""), (self.design_level, "")):
             combo.clear()
             combo.addItems([first, *summary.levels])
+        self.structs.set_view(self.view)
+        self.timing_tab.set_view(self.view if self.view.has_timing() else None)
         self.store_opened.emit(str(self.view.path))
         self.fill_designs()
 

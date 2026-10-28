@@ -234,6 +234,12 @@ class ViewTest(unittest.TestCase):
     def test_geomean_none(self) -> None:
         self.assertEqual(mimirview.geomean_ratio({"a": 0.0}, {"a": 1.0}), (0, None))
 
+    def test_version_5_accepted_without_timing_tables(self) -> None:
+        v = MimirView(mimir_fixture.build(self.dir / "v5.db", version="5"))
+        self.assertEqual(v.version, "5")
+        self.assertFalse(v.has_timing())
+        self.assertEqual(v.timing_runs(), [])
+
     def test_wrong_version_and_not_store(self) -> None:
         old = mimir_fixture.build(self.dir / "v3.db", version="3")
         with self.assertRaisesRegex(MimirError, "schema version 3"):
@@ -270,6 +276,76 @@ class ViewTest(unittest.TestCase):
 
     def test_registry_optional(self) -> None:
         self.assertIsInstance(mimirview.metric_registry(), dict)
+
+
+
+
+class ExploreTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        db = mimir_fixture.build(Path(self._tmp.name) / "v5.db", timing=True)
+        self.v = MimirView(db)
+
+    def test_structures(self) -> None:
+        self.assertEqual(self.v.structure_designs(), ["s/d1"])
+        self.assertEqual(self.v.structure_filters("s/d1"), (["clb", "lut"], ["adder"]))
+        t = self.v.structure_rows("s/d1")
+        self.assertEqual(len(t.rows), 2)
+        self.assertEqual(t.columns, mimirview.STRUCT_COLUMNS)
+        lut = self.v.structure_rows("s/d1", level="lut", kind="adder", run="r1").rows
+        self.assertEqual(lut[0][:4], ("st1", "adder", "lut", 3))
+        self.assertEqual(lut[0][5], "(1,2)-(3,4)")
+        self.assertEqual(self.v.structure_rows("s/d1", kind="mux").rows, [])
+        pts = self.v.structure_scatter("s/d1").points
+        self.assertEqual([(p.x, p.y) for p in pts], [(1.5, 0.8), (0.5, 0.9)])
+
+    def test_timing_run(self) -> None:
+        self.assertTrue(self.v.has_timing())
+        self.assertEqual([r for r, _ in self.v.timing_runs()], ["r1", "r2"])
+        info = self.v.timing_run("r1")
+        self.assertEqual(info.hist[19], 4)
+        self.assertEqual(info.hist[3], 7)
+        self.assertEqual(info.summary["n_endpoints_090"], 4)
+        self.assertEqual(info.summary["timing.nc_paths_090"], 4.0)
+        with self.assertRaises(MimirError):
+            self.v.timing_run("zz")
+
+    def test_top_objects_with_bit_strip(self) -> None:
+        t = self.v.timing_top_objects("r1", "word")
+        self.assertEqual(len(t.rows), 1)
+        self.assertEqual(t.rows[0][1], "top/SIGNAL")
+        self.assertEqual(t.rows[0][-1], "2:1.000 0:0.970")
+        self.assertEqual(len(self.v.timing_object_rows("r1")), 4)
+
+    def test_timing_run_tolerates_missing_optional_columns(self) -> None:
+        info = self.v.timing_run("r1")
+        self.assertIn("req_spread_ns", info.missing)  # the fixture is a v5 store without it
+        self.assertNotIn("req_spread_ns", info.summary)
+        self.assertEqual(info.summary["dmax_source"], "report")
+
+    def test_design_origin(self) -> None:
+        self.assertEqual(self.v.design_origin("r1"), "o")
+        self.assertEqual(self.v.design_origin("nope"), "")
+
+    def test_word_bits_only_for_shown_words(self) -> None:
+        with mock.patch.object(self.v, "_query", wraps=self.v._query) as q:
+            self.v.timing_top_objects("r1", "word", 1)
+        bit_sql = [c.args[0] for c in q.call_args_list if "bit >= 0" in c.args[0]]
+        self.assertEqual(len(bit_sql), 1)
+        self.assertIn("object_key IN (?)", bit_sql[0])
+        with mock.patch.object(self.v, "_query", wraps=self.v._query) as q:
+            self.v.timing_top_objects("r1", "span", 5)
+        self.assertEqual([c for c in q.call_args_list if "bit >= 0" in c.args[0]], [])
+
+    def test_bit_strip_limit_keeps_hottest(self) -> None:
+        rows = [(b, b / 100) for b in range(20)]
+        s = mimirview.bit_strip(rows, 3)
+        self.assertEqual(s, "19:0.190 18:0.180 17:0.170")
+
+    def test_run_scatter(self) -> None:
+        pts = self.v.run_scatter("timing.nc_paths_090", "timing.nc_paths_090").points
+        self.assertEqual(sorted(p.x for p in pts), [1.0, 4.0])
 
 
 if __name__ == "__main__":

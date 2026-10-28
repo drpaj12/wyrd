@@ -18,7 +18,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
-SUPPORTED_VERSION = "4"
+SUPPORTED_VERSIONS = ("4", "5")  # 5 is additive on 4: timing_run, timing_path_hist, timing_object
 DEFAULT_LIMIT = 500
 SCATTER_LIMIT = 20000
 NO_LIMIT = 2**62
@@ -31,7 +31,7 @@ PARAM_CONFS = ("given", "default", "default-unrecorded", "unknown")
 TABLES = (
     "records", "design", "design_source", "design_meta", "design_lineage", "flow_config",
     "flow_param", "run", "run_artifact", "structure", "structure_mapping", "structure_member",
-    "partition", "analysis_result",
+    "partition", "analysis_result", "timing_run", "timing_path_hist", "timing_object",
 )  # fmt: skip
 Row = tuple[object, ...]
 
@@ -194,7 +194,214 @@ def metric_descriptions() -> dict[str, str]:
     return {**metric_registry(), **RUN_METRICS}
 
 
-class MimirView:
+STRUCT_COLUMNS = (
+    "structure_id", "kind", "level", "n_luts", "n_clbs", "bbox", "spread", "crit_share",
+    "joined_with", "lost_at_pass",
+)  # fmt: skip
+HIST_BINS = 20
+TIMING_OBJECT_COLUMNS = (
+    "kind", "object", "crit_max", "n_paths", "n >= 0.90", "n >= 0.95", "n >= 0.99",
+    "delay share 0.90", "via", "bits (MSB first, crit)",
+)  # fmt: skip
+STRIP_MAX = 12
+BIT_CHUNK = 400
+TIMING_RUN_COLUMNS = (
+    "cpd_ns", "worst_slack_ns", "paths_requested", "paths_in_report", "paths_used", "max_req_ns",
+    "dmax_source", "req_spread_ns", "pairs", "pairs_skipped", "last_crit", "trunc_090",
+    "trunc_095", "trunc_099", "n_endpoints_090", "n_endpoints_095", "n_endpoints_099",
+    "source_kind", "analysis_n",
+)  # fmt: skip
+
+
+@dataclass(frozen=True)
+class TimingRunInfo:
+    run_id: str
+    label: str
+    summary: dict[str, object]
+    hist: list[int]  # HIST_BINS counts
+    missing: tuple[str, ...] = ()  # optional timing_run columns this store lacks
+
+
+def _bbox(row: Row) -> str:
+    x0, y0, x1, y1 = row
+    return "" if x0 is None else f"({x0},{y0})-({x1},{y1})"
+
+
+def bit_strip(rows: Sequence[tuple[int, float]], limit: int = STRIP_MAX) -> str:
+    """``bit:crit`` pairs, MSB first, the hottest ``limit`` bits when there are more."""
+    top = sorted(rows, key=lambda r: (-r[1], -r[0]))[:limit]
+    return " ".join(f"{b}:{c:.3f}" for b, c in sorted(top, reverse=True))
+
+
+class _ExploreMixin:
+    """Queries of the Structures and Timing tabs (spec 2026-10-28-heat-explore.md section 4)."""
+
+    version: str
+
+    def _query(self, sql: str, args: Sequence[object] = ()) -> list[Row]:
+        raise NotImplementedError
+
+    def _existing_tables(self) -> set[str]:
+        raise NotImplementedError
+
+    def has_timing(self) -> bool:
+        have = self._existing_tables()
+        return {"timing_run", "timing_path_hist", "timing_object"} <= have
+
+    def structure_designs(self) -> list[str]:
+        rows = self._query("SELECT DISTINCT design FROM structure_mapping ORDER BY design")
+        return [str(r[0]) for r in rows]
+
+    def structure_runs(self, design: str) -> list[str]:
+        rows = self._query(
+            "SELECT DISTINCT run_id FROM structure_mapping WHERE design = ? ORDER BY run_id",
+            [design],
+        )
+        return [str(r[0]) for r in rows]
+
+    def structure_filters(self, design: str) -> tuple[list[str], list[str]]:
+        """(levels, kinds) present for the design."""
+        lv = self._query(
+            "SELECT DISTINCT level FROM structure_mapping WHERE design = ? ORDER BY level", [design]
+        )
+        kd = self._query(
+            "SELECT DISTINCT s.kind FROM structure s WHERE s.design = ? ORDER BY s.kind", [design]
+        )
+        return [str(r[0]) for r in lv], [str(r[0]) for r in kd]
+
+    def _struct_where(
+        self, design: str, run: str, level: str, kind: str
+    ) -> tuple[str, list[object]]:
+        where = ["m.design = ?"]
+        args: list[object] = [design]
+        for col, val in (("m.run_id", run), ("m.level", level), ("s.kind", kind)):
+            if val:
+                where.append(f"{col} = ?")
+                args.append(val)
+        return " AND ".join(where), args
+
+    def structure_rows(
+        self, design: str, run: str = "", level: str = "", kind: str = "",
+        limit: int = DEFAULT_LIMIT,
+    ) -> Table:  # fmt: skip
+        """The structure_mapping rows of a design (optionally one run, level, kind)."""
+        where, args = self._struct_where(design, run, level, kind)
+        sql = (
+            "SELECT m.structure_id, COALESCE(s.kind, ''), m.level, m.n_luts, m.n_clbs, "
+            "m.bbox_x0, m.bbox_y0, m.bbox_x1, m.bbox_y1, m.spread, m.crit_share, "
+            "m.joined_with, m.lost_at_pass FROM structure_mapping m LEFT JOIN structure s "
+            "ON s.design = m.design AND s.structure_id = m.structure_id "
+            f"WHERE {where} ORDER BY m.level, m.structure_id LIMIT ?"
+        )
+        limit = limit if limit > 0 else NO_LIMIT
+        rows = self._query(sql, [*args, limit + 1])
+        out: list[Row] = [(*r[:5], _bbox(r[5:9]), *r[9:]) for r in rows[:limit]]
+        return Table("structure_mapping", STRUCT_COLUMNS, out, len(rows) > limit)
+
+    def structure_scatter(
+        self, design: str, run: str = "", level: str = "", kind: str = ""
+    ) -> Scatter:
+        """Placement spread (x) against critical share (y), rows that have both."""
+        where, args = self._struct_where(design, run, level, kind)
+        sql = (
+            "SELECT m.structure_id, m.run_id, m.spread, m.crit_share FROM structure_mapping m "
+            "LEFT JOIN structure s ON s.design = m.design AND s.structure_id = m.structure_id "
+            f"WHERE {where} AND m.spread IS NOT NULL AND m.crit_share IS NOT NULL LIMIT ?"
+        )
+        rows = self._query(sql, [*args, SCATTER_LIMIT + 1])
+        pts = [Point(f"{r[0]} ({str(r[1])[:6]})", _f(r[2]), _f(r[3])) for r in rows[:SCATTER_LIMIT]]
+        return Scatter(pts, len(rows))
+
+    def timing_runs(self) -> list[tuple[str, str]]:
+        """(run_id, label) of every run with a timing_run row."""
+        if not self.has_timing():
+            return []
+        rows = self._query(
+            "SELECT t.run_id, r.design, r.arm, r.seed, r.source FROM timing_run t "
+            "LEFT JOIN run r ON r.run_id = t.run_id ORDER BY r.design, r.arm, r.seed, t.run_id"
+        )
+        return [(str(r[0]), f"{r[1]} / {r[4]} / {r[2]} / seed {r[3]}  [{str(r[0])[:8]}]")
+                for r in rows]  # fmt: skip
+
+    def timing_run(self, run_id: str) -> TimingRunInfo:
+        have = {str(r[1]) for r in self._query("PRAGMA table_info(timing_run)")}
+        cols = tuple(c for c in TIMING_RUN_COLUMNS if c in have)
+        missing = tuple(c for c in TIMING_RUN_COLUMNS if c not in have)
+        rows = self._query(f"SELECT {', '.join(cols)} FROM timing_run WHERE run_id = ?", [run_id])
+        if not rows:
+            raise MimirError(f"no timing for run {run_id!r}")
+        info = dict(zip(cols, rows[0], strict=True))
+        near = self._query(
+            "SELECT metric, value FROM records r JOIN record_run u ON u.record_rowid = r.rowid "
+            "WHERE u.run_id = ? AND r.metric LIKE 'timing.nc_paths_%' ORDER BY metric", [run_id]
+        )
+        info.update({str(m): v for m, v in near})
+        hist = [0] * HIST_BINS
+        for b, n in self._query("SELECT bin, n FROM timing_path_hist WHERE run_id = ?", [run_id]):
+            if 0 <= _n(b) < HIST_BINS:
+                hist[_n(b)] = _n(n)
+        label = dict(self.timing_runs()).get(run_id, run_id)
+        return TimingRunInfo(run_id, label, info, hist, missing)
+
+    def _word_bits(self, run_id: str, keys: Sequence[str]) -> dict[str, list[tuple[int, float]]]:
+        """Bit rows of the given word objects only (in chunks, under SQLite's variable limit)."""
+        bits: dict[str, list[tuple[int, float]]] = {}
+        for i in range(0, len(keys), BIT_CHUNK):
+            chunk = list(keys[i:i + BIT_CHUNK])
+            marks = ", ".join("?" * len(chunk))
+            for key, bit, crit in self._query(
+                "SELECT object_key, bit, crit_max FROM timing_object WHERE run_id = ? "
+                f"AND kind = 'word' AND bit >= 0 AND object_key IN ({marks})", [run_id, *chunk]
+            ):  # fmt: skip
+                bits.setdefault(str(key), []).append((_n(bit), _f(crit)))
+        return bits
+
+    def timing_top_objects(self, run_id: str, kind: str = "word", limit: int = 100) -> Table:
+        """Objects of one kind by crit_max; a word row carries its bit strip."""
+        sql = (
+            "SELECT kind, object_key, crit_max, n_paths, n_paths_090, n_paths_095, n_paths_099, "
+            "delay_share_090, via FROM timing_object WHERE run_id = ? AND kind = ? AND bit = -1 "
+            "ORDER BY crit_max DESC, n_paths DESC, object_key LIMIT ?"
+        )
+        limit = limit if limit > 0 else NO_LIMIT
+        rows = self._query(sql, [run_id, kind, limit + 1])
+        shown = rows[:limit]
+        bits = self._word_bits(run_id, [str(r[1]) for r in shown]) if kind == "word" else {}
+        out: list[Row] = [(*r, bit_strip(bits.get(str(r[1]), ()))) for r in shown]
+        return Table("timing_object", TIMING_OBJECT_COLUMNS, out, len(rows) > limit)
+
+    def design_origin(self, run_id: str) -> str:
+        """The recorded origin (source path, may contain ``$VTR_ROOT``) of the run's design."""
+        rows = self._query(
+            "SELECT d.origin FROM run r JOIN design d ON d.slug = r.slug WHERE r.run_id = ?",
+            [run_id],
+        )
+        return str(rows[0][0]) if rows else ""
+
+    def timing_object_rows(self, run_id: str) -> list[Row]:
+        """(kind, key, bit, via, crit_max) of the span and word rows, for the hot/cold view."""
+        return self._query(
+            "SELECT kind, object_key, bit, via, crit_max FROM timing_object "
+            "WHERE run_id = ? AND kind IN ('span', 'word')", [run_id]
+        )  # fmt: skip
+
+    def run_scatter(self, x_metric: str, y_metric: str) -> Scatter:
+        """One point per run that has both metrics (through the record_run view)."""
+        def per_run(metric: str) -> dict[str, float]:
+            rows = self._query(
+                "SELECT u.run_id, r.value FROM records r JOIN record_run u "
+                "ON u.record_rowid = r.rowid WHERE r.metric = ?", [metric]
+            )
+            return {str(a): _f(b) for a, b in rows}
+
+        xs, ys = per_run(x_metric), per_run(y_metric)
+        names = dict(self.timing_runs()) if self.has_timing() else {}
+        keys = sorted(xs.keys() & ys.keys())
+        pts = [Point(names.get(k, k), xs[k], ys[k]) for k in keys]
+        return Scatter(pts[:SCATTER_LIMIT], len(pts))
+
+
+class MimirView(_ExploreMixin):
     """Read-only access to one Mimir store. Opening checks the file and its schema version."""
 
     def __init__(self, path: str | Path) -> None:
@@ -235,10 +442,10 @@ class MimirView:
         if not rows:
             raise MimirError(f"{self.path}: not a Mimir store (no schema_version in meta)")
         version = str(rows[0][0])
-        if version != SUPPORTED_VERSION:
+        if version not in SUPPORTED_VERSIONS:
             raise MimirError(
                 f"{self.path}: schema version {version}; "
-                f"this Wyrd reads version {SUPPORTED_VERSION}"
+                f"this Wyrd reads versions {' and '.join(SUPPORTED_VERSIONS)}"
             )
         return version
 

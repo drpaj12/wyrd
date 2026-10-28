@@ -1,7 +1,7 @@
 # Browsing a Mímir store (`wyrd mimir`)
 
 Mímir III is the circuit dataset of the Yggdrasil III suite: measured values (area, speed, structure)
-with how each was obtained. `wyrd mimir` reads a store (a SQLite file, schema version 4) read only:
+with how each was obtained. `wyrd mimir` reads a store (a SQLite file, schema versions 4 and 5) read only:
 it never writes the file or adds an index, and it works while another process is writing the store.
 A store of another schema version is refused with a message naming both versions.
 
@@ -41,3 +41,62 @@ Exit codes: 0 ok; 2 for a usage error, an unreadable store, an unsupported schem
 unknown design, run or base configuration.
 
 The Mímir dock in `wyrd-gui` shows the same data; see the GUI page.
+
+<!-- guide:begin -->
+## Mímir guide: from a store to a coloured source file
+
+Mímir is a database of measured values of circuits: how big they are, how fast, how their HDL
+turned into logic. Wyrd shows it read only: it never changes the file.
+
+### 1. Open a store
+
+File > Open Mímir store... and choose a `.db` file. The Summary tab says what is in it: records
+(measured values), runs (executions of the flow) and sources (experiments).
+
+### 2. Pick a design
+
+Choose a source and type in the filter box, then click a circuit. The Design tab fills in. Double
+click a run in its Runs table to see exactly how the run was made (Run tab).
+
+### 3. The Timing tab
+
+Pick a run. The summary line gives the clock period (CPD), the worst slack and how many of the
+reported paths were used. Criticality (crit) is 1 minus slack divided by the clock period: 1.0 is
+the slowest path, 0 has plenty of spare time. A path is near-critical when its crit is at least
+theta (0.90, 0.95 or 0.99). The histogram shows how many paths fall in each crit range; the
+table lists the most critical HDL objects, with a bit strip for buses.
+
+Exact or lower bound: when the summary says "crit is exact", the clock period was found from all
+paths. When it says "crit is a lower bound (dmax from report)", it came from a cut report and the
+true crit can only be higher.
+
+### 4. Open in source view
+
+Press "Open in source view". Wyrd finds the design's source from the store (the design's origin,
+for example `$VTR_ROOT/vtr_flow/benchmarks/verilog/mkPktMerge.v`; `$VTR_ROOT` comes from your
+environment or the machine settings), opens it read only, switches the Timing panel to
+near-critical, and selects the hottest token. When the file cannot be found the status line
+says exactly what is missing and a file dialog lets you pick it.
+
+### 5. What red and blue mean
+
+Red is critical (crit near 1), blue is not critical, light yellow is in between. A faint tint
+on a whole line says the line is on a near-critical path. For a bus such as `D_OUT[141:0]` the
+name is split into one coloured piece per bit, most significant bit first: a name of 6 letters
+for 3 bits gives 2 letters per bit. When the name is shorter than the number of bits, a bit
+strip under the name shows each bit and the name keeps the highest crit. A dotted underline
+marks a bit that is unknown. Hover a token to see its crit and every bit.
+
+### 6. Example: mkPktMerge
+
+Open `lane3-structures.db`, pick `mkPktMerge`, choose a run in the Timing tab and press Open
+in source view. The word `fi1__D_OUT` is a bus of at least 142 bits. Bits 134 and 141 have
+crit 1.0 and bit 132 has 0.995: those bits set the speed of the chip, while many others sit
+near 0.93. Click the token to list the paths through it in the Timing panel.
+
+### 7. Structures tab
+
+A structure is a piece of HDL that looks like a known building block (an adder, a multiplexer).
+Each row says how many LUTs and CLBs it became, where it was placed (bbox), its spread (how far
+apart its parts are) and crit_share (how much of the critical path it accounts for).
+<!-- guide:end -->

@@ -177,6 +177,7 @@ class WindowTest(unittest.TestCase):
         assert run is not None
         w.report_view.tree.setCurrentItem(run)
         self.assertTrue(w.timing.has_attribution())
+        w.timing.mode.setCurrentIndex(2)  # both: the margin and the hot/cold tokens
         w.timing.statements.selectRow(0)
         self.assertEqual(w.source_view.path, self.tmp / "proj" / SOURCE)
         self.assertEqual(w.source_view.text.textCursor().blockNumber(), 14)

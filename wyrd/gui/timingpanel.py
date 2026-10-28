@@ -7,6 +7,7 @@ from pathlib import Path
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -17,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from wyrd.guimodel import timing
+from wyrd.guimodel import heat, heatsource, heatview, timing
 from wyrd.guimodel.timing import Attribution, TimingError
 
 STATEMENT_HEADERS = ["Share", "Delay (ns)", "Location", "Module", "Word"]
@@ -28,7 +29,11 @@ NO_ATTR = (
     'Use step { use = "odin3-flow", timing_attr = true } and run the flow.'
 )
 NO_ATTR_PREFIX = "No timing attribution for this run; the timing step reported: "
-SCOPES = ("Critical path", "Top paths")
+SCOPES = ("Critical path", "Top paths", "Near-critical")
+SCOPE_KINDS = (heat.SCOPE_CRITICAL, heat.SCOPE_TOP, heat.SCOPE_NEAR)
+MODES = ("Hot/cold HDL", "Share margin", "Both")
+MODE_HOT, MODE_MARGIN, MODE_BOTH = range(3)
+HIT_HEADERS = ["Path", "Slack (ns)", "Crit", "Endpoint"]
 DEFAULT_TOP = 10
 
 
@@ -67,6 +72,17 @@ class TimingPanel(QWidget):
         self.top_n.setRange(1, 1000)
         self.top_n.setValue(DEFAULT_TOP)
         self.top_n.setPrefix("N = ")
+        self.mode = QComboBox()
+        self.mode.addItems(MODES)
+        self.theta = QComboBox()
+        self.theta.addItems([f"crit >= {t:.2f}" for t in heat.THETAS])
+        self.msb_first = QCheckBox("MSB first")
+        self.msb_first.setChecked(True)
+        self.hits = _table(HIT_HEADERS)
+        self.hits_label = QLabel("Paths through the clicked token (click a coloured token)")
+        self._heat: heat.HeatModel | None = None
+        self.chosen: dict[str, Path] = {}
+        self.extra_env: dict[str, str] = {}
         self._build()
         self._att: Attribution | None = None
         self._att_path: Path | None = None
@@ -78,6 +94,10 @@ class TimingPanel(QWidget):
         self.path.itemSelectionChanged.connect(self._path_selected)
         self.scope.currentIndexChanged.connect(self._heat_changed)
         self.top_n.valueChanged.connect(self._heat_changed)
+        self.theta.currentIndexChanged.connect(self._heat_changed)
+        self.mode.currentIndexChanged.connect(self._heat_changed)
+        self.msb_first.toggled.connect(self._heat_changed)
+        self._heat_changed()
 
     def _build(self) -> None:
         layout = QVBoxLayout(self)
@@ -87,11 +107,16 @@ class TimingPanel(QWidget):
         layout.addWidget(QLabel("Critical path, in order"))
         layout.addWidget(self.path, 2)
         row = QHBoxLayout()
-        row.addWidget(QLabel("Heat margin in the source view:"))
+        row.addWidget(QLabel("Source view:"))
+        row.addWidget(self.mode)
         row.addWidget(self.scope)
         row.addWidget(self.top_n)
+        row.addWidget(self.theta)
+        row.addWidget(self.msb_first)
         row.addStretch(1)
         layout.addLayout(row)
+        layout.addWidget(self.hits_label)
+        layout.addWidget(self.hits, 1)
         layout.addWidget(self.note)
 
     def has_attribution(self) -> bool:
@@ -102,6 +127,7 @@ class TimingPanel(QWidget):
         self._roots = list(roots)
         self._att = None
         self._att_path = None
+        self._heat = None
         self._resolver = timing.SourceResolver(self._roots)
         self.note.setText("")
         self._clear_tables()
@@ -114,6 +140,7 @@ class TimingPanel(QWidget):
     def _clear_tables(self) -> None:
         self.statements.setRowCount(0)
         self.path.setRowCount(0)
+        self.hits.setRowCount(0)
         self._statement_targets = []
         self._path_targets = []
 
@@ -130,6 +157,10 @@ class TimingPanel(QWidget):
             return
         self._att = att
         self._att_path = found
+        try:
+            self._heat = heat.load_heat(found)
+        except TimingError:
+            self._heat = None
         self._resolver = timing.SourceResolver(self._roots, timing.source_hints(found))
         self._fill(att)
 
@@ -186,7 +217,92 @@ class TimingPanel(QWidget):
 
     def _heat_changed(self) -> None:
         self.top_n.setEnabled(self.scope.currentIndex() == 1)
+        self.theta.setEnabled(self.scope.currentIndex() == 2)
         self.heat_changed.emit()
+
+    def display_mode(self) -> int:
+        return self.mode.currentIndex()
+
+    def heat_scope(self) -> heat.Scope:
+        return heat.Scope(
+            SCOPE_KINDS[self.scope.currentIndex()],
+            self.top_n.value(),
+            heat.THETAS[max(self.theta.currentIndex(), 0)],
+        )
+
+    def use_heat_model(self, model: heat.HeatModel | None) -> None:
+        """Show another model (for example from Mímir) in the source view."""
+        self._heat = model
+        self.hits.setRowCount(0)
+        self.heat_changed.emit()
+
+    def heat_model(self) -> heat.HeatModel | None:
+        return self._heat
+
+    def file_heat_for(self, path: Path, text: str) -> heatview.FileHeat | None:
+        """Hot/cold ranges of ``path`` in the chosen scope; None without a model."""
+        model = self._heat
+        if model is None:
+            return None
+        target = path.resolve()
+        names = {n for n in model.known_names() if self._same_file(n, target)}
+        if model.source != "attribution":
+            names = names or self._mimir_names(model, target)
+        facts = model.select(self.heat_scope())
+        return heatview.build_file_heat(model, facts, names, text, self.msb_first.isChecked())
+
+    def _mimir_names(self, model: heat.HeatModel, target: Path) -> set[str]:
+        """Model file names for ``target``: by full relative path; by base name only when the name
+        has no directory part and the match is flagged in the model notes."""
+        known = model.known_names()
+        full = {
+            n for n in known
+            if Path(n).parts[:-1] and target.as_posix().endswith("/" + Path(n).as_posix())
+        }  # fmt: skip
+        if full:
+            return full
+        bare = {n for n in known if len(Path(n).parts) == 1 and n == target.name}
+        note = f"{target.name}: matched by base name only (the store names no directory)"
+        if bare and note not in model.notes:
+            model.notes.append(note)
+        return bare
+
+    def choose_file(self, name: str, path: Path) -> None:
+        """Remember that the model's file ``name`` is ``path`` (picked by the user)."""
+        self.chosen[name] = path
+
+    def env_extra(self) -> dict[str, str]:
+        """Variables for ``$VAR`` in store file names that the environment does not set."""
+        return dict(self.extra_env)
+
+    def set_roots(self, roots: list[Path]) -> None:
+        """Set the project roots used to find source files (without loading a run)."""
+        self._roots = list(roots)
+        hints = timing.source_hints(self._att_path) if self._att_path is not None else None
+        self._resolver = timing.SourceResolver(self._roots, hints)
+
+    def resolve_source(self, name: str) -> Path | None:
+        return self._resolver.resolve(name)
+
+    def _same_file(self, name: str, target: Path) -> bool:
+        picked = self.chosen.get(name)
+        if picked is not None:
+            return picked.resolve() == target
+        expanded = heatsource.expand(name, self.extra_env)
+        if Path(expanded).is_absolute():  # a store path: read-only, may lie outside the project
+            return Path(expanded).resolve() == target
+        found = self._resolver.resolve(name)
+        return found is not None and found.resolve() == target
+
+    def show_paths(self, label: str, indexes: tuple[int, ...]) -> None:
+        """List the paths with these indexes (those through a clicked token)."""
+        infos = self._heat.path_infos(indexes) if self._heat is not None else []
+        self.hits_label.setText(f"Paths through {label}: {len(infos)}")
+        self.hits.setRowCount(len(infos))
+        for row, i in enumerate(infos):
+            slack = "n/a" if i.slack_ns is None else f"{i.slack_ns:.3f}"
+            _set_row(self.hits, row, [str(i.index), slack, f"{i.crit:.3f}", i.endpoint])
+        self.hits.resizeColumnsToContents()
 
     def heat_for(self, path: Path) -> dict[int, float]:
         """Line to share for the source file ``path`` in the chosen scope; empty when none."""
@@ -194,6 +310,15 @@ class TimingPanel(QWidget):
             return {}
         if self.scope.currentIndex() == 1:
             shares = timing.top_line_shares(self._att, self.top_n.value())
+        elif self.scope.currentIndex() == 2:
+            shares = timing.top_line_shares(self._att, self._near_count())
         else:
             shares = timing.critical_line_shares(self._att)
         return timing.file_shares(shares, path, self._resolver)
+
+    def _near_count(self) -> int:
+        model = self._heat
+        if model is None:
+            return 0
+        theta = self.heat_scope().theta
+        return sum(1 for p in model.paths.values() if heat.round_crit(p.crit) >= theta)
