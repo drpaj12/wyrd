@@ -12,12 +12,12 @@ import unittest
 from pathlib import Path
 
 from tests import mimir_fixture
-from tests.test_gui_mimir import settle, wait
 
 HAVE_QT = importlib.util.find_spec("PySide6") is not None
 
 if HAVE_QT:
     from tests.qt_helpers import dispose, qapp
+    from tests.test_gui_mimir import settle, wait
     from wyrd.gui.mimirpanel import MimirPanel
     from wyrd.guimodel import heat
     from wyrd.guimodel.heat import HeatModel
