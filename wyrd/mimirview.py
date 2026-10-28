@@ -33,6 +33,7 @@ TABLES = (
     "records", "design", "design_source", "design_meta", "design_lineage", "flow_config",
     "flow_param", "run", "run_artifact", "structure", "structure_mapping", "structure_member",
     "partition", "analysis_result", "timing_run", "timing_path_hist", "timing_object",
+    "timing_path", "timing_path_node",
 )  # fmt: skip
 Row = tuple[object, ...]
 
@@ -225,6 +226,68 @@ class TimingRunInfo:
     missing: tuple[str, ...] = ()  # optional timing_run columns this store lacks
 
 
+NO_PATH_DATA = (
+    "this store has no per-path data; run mimir import-timing --paths-from-blobs"
+)
+NO_RUN_PATHS = (
+    "this run has no per-path rows; run mimir import-timing --paths-from-blobs on the store"
+)
+
+
+@dataclass(frozen=True)
+class PathRef:
+    """One stored timing path (``timing_path`` row)."""
+
+    run_id: str
+    index: int
+    crit: float | None
+    slack_ns: float | None
+    startpoint: str
+    endpoint: str
+    n_nodes: int
+
+
+@dataclass(frozen=True)
+class PathNodeRow:
+    """One node of a stored path (``timing_path_node`` row); ``bit`` is -1 when none."""
+
+    step: int
+    atom: str
+    block_type: str
+    span: str
+    loc: str
+    module: str
+    word: str
+    bit: int
+    word_via: str
+    delay_ns: float
+    cell_delay_ns: float
+    net_delay_in_ns: float
+
+    @property
+    def file_line(self) -> tuple[str, int] | None:
+        """(file, line) from ``span`` (``file:line``), None when the node has no line."""
+        name, sep, tail = self.span.rpartition(":")
+        return (name, int(tail)) if sep and name and tail.isdigit() else None
+
+
+@dataclass(frozen=True)
+class PathList:
+    paths: list[PathRef]
+    note: str = ""
+
+
+@dataclass(frozen=True)
+class PathDetail:
+    ref: PathRef | None
+    nodes: list[PathNodeRow]
+    note: str = ""
+
+
+def _opt(x: object) -> float | None:
+    return None if x is None else _f(x)
+
+
 def _bbox(row: Row) -> str:
     x0, y0, x1, y1 = row
     return "" if x0 is None else f"({x0},{y0})-({x1},{y1})"
@@ -234,6 +297,37 @@ def bit_strip(rows: Sequence[tuple[int, float]], limit: int = STRIP_MAX) -> str:
     """``bit:crit`` pairs, MSB first, the hottest ``limit`` bits when there are more."""
     top = sorted(rows, key=lambda r: (-r[1], -r[0]))[:limit]
     return " ".join(f"{b}:{c:.3f}" for b, c in sorted(top, reverse=True))
+
+
+def _s(x: object) -> str:
+    return "" if x is None else str(x)
+
+
+def _path_ref(r: Row) -> PathRef:
+    return PathRef(str(r[0]), _n(r[1]), _opt(r[2]), _opt(r[3]), _s(r[4]), _s(r[5]), _n(r[6]))
+
+
+def _node_row(r: Row) -> PathNodeRow:
+    return PathNodeRow(
+        _n(r[0]), _s(r[1]), _s(r[2]), _s(r[3]), _s(r[4]), _s(r[5]), _s(r[6]), _n(r[7]),
+        _s(r[8]), _f(r[9]), _f(r[10]), _f(r[11]),
+    )  # fmt: skip
+
+
+def _node_filter(
+    span: str | None, word: str | None, bit: int | None, module: str | None
+) -> tuple[str, list[str | int]]:
+    """SQL on ``timing_path_node n`` for a span, word, bit and module; empty when none is given."""
+    parts: list[str] = []
+    args: list[str | int] = []
+    for text, val in (("n.span = ?", span), ("n.word = ?", word), ("n.module = ?", module)):
+        if val is not None:
+            parts.append(text)
+            args.append(val)
+    if bit is not None:
+        parts.append("n.bit = ?")
+        args.append(bit)
+    return " AND ".join(parts), args
 
 
 class _ExploreMixin:
@@ -408,6 +502,65 @@ class _ExploreMixin:
             "SELECT kind, object_key, bit, via, crit_max FROM timing_object "
             "WHERE run_id = ? AND kind IN ('span', 'word')", [run_id]
         )  # fmt: skip
+
+    def has_paths(self) -> bool:
+        """True when the store has the schema 6 per-path tables."""
+        return {"timing_path", "timing_path_node"} <= self._existing_tables()
+
+    def paths_through(
+        self,
+        run_id: str,
+        span: str | None = None,
+        word: str | None = None,
+        bit: int | None = None,
+        module: str | None = None,
+        min_crit: float | None = None,
+    ) -> PathList:
+        """The stored paths of a run through a span (``file:line``), a word (optionally of one
+        module, optionally one bit) or, with none of them, every path; most critical first. A path
+        without a criticality (skipped clock pair) sorts last and is dropped by ``min_crit``."""
+        if not self.has_paths():
+            return PathList([], NO_PATH_DATA)
+        where: list[str] = ["p.run_id = ?"]
+        args: list[str | int | float] = [run_id]
+        node = _node_filter(span, word, bit, module)
+        if node[0]:
+            where.append(
+                "EXISTS (SELECT 1 FROM timing_path_node n WHERE n.run_id = p.run_id "
+                f"AND n.path_index = p.path_index AND {node[0]})"
+            )
+            args += node[1]
+        if min_crit is not None:
+            where.append("p.crit >= ?")
+            args.append(round(min_crit - 1e-9, 9))
+        rows = self._query(
+            "SELECT p.run_id, p.path_index, p.crit, p.slack_ns, p.startpoint, p.endpoint, "
+            f"p.n_nodes FROM timing_path p WHERE {' AND '.join(where)} "
+            "ORDER BY p.crit IS NULL, p.crit DESC, p.slack_ns, p.path_index", args
+        )  # fmt: skip
+        refs = [_path_ref(r) for r in rows]
+        if not refs and not self._query(
+            "SELECT 1 FROM timing_path WHERE run_id = ? LIMIT 1", [run_id]
+        ):
+            return PathList([], NO_RUN_PATHS)
+        return PathList(refs)
+
+    def path_detail(self, run_id: str, path_index: int) -> PathDetail:
+        """One stored path with its nodes in path order."""
+        if not self.has_paths():
+            return PathDetail(None, [], NO_PATH_DATA)
+        rows = self._query(
+            "SELECT run_id, path_index, crit, slack_ns, startpoint, endpoint, n_nodes "
+            "FROM timing_path WHERE run_id = ? AND path_index = ?", [run_id, path_index]
+        )  # fmt: skip
+        if not rows:
+            return PathDetail(None, [], f"no path {path_index} in run {run_id}")
+        nodes = self._query(
+            "SELECT step, atom, block_type, span, loc, module, word, bit, word_via, delay_ns, "
+            "cell_delay_ns, net_delay_in_ns FROM timing_path_node WHERE run_id = ? "
+            "AND path_index = ? ORDER BY step", [run_id, path_index]
+        )  # fmt: skip
+        return PathDetail(_path_ref(rows[0]), [_node_row(r) for r in nodes])
 
     def run_scatter(self, x_metric: str, y_metric: str) -> Scatter:
         """One point per run that has both metrics (through the record_run view)."""

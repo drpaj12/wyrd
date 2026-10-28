@@ -15,7 +15,7 @@ def _rec(
             value, "u", "meas", "m1", f"data/{source}.jsonl:{seed}")  # fmt: skip
 
 
-def build(path: Path, version: str = "4", timing: bool = False) -> Path:
+def build(path: Path, version: str = "4", timing: bool = False, paths: bool = False) -> Path:
     con = sqlite3.connect(path)
     con.executescript(SCHEMA.read_text(encoding="utf-8"))
     con.execute("INSERT INTO meta VALUES ('schema_version', ?)", (version,))
@@ -64,8 +64,10 @@ def build(path: Path, version: str = "4", timing: bool = False) -> Path:
             "INSERT INTO records VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             _rec(d, src, "clb", "vpr.logic_clbs", v * 2, arm, 1),
         )
-    if timing:
+    if timing or paths:
         add_v5(con)
+    if paths:
+        add_v6(con)
     con.commit()
     con.close()
     return path
@@ -127,3 +129,42 @@ def add_v5(con: sqlite3.Connection) -> None:
             (d, SRC + "-1", "sha-" + d, "tc1", "", "routed", ARCH, 1, "base", "", metric, "",
              v, "n", "import-timing", "m1", "x"),
         )  # fmt: skip
+
+
+V6_DDL = (
+    """CREATE TABLE timing_path (
+        run_id TEXT NOT NULL, path_index INTEGER NOT NULL, slack_ns REAL, arrival_ns REAL,
+        required_ns REAL, crit REAL, startpoint TEXT NOT NULL, endpoint TEXT NOT NULL,
+        n_nodes INTEGER NOT NULL, PRIMARY KEY (run_id, path_index))""",
+    """CREATE TABLE timing_path_node (
+        run_id TEXT NOT NULL, path_index INTEGER NOT NULL, step INTEGER NOT NULL,
+        atom TEXT, block_type TEXT, pins TEXT, span TEXT, loc TEXT, module TEXT, word TEXT,
+        bit INTEGER, word_via TEXT, category TEXT, cell_delay_ns REAL, net_delay_in_ns REAL,
+        delay_ns REAL, PRIMARY KEY (run_id, path_index, step))""",
+)
+FILE = "$VTR_ROOT/d.v"
+# (path_index, crit, slack, [(span line, module, word, bit, delay)]): paths 1 and 2 share line 10;
+# path 3 is below 0.90 and leaves the file.
+PATHS: tuple[tuple[int, float, float, tuple[tuple[str, str, str, int, float], ...]], ...] = (
+    (1, 1.0, -2.0, ((f"{FILE}:10", "top", "a", 3, 1.0), (f"{FILE}:20", "top", "b", -1, 0.5))),
+    (2, 0.8, -1.0, ((f"{FILE}:10", "top", "a", 3, 1.0), (f"{FILE}:30", "top", "c", -1, 0.25))),
+    (3, 0.4, -0.5, ((f"{FILE}:10", "top", "a", 3, 1.0),
+                    ("$VTR_ROOT/other.v:5", "sub", "z", -1, 2.0))),
+)  # fmt: skip
+
+
+def add_v6(con: sqlite3.Connection) -> None:
+    """Per-path rows for run r1 of a v5 store (a synthetic design with two files)."""
+    for ddl in V6_DDL:
+        con.execute(ddl)
+    con.execute("UPDATE meta SET value = '6' WHERE key = 'schema_version'")
+    for idx, crit, slack, nodes in PATHS:
+        con.execute(
+            "INSERT INTO timing_path VALUES ('r1', ?, ?, 1.0, 0.0, ?, 'st (.latch clocked by c)', "
+            "'en (.latch clocked by c)', ?)", (idx, slack, crit, len(nodes)),
+        )  # fmt: skip
+        for step, (span, mod, word, bit, delay) in enumerate(nodes, 1):
+            con.execute(
+                "INSERT INTO timing_path_node VALUES ('r1', ?, ?, 'at', '.names', '[]', ?, '', ?, "
+                "?, ?, 'name', 'matched', 0.1, 0.2, ?)", (idx, step, span, mod, word, bit, delay),
+            )  # fmt: skip

@@ -244,12 +244,30 @@ class TimingPanel(QWidget):
         model = self._heat
         if model is None:
             return None
+        names = self.names_for(path)
+        facts = model.select(self.heat_scope())
+        return heatview.build_file_heat(model, facts, names, text, self.msb_first.isChecked())
+
+    def names_for(self, path: Path) -> set[str]:
+        """The model's file names that are ``path`` (empty without a model)."""
+        model = self._heat
+        if model is None:
+            return set()
         target = path.resolve()
         names = {n for n in model.known_names() if self._same_file(n, target)}
         if model.source != "attribution":
             names = names or self._mimir_names(model, target)
-        facts = model.select(self.heat_scope())
-        return heatview.build_file_heat(model, facts, names, text, self.msb_first.isChecked())
+        return names
+
+    def locate(self, name: str) -> Path | None:
+        """The file on disk for a store file name (a picked file first); None when not found."""
+        picked = self.chosen.get(name)
+        if picked is not None:
+            return picked
+        expanded = heatsource.expand(name, self.extra_env)
+        if Path(expanded).is_absolute():
+            return Path(expanded) if Path(expanded).is_file() else None
+        return self._resolver.resolve(name)
 
     def _mimir_names(self, model: heat.HeatModel, target: Path) -> set[str]:
         """Model file names for ``target``: by full relative path; by base name only when the name

@@ -48,7 +48,8 @@ def _drop_aggregates(facts: list[Fact]) -> list[Fact]:
 
 
 def model_from_objects(
-    rows: Iterable[ObjectRow], origin: str = "", dmax_source: str = ""
+    rows: Iterable[ObjectRow], origin: str = "", dmax_source: str = "", store: str = "",
+    run_id: str = "",
 ) -> HeatModel:
     facts = _drop_aggregates([f for f in (_fact(r) for r in rows) if f is not None])
     widths: dict[tuple[str, str], int] = {}
@@ -61,7 +62,7 @@ def model_from_objects(
     module_files = {m: set(span_files) for m in modules}
     model = HeatModel(
         tuple(facts), {}, widths, module_files, [NOTE], has_paths=False, source="mimir",
-        origin=origin,
+        origin=origin, store=store, run_id=run_id,
     )
     if dmax_source == "report":
         model.notes.append("crit is a lower bound (dmax from report)")

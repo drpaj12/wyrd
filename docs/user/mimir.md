@@ -109,11 +109,27 @@ Open `lane3-structures.db`, click `mkPktMerge` (either entry; the one marked "ti
 data), choose a run in the Timing tab if you want another one, and press Show HDL heat. The word
 `fi1__D_OUT` is a bus of at least 142 bits. Bits 134 and 141 have crit 1.0 and bit 132 has 0.995:
 those bits set the speed of the chip, while many others sit near 0.93. Click the token to list the
-paths through it in the Timing panel.
+paths through it in the Paths panel (see section 8).
 
 ### 7. Structures tab
 
 A structure is a piece of HDL that looks like a known building block (an adder, a multiplexer).
 Each row says how many LUTs and CLBs it became, where it was placed (bbox), its spread (how far
 apart its parts are) and crit_share (how much of the critical path it accounts for).
+
+### 8. Why is it red? The path view
+
+The heat says how critical a line is; the path view says why: the paths that run through it. Click
+a hot line or word in the source view (a store written with schema version 6 or later holds the
+paths; an older store says so in the Paths panel, and `mimir import-timing --paths-from-blobs`
+fills it in). The Paths panel lists the stored paths through the click, most critical first:
+rank, crit, slack, where each starts and ends, and how many nodes it has. Choose one and the
+source view shows that path through the logic: every line on the path keeps its colour and
+carries a numbered marker in the gutter (step 1, 2, 3 ... in path order) with the delay of
+that step; every other line is dimmed. The panel lists the steps (file and line, word and bit,
+module, delay); click a step to scroll to it, and a step in another file opens that file.
+Previous path and Next path walk the list. "All paths through here" colours the lines of all the
+near-critical paths through the click by the largest crit among them. The near-critical cut-off
+(0.90, 0.95, 0.99 or off, remembered between sessions) hides every path below it: nothing is
+listed, coloured or marked for it, although the store keeps it.
 <!-- guide:end -->

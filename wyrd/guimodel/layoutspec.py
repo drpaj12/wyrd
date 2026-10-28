@@ -20,10 +20,12 @@ TIMING = "Timing"
 SCHEMATIC = "Schematic"
 ATLAS = "Atlas"
 MIMIR = "Mímir"
+PATHS = "Paths"
 
 #: Every panel, in tab order.
 PANELS = (
     PROJECT, SOURCE, REPORT, EDITOR, SIMULATE, MESSAGES, FLOW, TIMING, SCHEMATIC, ATLAS, MIMIR,
+    PATHS,
 )  # fmt: skip
 AREAS = ("left", "right", "bottom")
 
@@ -51,7 +53,7 @@ class Preset:
         return tuple(p for p in PANELS if p not in shown)
 
 
-_BOTTOM = (MESSAGES, FLOW, TIMING, SCHEMATIC, ATLAS, MIMIR)
+_BOTTOM = (MESSAGES, FLOW, TIMING, SCHEMATIC, ATLAS, MIMIR, PATHS)
 
 PRESETS: tuple[Preset, ...] = (
     Preset(
@@ -66,7 +68,7 @@ PRESETS: tuple[Preset, ...] = (
         "Timing + source",
         (
             Group("left", (SOURCE,), SOURCE, 0.6),
-            Group("right", (TIMING,), TIMING, 0.4),
+            Group("right", (TIMING, PATHS), TIMING, 0.4),
             Group("bottom", (MESSAGES,), MESSAGES, 0.15),
         ),
     ),
@@ -74,7 +76,7 @@ PRESETS: tuple[Preset, ...] = (
         "Mímir explorer",
         (
             Group("left", (MIMIR,), MIMIR, 0.65),
-            Group("right", (SOURCE,), SOURCE, 0.35),
+            Group("right", (SOURCE, PATHS), SOURCE, 0.35),
         ),
     ),
     Preset("Everything tabbed", (Group("right", PANELS, SOURCE, 1.0),)),

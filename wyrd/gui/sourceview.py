@@ -14,6 +14,7 @@ from PySide6.QtGui import (
     QPainter,
     QPaintEvent,
     QResizeEvent,
+    QTextBlock,
     QTextCharFormat,
     QTextCursor,
     QTextFormat,
@@ -30,6 +31,7 @@ from PySide6.QtWidgets import (
 from wyrd.gui.highlighter import VerilogHighlighter
 from wyrd.guimodel import heatview
 from wyrd.guimodel.heatview import FileHeat, HeatRange
+from wyrd.guimodel.pathview import Overlay
 
 MAX_BYTES = 2_000_000
 BINARY_PROBE = 8192
@@ -53,6 +55,9 @@ def read_limited(path: Path) -> str:
 
 
 HEAT_WIDTH = 44
+STEP_WIDTH = 96
+DIM_ALPHA = 170
+UNION_ALPHA = 110
 
 
 def heat_color(share: float) -> QColor:
@@ -147,20 +152,35 @@ class HeatTextEdit(QPlainTextEdit):
         self._range_lines: list[int] = []
         self._tint_lines: list[int] = []
         self._built: tuple[int, int] | None = None
+        self.overlay: Overlay | None = None
         self._margin = _HeatMargin(self)
         self.updateRequest.connect(self._scroll_margin)
         self.verticalScrollBar().valueChanged.connect(self._scrolled)
         self.setViewportMargins(0, 0, 0, 0)
 
+    def _step_width(self) -> int:
+        return STEP_WIDTH if self.overlay is not None and self.overlay.steps else 0
+
     def heat_width(self) -> int:
-        return HEAT_WIDTH if self.heat else 0
+        return (HEAT_WIDTH if self.heat else 0) + self._step_width()
+
+    def _relayout_margin(self) -> None:
+        self.setViewportMargins(self.heat_width(), 0, 0, 0)
+        self._place_margin()
+        self._margin.setVisible(self.heat_width() > 0)
+        self._margin.update()
 
     def set_heat(self, heat: dict[int, float]) -> None:
         self.heat = dict(heat)
-        self.setViewportMargins(self.heat_width(), 0, 0, 0)
-        self._place_margin()
-        self._margin.setVisible(bool(self.heat))
-        self._margin.update()
+        self._relayout_margin()
+
+    def set_overlay(self, overlay: Overlay | None) -> None:
+        """Show one path (step markers in the gutter) or a union (heat per line); everything not
+        on it is dimmed. None clears."""
+        self.overlay = overlay if overlay is not None and overlay.lines() else None
+        self._relayout_margin()
+        self.apply_selections()
+        self.viewport().update()
 
     def set_file_heat(self, fh: FileHeat | None) -> None:
         self.file_heat = fh
@@ -198,6 +218,7 @@ class HeatTextEdit(QPlainTextEdit):
             self._built = (lo, hi)
             out += self._tint_selections(self.file_heat, lo, hi)
             out += self._range_selections(self.file_heat, lo, hi)
+        out += self._union_selections()
         if self._goto_selection is not None:
             out.append(self._goto_selection)
         self.setExtraSelections(out)
@@ -250,16 +271,51 @@ class HeatTextEdit(QPlainTextEdit):
                 out.append(sel)
         return out
 
+    def _union_selections(self) -> list[QTextEdit.ExtraSelection]:
+        out: list[QTextEdit.ExtraSelection] = []
+        if self.overlay is None or not self.overlay.union:
+            return out
+        for line, crit in self.overlay.colors.items():
+            block = self.document().findBlockByNumber(line - 1)
+            if not block.isValid():
+                continue
+            sel = QTextEdit.ExtraSelection()
+            sel.cursor = QTextCursor(block)
+            sel.format.setBackground(_qcolor(crit, UNION_ALPHA))
+            sel.format.setProperty(QTextFormat.Property.FullWidthSelection, True)
+            out.append(sel)
+        return out
+
+    def _paint_dim(self, p: QPainter) -> None:
+        """Veil every visible line that is not on the shown path(s)."""
+        ov = self.overlay
+        if ov is None:
+            return
+        on = ov.lines()
+        veil = QColor(self.palette().base().color())
+        veil.setAlpha(DIM_ALPHA)
+        block = self.firstVisibleBlock()
+        top = round(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
+        while block.isValid() and top <= self.viewport().height():
+            height = round(self.blockBoundingRect(block).height())
+            if block.isVisible() and block.blockNumber() + 1 not in on:
+                p.fillRect(0, top, self.viewport().width(), height, veil)
+            top += height
+            block = block.next()
+
     def paintEvent(self, event: QPaintEvent) -> None:
         super().paintEvent(event)
-        if self.file_heat is None:
+        if self.file_heat is None and self.overlay is None:
             return
         p = QPainter(self.viewport())
-        lo, hi = self._window()
-        keys = self._range_lines
-        for r in self.file_heat.ranges[bisect_left(keys, lo):bisect_right(keys, hi)]:
-            if r.strip:
-                self._paint_strip(p, r)
+        self._paint_dim(p)
+        if self.file_heat is not None:
+            lo, hi = self._window()
+            keys = self._range_lines
+            on = self.overlay.lines() if self.overlay is not None else None
+            for r in self.file_heat.ranges[bisect_left(keys, lo):bisect_right(keys, hi)]:
+                if r.strip and (on is None or r.line in on):
+                    self._paint_strip(p, r)
         p.end()
 
     def _paint_strip(self, p: QPainter, r: HeatRange) -> None:
@@ -320,6 +376,19 @@ class HeatTextEdit(QPlainTextEdit):
         super().resizeEvent(event)
         self._place_margin()
 
+    def _paint_marker(self, painter: QPainter, block: QTextBlock, top: int, height: int) -> None:
+        """Step numbers and delay of a line on the shown path, in the gutter."""
+        if self.overlay is None or not self.overlay.steps or not block.isVisible():
+            return
+        text = self.overlay.marker(block.blockNumber() + 1)
+        if not text:
+            return
+        left = HEAT_WIDTH if self.heat else 0
+        painter.fillRect(left, top, STEP_WIDTH, height, QColor("#e8e8f4"))
+        painter.setPen(Qt.GlobalColor.black)
+        cell = QRect(left, top, STEP_WIDTH - 3, height)
+        painter.drawText(cell, Qt.AlignmentFlag.AlignRight, text)
+
     def paint_heat(self, event: QPaintEvent) -> None:
         painter = QPainter(self._margin)
         block = self.firstVisibleBlock()
@@ -328,10 +397,11 @@ class HeatTextEdit(QPlainTextEdit):
         while block.isValid() and top <= event.rect().bottom():
             share = self.heat.get(block.blockNumber() + 1)
             if share is not None and block.isVisible():
-                painter.fillRect(0, top, self.heat_width(), height, heat_color(share))
+                painter.fillRect(0, top, HEAT_WIDTH, height, heat_color(share))
                 painter.setPen(Qt.GlobalColor.black)
-                cell = QRect(0, top, self.heat_width() - 3, height)
+                cell = QRect(0, top, HEAT_WIDTH - 3, height)
                 painter.drawText(cell, Qt.AlignmentFlag.AlignRight, f"{share * 100:.0f}%")
+            self._paint_marker(painter, block, top, height)
             top += round(self.blockBoundingRect(block).height())
             block = block.next()
         painter.end()
@@ -365,6 +435,10 @@ class SourceView(QWidget):
     def set_heat(self, heat: dict[int, float]) -> None:
         """Show a share per line (1-based) in a margin; an empty dict hides the margin."""
         self.text.set_heat(heat)
+
+    def set_overlay(self, overlay: Overlay | None) -> None:
+        """Show a path or union overlay in the open file (None clears)."""
+        self.text.set_overlay(overlay)
 
     def set_file_heat(
         self, fh: FileHeat | None, theta: float | None = None, notes: list[str] | None = None

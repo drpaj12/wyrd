@@ -425,7 +425,8 @@ class TimingTab(QWidget):
         def build() -> object:
             dmax = view.timing_run(run_id).summary.get("dmax_source")
             return heatmimir.model_from_objects(
-                view.timing_object_rows(run_id), view.design_origin(run_id), str(dmax or "")
+                view.timing_object_rows(run_id), view.design_origin(run_id), str(dmax or ""),
+                str(view.path), run_id,
             )
 
         self._submit("trows", build)

@@ -29,6 +29,7 @@ from wyrd.gui.helpbox import HelpBox
 from wyrd.gui.messages import MessagesPane
 from wyrd.gui.mimirguide import MimirGuideDialog
 from wyrd.gui.mimirpanel import MimirPanel
+from wyrd.gui.pathspanel import PathsPanel
 from wyrd.gui.projecttree import ProjectTree
 from wyrd.gui.reportview import ReportView
 from wyrd.gui.schematicpanel import SchematicPanel
@@ -39,7 +40,7 @@ from wyrd.gui.stepload import LoadSignals, LoadTask
 from wyrd.gui.timingpanel import MODE_BOTH, MODE_HOT, MODE_MARGIN, TimingPanel
 from wyrd.gui.viewlayout import ViewLayout, scrolled
 from wyrd.gui.weakslot import weak
-from wyrd.guimodel import heatsource, layoutspec, panelhelp
+from wyrd.guimodel import heatsource, layoutspec, panelhelp, pathview
 from wyrd.guimodel.floorplan import FloorplanPlan
 from wyrd.guimodel.heat import HeatModel
 from wyrd.guimodel.logparse import Message
@@ -66,6 +67,7 @@ PANEL_MIN: dict[str, tuple[int, int, bool]] = {
     layoutspec.SCHEMATIC: (240, 160, False),
     layoutspec.ATLAS: (240, 160, False),
     layoutspec.MIMIR: (640, 300, True),
+    layoutspec.PATHS: (480, 240, True),
 }
 MIDGARD_NEEDS = 'needs: pip install "wyrd[midgard]"'
 
@@ -96,6 +98,7 @@ class MainWindow(QMainWindow):
         self.report_view = ReportView()
         self.flow = FlowPanel()
         self.timing = TimingPanel()
+        self.paths = PathsPanel(settings)
         self.schematic = SchematicPanel()
         self.atlas = AtlasPanel()
         self.mimir = MimirPanel(settings)
@@ -133,6 +136,8 @@ class MainWindow(QMainWindow):
         self.timing.location_activated.connect(self.show_source)
         self.timing.heat_changed.connect(self._refresh_heat)
         self.source_view.text.heat_clicked.connect(self._on_heat_click)
+        self.paths.selection_changed.connect(self._apply_overlay)
+        self.paths.step_activated.connect(self._open_step)
         self.report_view.run_selected.connect(self._on_run_selected)
         self.report_view.floorplan_requested.connect(self._on_floorplan)
         self.flow.run_requested.connect(self._run_flow)
@@ -237,6 +242,7 @@ class MainWindow(QMainWindow):
     def show_source(self, path: Path, line: int | None = None) -> None:
         self.source_view.open_file(path, line)
         self._refresh_heat()
+        self._apply_overlay()
         self.show_panel(self.source_view)
 
     def _refresh_heat(self) -> None:
@@ -316,10 +322,56 @@ class MainWindow(QMainWindow):
         if fh is None:
             return
         r = fh.range_at(line, col)
+        model = self.timing.heat_model()
+        if model is not None and model.source == "mimir" and model.store and model.run_id:
+            self._show_stored_paths(model, line, col)
+            return
         paths = r.paths if r is not None else fh.line_paths.get(line, ())
         label = f"{r.word} (line {line})" if r is not None else f"line {line}"
         self.timing.show_paths(label, paths)
         self.show_panel(self.timing)
+
+    def _show_stored_paths(self, model: HeatModel, line: int, col: int) -> None:
+        """List the stored paths through the clicked token (Paths panel, Mímir schema 6)."""
+        fh = self.source_view.text.file_heat
+        path = self.source_view.path
+        if fh is None or path is None:
+            return
+        names = sorted(self.timing.names_for(path))
+        spans = [f"{n}:{line}" for n in names]
+        r = fh.range_at(line, col)
+        word = r.word if r is not None else None
+        bit = None
+        if r is not None:
+            bit = next((g.bit for g in r.segments if g.col_start <= col < g.col_end), None)
+        queries = pathview.click_queries(spans, word, bit)
+        label = f"{word} (line {line})" if word else f"line {line}"
+        self.paths.show_for(model.store, model.run_id, label, queries)
+        self.show_panel(self.paths)
+
+    def _in_open_file(self, name: str) -> bool:
+        path = self.source_view.path
+        return path is not None and name in self.timing.names_for(path)
+
+    def _apply_overlay(self) -> None:
+        """Draw the Paths panel's chosen path (or union) in the open file; clear it otherwise."""
+        if self.source_view.path is None:
+            self.source_view.set_overlay(None)
+            return
+        self.source_view.set_overlay(self.paths.overlay(self._in_open_file))
+
+    def _open_step(self, name: str, line: int) -> None:
+        """Scroll to a step; a step in another file opens that file first."""
+        if self._in_open_file(name):
+            self.source_view.text.set_goto(None)
+            self.source_view.focus_token(line, 0, 0)
+            return
+        found = self.timing.locate(name)
+        if found is None:
+            self.statusBar().showMessage(f"Cannot find {name} on disk")
+            return
+        self.show_source(found, line)
+        self.show_panel(self.paths)
 
     def _panel_widgets(self) -> dict[str, QWidget]:
         return {
@@ -334,6 +386,7 @@ class MainWindow(QMainWindow):
             layoutspec.SCHEMATIC: self.schematic,
             layoutspec.ATLAS: self.atlas,
             layoutspec.MIMIR: self.mimir,
+            layoutspec.PATHS: self.paths,
         }
 
     def _wrap(self, name: str, widget: QWidget) -> QWidget:

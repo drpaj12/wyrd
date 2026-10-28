@@ -354,3 +354,47 @@ class ExploreTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PathsTest(unittest.TestCase):
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = Path(tmp.name)
+        self.v = MimirView(mimir_fixture.build(self.dir / "p.db", paths=True))
+
+    def test_paths_through_shared_line_most_critical_first(self) -> None:
+        got = self.v.paths_through("r1", span=f"{mimir_fixture.FILE}:10")
+        self.assertEqual([p.index for p in got.paths], [1, 2, 3])
+        self.assertEqual(got.note, "")
+        self.assertEqual(got.paths[0].n_nodes, 2)
+
+    def test_paths_through_filters(self) -> None:
+        f = mimir_fixture.FILE
+        self.assertEqual([p.index for p in self.v.paths_through("r1", span=f"{f}:30").paths], [2])
+        self.assertEqual([p.index for p in self.v.paths_through("r1", word="a", bit=3).paths],
+                         [1, 2, 3])  # fmt: skip
+        self.assertEqual(self.v.paths_through("r1", word="a", bit=4).paths, [])
+        self.assertEqual([p.index for p in self.v.paths_through("r1", module="sub").paths], [3])
+        cut = self.v.paths_through("r1", span=f"{f}:10", min_crit=0.9)
+        self.assertEqual([p.index for p in cut.paths], [1])
+        self.assertEqual(len(self.v.paths_through("r1").paths), 3)
+
+    def test_path_nodes_in_order(self) -> None:
+        d = self.v.path_detail("r1", 2)
+        self.assertEqual([n.step for n in d.nodes], [1, 2])
+        self.assertEqual(d.nodes[1].file_line, (mimir_fixture.FILE, 30))
+        self.assertEqual((d.nodes[0].word, d.nodes[0].bit, d.nodes[0].delay_ns), ("a", 3, 1.0))
+        self.assertIsNone(self.v.path_detail("r1", 99).ref)
+
+    def test_v5_store_gives_a_note(self) -> None:
+        v5 = MimirView(mimir_fixture.build(self.dir / "v5.db", timing=True))
+        self.assertFalse(v5.has_paths())
+        got = v5.paths_through("r1", span="x:1")
+        self.assertEqual((got.paths, got.note), ([], mimirview.NO_PATH_DATA))
+        self.assertIn("--paths-from-blobs", got.note)
+        self.assertEqual(v5.path_detail("r1", 1).nodes, [])
+
+    def test_run_without_path_rows_gives_a_note(self) -> None:
+        got = self.v.paths_through("r2", span="x:1")
+        self.assertEqual((got.paths, got.note), ([], mimirview.NO_RUN_PATHS))
