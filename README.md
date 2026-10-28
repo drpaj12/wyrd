@@ -2,12 +2,7 @@
 
 Experiment runner for Odin III flows (W1 of Wyrd III). Python 3.11+, no runtime dependencies.
 
-Wyrd III is part of **Yggdrasil III** (the project / world tree), the suite of Odin III
-(<https://github.com/drpaj12/odin3>), Wyrd III, Loki III (<https://github.com/drpaj12/loki>), Verdandi III
-(<https://github.com/drpaj12/verdandiIII>), The Norns III (<https://github.com/drpaj12/nornsIII>, whose experiments run
-through Wyrd III) and Midgard III. Midgard III,
-also known as Verilog Town, is the game Wyrd III hosts (W4), after the original verilogTown (Jamieson, Grace,
-Mizuno, Zhang, ASEE 2017).
+Wyrd III is part of **Yggdrasil III**, the suite of Odin III (<https://github.com/drpaj12/odin3>, the trunk), Wyrd III (<https://github.com/drpaj12/wyrd>, the canopy, with Bifrost III and Midgard III), Loki III (<https://github.com/drpaj12/loki>), The Norns III (<https://github.com/drpaj12/nornsIII>) and Verdandi III (<https://github.com/drpaj12/verdandiIII>) on side branches, and Mímir III (<https://github.com/drpaj12/mimirIII>, the fruit). Wyrd III is the canopy, with Bifrost III (the simulation bridge) and Midgard III (Verilog Town, W4, after the original verilogTown: Jamieson, Grace, Mizuno, Zhang, ASEE 2017). Version 0.1.0 (`pyproject.toml`). The hub is <https://github.com/drpaj12/YggdrasilIII> (documentation: <https://drpaj12.github.io/YggdrasilIII/>, versions of every piece: <https://drpaj12.github.io/YggdrasilIII/versions.html>) and its picture of the tree is <https://github.com/drpaj12/YggdrasilIII/blob/main/images/yggdrasil-tree.png>.
 
     pip install -e .
     wyrd config init     # write ~/.config/wyrd/machine.toml with detected values
