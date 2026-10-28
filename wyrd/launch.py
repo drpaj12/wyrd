@@ -107,9 +107,7 @@ def _outcome(code: int, timed_out: bool, kill_is_oom: bool) -> str:
     return "oom" if kill_is_oom and code == -signal.SIGKILL else "fail"
 
 
-def wait_step(
-    proc: subprocess.Popen[bytes], timeout: int, kill_is_oom: bool = False
-) -> StepResult:
+def wait_step(proc: subprocess.Popen[bytes], timeout: int, kill_is_oom: bool = False) -> StepResult:
     """Wait for `proc`, enforcing `timeout`; report exit code, wall time and peak memory.
 
     Timeout: SIGTERM to the group, SIGKILL after 10 s. `kill_is_oom` says a SIGKILL

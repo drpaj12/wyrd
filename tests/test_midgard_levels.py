@@ -35,9 +35,7 @@ def grid(x: int, y: int, kind: str = "NON_ROAD", inter: str | None = None) -> st
 
 
 def car(sx: int, sy: int, ex: int, ey: int, delay: int) -> str:
-    return (
-        f'<car><start x="{sx}" y="{sy}"/><end x="{ex}" y="{ey}"/><delay>{delay}</delay></car>'
-    )
+    return f'<car><start x="{sx}" y="{sy}"/><end x="{ex}" y="{ey}"/><delay>{delay}</delay></car>'
 
 
 class LevelsTest(unittest.TestCase):
@@ -83,7 +81,8 @@ class LevelsTest(unittest.TestCase):
 
     def test_intersection_order(self) -> None:
         text = tiny(
-            grid(3, 5, inter="FOUR_WAY") + grid(1, 9, inter="FOUR_WAY")
+            grid(3, 5, inter="FOUR_WAY")
+            + grid(1, 9, inter="FOUR_WAY")
             + grid(2, 9, inter="FOUR_WAY")
         )
         data = parse_level_xml(text)

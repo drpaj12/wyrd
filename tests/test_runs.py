@@ -83,7 +83,7 @@ class RunsTest(unittest.TestCase):
         }  # fmt: skip
         other = {**base, "recipe": "r2", "key": "k2", "params": '{"seed": 1}'}
         labels = [i.label for i in runs.run_infos([base, other])]
-        self.assertEqual(labels, ['d / a / r1', 'd / a / r2 {"seed": 1}'])
+        self.assertEqual(labels, ["d / a / r1", 'd / a / r2 {"seed": 1}'])
 
 
 if __name__ == "__main__":

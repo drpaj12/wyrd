@@ -53,9 +53,7 @@ class Level:
         if self.phase is not Phase.EDIT:
             raise ValueError("a level can only be started from the EDIT phase")
         if len(controllers) != len(self.town.controls):
-            raise ValueError(
-                f"need {len(self.town.controls)} controllers, got {len(controllers)}"
-            )
+            raise ValueError(f"need {len(self.town.controls)} controllers, got {len(controllers)}")
         self.controllers = list(controllers)
         for c in self.controllers:
             c.start()

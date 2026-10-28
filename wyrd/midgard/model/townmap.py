@@ -16,14 +16,38 @@ from wyrd.midgard.model.levelxml import IntersectionSpec, LevelData, LevelFormat
 from wyrd.midgard.model.traffic import TrafficControl
 
 GT = GridType
-_NORTH = {GT.START_SEDGE2N, GT.STRAIGHT_ROAD_N2N, GT.CORNER_ROAD_E2N, GT.CORNER_ROAD_W2N,
-          GT.INTER_TURN_N2EN, GT.INTER_TURN_W2NW}
-_SOUTH = {GT.START_NEDGE2S, GT.STRAIGHT_ROAD_S2S, GT.CORNER_ROAD_W2S, GT.CORNER_ROAD_E2S,
-          GT.INTER_TURN_S2WS, GT.INTER_TURN_E2SE}
-_WEST = {GT.START_EEDGE2W, GT.STRAIGHT_ROAD_W2W, GT.CORNER_ROAD_N2W, GT.CORNER_ROAD_S2W,
-         GT.INTER_TURN_S2WS, GT.INTER_TURN_W2NW}
-_EAST = {GT.START_WEDGE2E, GT.STRAIGHT_ROAD_E2E, GT.CORNER_ROAD_N2E, GT.CORNER_ROAD_S2E,
-         GT.INTER_TURN_N2EN, GT.INTER_TURN_E2SE}
+_NORTH = {
+    GT.START_SEDGE2N,
+    GT.STRAIGHT_ROAD_N2N,
+    GT.CORNER_ROAD_E2N,
+    GT.CORNER_ROAD_W2N,
+    GT.INTER_TURN_N2EN,
+    GT.INTER_TURN_W2NW,
+}
+_SOUTH = {
+    GT.START_NEDGE2S,
+    GT.STRAIGHT_ROAD_S2S,
+    GT.CORNER_ROAD_W2S,
+    GT.CORNER_ROAD_E2S,
+    GT.INTER_TURN_S2WS,
+    GT.INTER_TURN_E2SE,
+}
+_WEST = {
+    GT.START_EEDGE2W,
+    GT.STRAIGHT_ROAD_W2W,
+    GT.CORNER_ROAD_N2W,
+    GT.CORNER_ROAD_S2W,
+    GT.INTER_TURN_S2WS,
+    GT.INTER_TURN_W2NW,
+}
+_EAST = {
+    GT.START_WEDGE2E,
+    GT.STRAIGHT_ROAD_E2E,
+    GT.CORNER_ROAD_N2E,
+    GT.CORNER_ROAD_S2E,
+    GT.INTER_TURN_N2EN,
+    GT.INTER_TURN_E2SE,
+}
 _ENTRIES = {
     "FOUR_WAY": "NSEW",
     "THREE_WAY_NSE": "NSE",
@@ -35,13 +59,22 @@ _ENTRIES = {
 
 _TURNS: dict[SignalState, dict[Direction, str]] = {
     SignalState.GO_FORWARD: {
-        Direction.N: "nnn", Direction.S: "sss", Direction.E: "eee", Direction.W: "www",
+        Direction.N: "nnn",
+        Direction.S: "sss",
+        Direction.E: "eee",
+        Direction.W: "www",
     },
     SignalState.GO_LEFT: {
-        Direction.N: "nnww", Direction.S: "ssee", Direction.E: "eenn", Direction.W: "wwss",
+        Direction.N: "nnww",
+        Direction.S: "ssee",
+        Direction.E: "eenn",
+        Direction.W: "wwss",
     },
     SignalState.GO_RIGHT: {
-        Direction.N: "ne", Direction.S: "sw", Direction.E: "es", Direction.W: "wn",
+        Direction.N: "ne",
+        Direction.S: "sw",
+        Direction.E: "es",
+        Direction.W: "wn",
     },
 }
 

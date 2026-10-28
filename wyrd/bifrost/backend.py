@@ -23,7 +23,7 @@ _BINDING_ERRORS = (KeyError, ValueError, RuntimeError)
 _BAD_PATH_CHARS = ('"', ";", "\n", "\r")
 
 UNAVAILABLE = (
-    "odin3 with the simulation API is not installed; run: pip install \"wyrd[sim]\" "
+    'odin3 with the simulation API is not installed; run: pip install "wyrd[sim]" '
     "(needs Odin III 1.0.3 or later)"
 )
 
@@ -135,9 +135,7 @@ class _Handle:
 
 
 class _Compiled:
-    def __init__(
-        self, odin3: ModuleType, design: Any, diagnostics: tuple[Diagnostic, ...]
-    ) -> None:
+    def __init__(self, odin3: ModuleType, design: Any, diagnostics: tuple[Diagnostic, ...]) -> None:
         self._odin3 = odin3
         self._design = design
         self._diagnostics = diagnostics
@@ -186,7 +184,7 @@ class Odin3Backend:
     def compile(self, files: Sequence[Path]) -> CompiledDesign:
         for p in files:
             if any(c in str(p) for c in _BAD_PATH_CHARS):
-                text = f"{p}: a path with a newline, `;` or `\"` is not supported"
+                text = f'{p}: a path with a newline, `;` or `"` is not supported'
                 raise CompileError([_plain(text)])
         script = "read_verilog " + " ".join(f'"{p}"' for p in files) + "; proc; opt; lower"
         design = self._odin3.Design()

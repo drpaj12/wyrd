@@ -28,9 +28,7 @@ class KeyTest(unittest.TestCase):
 
     def test_key_stable(self) -> None:
         spec = make_spec(self.src)
-        self.assertEqual(
-            run_key(spec, None, VERSIONS, ARGV), run_key(spec, None, VERSIONS, ARGV)
-        )
+        self.assertEqual(run_key(spec, None, VERSIONS, ARGV), run_key(spec, None, VERSIONS, ARGV))
 
     def test_key_changes_with_file_content(self) -> None:
         spec = make_spec(self.src)

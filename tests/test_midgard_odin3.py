@@ -191,8 +191,10 @@ class RealOdin3Test(unittest.TestCase):
 
     def test_syntax_error_line(self) -> None:
         f = self.tmp / "bad.v"
-        f.write_text("module light1 (clk, rst);\ninput clk, rst;\n\n\nassign = ;\nendmodule\n",
-                     encoding="utf-8")
+        f.write_text(
+            "module light1 (clk, rst);\ninput clk, rst;\n\n\nassign = ;\nendmodule\n",
+            encoding="utf-8",
+        )
         result = build_controllers([f])
         self.assertFalse(result.ok)
         self.assertEqual(result.errors[0].line, 5)

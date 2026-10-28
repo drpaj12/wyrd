@@ -35,8 +35,7 @@ def data_ports(ports: Sequence[Signal]) -> tuple[Signal, ...]:
 
 def _port_lines(ports: Sequence[Signal], outputs: Sequence[Signal]) -> list[str]:
     lines = [
-        f"# clock {p.name} 0" if p.kind == "clock" else f"# input {p.name} {p.width}"
-        for p in ports
+        f"# clock {p.name} 0" if p.kind == "clock" else f"# input {p.name} {p.width}" for p in ports
     ]
     return lines + [f"# output {o.name} {o.width}" for o in outputs]
 

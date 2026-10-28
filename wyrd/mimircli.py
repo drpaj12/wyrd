@@ -23,6 +23,7 @@ def add_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None
     design.add_argument("db")
     design.add_argument("name")
     design.add_argument("--source")
+    design.add_argument("--level", help="only metric records of this level")
     run = msub.add_parser("run", help="a run: flow parameters and artifacts")
     run.add_argument("db")
     run.add_argument("run_id")
@@ -35,11 +36,21 @@ def add_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None
     for p in (designs, design, run, comp):
         p.add_argument("--csv", action="store_true", help="write the main table as CSV")
     for p in (designs, design):
-        p.add_argument("--limit", type=int, default=mimirview.DEFAULT_LIMIT)
+        p.add_argument(
+            "--limit", type=int, default=mimirview.DEFAULT_LIMIT, help="rows; 0 for no cap"
+        )
 
 
 def _show(t: Table, as_csv: bool) -> None:
-    print(mimirview.render_csv(t), end="") if as_csv else print(mimirview.render_text(t))
+    if as_csv:
+        print(mimirview.render_csv(t), end="")
+        if t.more:
+            print(
+                f"wyrd: warning: output truncated at {len(t.rows)} rows; raise --limit",
+                file=sys.stderr,
+            )
+    else:
+        print(mimirview.render_text(t))
 
 
 def _summary(v: MimirView, args: argparse.Namespace) -> int:
@@ -47,6 +58,10 @@ def _summary(v: MimirView, args: argparse.Namespace) -> int:
     print(f"store {v.path.name}  schema version {s.version}  {s.size_bytes} bytes")
     print("rows: " + ", ".join(f"{k}={n}" for k, n in s.counts.items()))
     print(f"levels: {', '.join(s.levels)}  distinct metrics: {s.n_metrics}")
+    if s.note:
+        print(f"note: {s.note}")
+    if v.wal_present:
+        print("note: a -wal file exists beside this store; another process may have it open")
     print()
     print(mimirview.render_text(s.sources))
     return 0
@@ -58,7 +73,7 @@ def _designs(v: MimirView, args: argparse.Namespace) -> int:
 
 
 def _design(v: MimirView, args: argparse.Namespace) -> int:
-    d = v.design(args.name, args.source, args.limit)
+    d = v.design(args.name, args.source, args.limit, args.level)
     if args.csv:
         _show(d.metrics, True)
         return 0

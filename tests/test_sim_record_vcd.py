@@ -138,7 +138,7 @@ class VcdTest(unittest.TestCase):
         text = vcd_text(rec)
         self.assertNotIn("#2\n", text)
         self.assertIn("#5\n1!\n#10\n0!\n", text)
-        self.assertEqual(text.count("0\""), 1)
+        self.assertEqual(text.count('0"'), 1)
 
     def test_vcd_empty(self) -> None:
         text = vcd_text(Recording((), (), (), (), ()))

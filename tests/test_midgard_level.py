@@ -190,9 +190,7 @@ class LevelTest(unittest.TestCase):
 Trace = list[tuple[int, int, int, tuple[int, int, int, int]]]
 
 
-def traced_run(
-    dts: Callable[[], float], speed: int = 1
-) -> tuple[Trace, LevelResult, int]:
+def traced_run(dts: Callable[[], float], speed: int = 1) -> tuple[Trace, LevelResult, int]:
     level = make_level(1)
     trace: Trace = []
 

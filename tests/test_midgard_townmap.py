@@ -61,8 +61,12 @@ class TownMapTest(unittest.TestCase):
         _, town = level1()
         g = town.grid
         got = [
-            g[6][21].ending_counter, g[14][21].ending_counter, g[21][11].ending_counter,
-            g[13][0].ending_counter, g[5][0].ending_counter, g[0][12].ending_counter,
+            g[6][21].ending_counter,
+            g[14][21].ending_counter,
+            g[21][11].ending_counter,
+            g[13][0].ending_counter,
+            g[5][0].ending_counter,
+            g[0][12].ending_counter,
         ]
         self.assertEqual(got, [0, 1, 2, 3, 4, 5])
 

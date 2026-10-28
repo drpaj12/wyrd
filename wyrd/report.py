@@ -69,9 +69,7 @@ def metric_names(rows: list[dict[str, object]]) -> list[str]:
     return sorted(names)
 
 
-def _layout(
-    identities: list[Identity], rows: list[dict[str, object]]
-) -> tuple[bool, list[str]]:
+def _layout(identities: list[Identity], rows: list[dict[str, object]]) -> tuple[bool, list[str]]:
     """Whether to show a recipe column, and the sorted sweep parameter names."""
     show_recipe = len({i[2] for i in identities} | {str(r.get("recipe") or "") for r in rows}) > 1
     names = sorted({n for i in identities for n in _param_map(i)})
@@ -162,9 +160,7 @@ def render_md(rows: list[list[str]]) -> str:
     def row(cells: list[str]) -> str:
         return "| " + " | ".join(c.replace("|", "\\|") for c in cells) + " |"
 
-    return "\n".join(
-        [row(rows[0]), "|" + "---|" * len(rows[0])] + [row(r) for r in rows[1:]]
-    )
+    return "\n".join([row(rows[0]), "|" + "---|" * len(rows[0])] + [row(r) for r in rows[1:]])
 
 
 def render_csv(rows: list[list[str]]) -> str:

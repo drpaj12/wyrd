@@ -123,9 +123,7 @@ class _Scheduler:
             self.used -= cap
             self.cond.notify_all()
 
-    def execute(
-        self, argv: list[str], env: dict[str, str], step_dir: Path, cap: int
-    ) -> StepResult:
+    def execute(self, argv: list[str], env: dict[str, str], step_dir: Path, cap: int) -> StepResult:
         full = {**os.environ, **env}
         try:
             proc = self.launcher.start(

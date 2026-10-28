@@ -151,9 +151,7 @@ class MenuTest(UiBase):
         self.assertIsInstance(game.screen, MainMenu)
 
     def test_app_main(self) -> None:
-        code = main(
-            ["--level", "1", "--data-dir", str(self.tmp), "--frames", "3", "--no-editor"]
-        )
+        code = main(["--level", "1", "--data-dir", str(self.tmp), "--frames", "3", "--no-editor"])
         self.assertEqual(code, 0)
 
     def test_status_line_and_window_resize(self) -> None:
@@ -301,9 +299,7 @@ class RobustnessTest(UiBase):
         game = self.make_game()
         game.open_level(1)
         screen = self.level_screen(game)
-        down = pygame.event.Event(
-            pygame.KEYDOWN, key=pygame.K_LEFT, mod=0, unicode="", scancode=0
-        )
+        down = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_LEFT, mod=0, unicode="", scancode=0)
         game.frame(0, [down])
         self.assertEqual(screen.held, {pygame.K_LEFT})
         game.frame(0, [pygame.event.Event(pygame.WINDOWFOCUSLOST)])
@@ -472,8 +468,17 @@ class MouseTest(UiBase):
         screen = self.level_screen(game)
         self.click(game, (32, 1348))
         self.assertIs(screen.level.editor.placing, screen.level.sensors.sensors[6])
-        game.frame(0.016, [pygame.event.Event(pygame.MOUSEMOTION, pos=game.to_window((288, 452)),
-                                              rel=(0, 0), buttons=(0, 0, 0))])
+        game.frame(
+            0.016,
+            [
+                pygame.event.Event(
+                    pygame.MOUSEMOTION,
+                    pos=game.to_window((288, 452)),
+                    rel=(0, 0),
+                    buttons=(0, 0, 0),
+                )
+            ],
+        )
         self.click(game, (288, 100 + 1280 - 14 * 64 - 64 + 32))
         sensor = screen.level.sensors.sensors[6]
         self.assertEqual((sensor.x, sensor.y), (5, 15))
@@ -490,8 +495,9 @@ class MouseTest(UiBase):
     def drag(self, game: Game, start: tuple[int, int], end: tuple[int, int]) -> None:
         a, b = game.to_window(start), game.to_window(end)
         game.frame(0.016, [pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=a)])
-        game.frame(0.016, [pygame.event.Event(pygame.MOUSEMOTION, pos=b, rel=(1, 1),
-                                              buttons=(1, 0, 0))])
+        game.frame(
+            0.016, [pygame.event.Event(pygame.MOUSEMOTION, pos=b, rel=(1, 1), buttons=(1, 0, 0))]
+        )
         game.frame(0.016, [pygame.event.Event(pygame.MOUSEBUTTONUP, button=1, pos=b)])
 
     def test_sensor_drag_and_drop(self) -> None:
@@ -502,8 +508,9 @@ class MouseTest(UiBase):
         sensor = screen.level.sensors.sensors[6]
         self.assertEqual((sensor.x, sensor.y), (5, 15))
         self.assertIsNone(screen.level.editor.placing)
-        self.assertTrue((self.tmp / "Lv1/sensorFile.txt").read_text(encoding="utf-8")
-                        .endswith("6 5 15\n"))
+        self.assertTrue(
+            (self.tmp / "Lv1/sensorFile.txt").read_text(encoding="utf-8").endswith("6 5 15\n")
+        )
         row14, row15 = (100 + 1280 - n * 64 - 64 + 32 for n in (14, 15))
         self.drag(game, (288, row14), (288, row15))
         self.assertEqual((sensor.x, sensor.y), (5, 16))
@@ -517,8 +524,12 @@ class MouseTest(UiBase):
         screen.camera.zoom = 0.8
         screen.camera.limit_to_border()
         before = (screen.camera.x, screen.camera.y)
-        start = next((x, y) for x in range(0, 1280, 4) for y in range(0, 1380, 4)
-                     if screen.camera.tile_at(x, y) == (5, 15))
+        start = next(
+            (x, y)
+            for x in range(0, 1280, 4)
+            for y in range(0, 1380, 4)
+            if screen.camera.tile_at(x, y) == (5, 15)
+        )
         self.drag(game, start, (start[0] + 200, start[1]))
         self.assertEqual((screen.camera.x, screen.camera.y), before)
 

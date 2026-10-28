@@ -86,8 +86,7 @@ class RealOdin3Test(unittest.TestCase):
 
     def test_missing_port_message(self) -> None:
         src = (
-            "module m(input a, output y);\n output [29:0] debug_port;\n"
-            " assign y = a;\nendmodule\n"
+            "module m(input a, output y);\n output [29:0] debug_port;\n assign y = a;\nendmodule\n"
         )
         path = self.write("p.v", src)
         with self.assertRaises(CompileError) as cm:

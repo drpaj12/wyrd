@@ -32,9 +32,22 @@ class MimirCliTest(unittest.TestCase):
         _, out, _ = wyrd("mimir", "designs", self.db, "--csv", "--limit", "2")
         rows = list(csv.reader(io.StringIO(out)))
         self.assertEqual(rows[0][:2], ["source", "name"])
-        self.assertEqual(len(rows), 3)
+        self.assertEqual(len(rows), 4)  # header, 2 rows, the truncation comment
+        self.assertTrue(rows[-1][0].startswith("# truncated"))
         _, out, _ = wyrd("mimir", "designs", self.db, "--limit", "2")
         self.assertIn("more rows", out)
+
+    def test_csv_truncated(self) -> None:
+        code, out, err = wyrd("mimir", "designs", self.db, "--csv", "--limit", "2")
+        self.assertEqual(code, 0)
+        self.assertTrue(out.endswith("# truncated at 2 rows\n"))
+        self.assertIn("truncated at 2 rows", err)
+        _, out, err = wyrd("mimir", "designs", self.db, "--csv", "--limit", "0")
+        self.assertNotIn("truncated", out + err)
+
+    def test_design_level(self) -> None:
+        _, out, _ = wyrd("mimir", "design", self.db, "d1", "--csv", "--level", "clb")
+        self.assertEqual(len(out.splitlines()), 3)
 
     def test_design(self) -> None:
         code, out, _ = wyrd("mimir", "design", self.db, "d1")
@@ -58,7 +71,10 @@ class MimirCliTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("exp-a-2/alt", out)
         _, out, _ = wyrd("mimir", "compare", self.db, *args, "--csv", "--level", "routed")
-        self.assertIn("exp-a-1/base,3,1.0000", out)
+        self.assertIn("exp-a-1/base,routed,3,1.0000,0,0,1,1,", out)
+        self.assertIn("dropped (<=0 or non-numeric)", out)
+        _, out, _ = wyrd("mimir", "compare", self.db, *args)
+        self.assertIn("routed", out)
 
     def test_errors(self) -> None:
         for argv in (

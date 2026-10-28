@@ -6,10 +6,29 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from tests import mimir_fixture
 from wyrd import mimirview
 from wyrd.mimirview import MimirError, MimirView
+
+
+def edit(db: Path, *statements: str) -> None:
+    """Change a temp copy of the synthetic store (never a real store)."""
+    con = sqlite3.connect(db)
+    for sql in statements:
+        con.execute(sql)
+    con.commit()
+    con.close()
+
+
+def record_sql(source: str, arm: str, design: str, value: float, level: str = "routed",
+               commit: str = "tc1", origin: str = "o2", seed: int = 1) -> str:  # fmt: skip
+    return (
+        "INSERT INTO records VALUES "
+        f"('{design}','{source}','sha','{commit}','','{level}','arch1',{seed},'{arm}','',"
+        f"'vpr.cpd','',{value},'u','meas','m1','{origin}')"
+    )
 
 
 class ViewTest(unittest.TestCase):
@@ -67,16 +86,150 @@ class ViewTest(unittest.TestCase):
         self.assertAlmostEqual(
             by["exp-a-2/alt"].ratio or 0, math.exp((math.log(0.5) + 0 + math.log(2)) / 3)
         )
-        self.assertIn("geomean", c.as_table().columns[2])
+        self.assertIn("geomean", c.as_table().columns[3])
+        self.assertEqual((by["exp-a-2/alt"].level, by["exp-a-2/alt"].dropped), ("routed", 0))
+        self.assertEqual((by["exp-a-2/alt"].commits, by["exp-a-2/alt"].configs), (1, 1))
+        self.assertFalse(by["exp-a-2/alt"].mixed)
         with self.assertRaises(MimirError):
             self.v.compare("exp-a-", "nope", "vpr.cpd")
         self.assertEqual(self.v.config_labels("exp-a-"), ["exp-a-1/base", "exp-a-2/alt"])
-        self.assertEqual(self.v.metric_names(), ["vpr.cpd", "vpr.logic_clbs"])
+        self.assertEqual(
+            self.v.metric_names(), ["vpr.cpd", "vpr.logic_clbs", "run.time_s", "run.peak_rss_mib"]
+        )
 
     def test_scatter(self) -> None:
-        pts = self.v.scatter("vpr.cpd", "vpr.logic_clbs", "exp-a-1")
+        sc = self.v.scatter("vpr.cpd", "vpr.logic_clbs", "exp-a-1")
+        pts = sc.points
         self.assertEqual(len(pts), 3)
         self.assertEqual((pts[0].x, pts[0].y), (15.0, 20.0))
+        self.assertFalse(sc.capped)
+
+    def test_scatter_cap_note(self) -> None:
+        with mock.patch.object(mimirview, "SCATTER_LIMIT", 2):
+            sc = self.v.scatter("vpr.cpd", "vpr.logic_clbs")
+        self.assertEqual((len(sc.points), sc.total, sc.capped), (2, 6, True))
+        self.assertIn("capped at 2 of 6", sc.note)
+
+    def test_scatter_same_arm_set(self) -> None:
+        # a second arm with cpd only: it must not change the mean of x for (exp-a-1, d1)
+        edit(self.db, record_sql("exp-a-1", "extra", "d1", 1000.0))
+        pts = MimirView(self.db).scatter("vpr.cpd", "vpr.logic_clbs", "exp-a-1").points
+        self.assertEqual((pts[0].x, pts[0].y), (15.0, 20.0))
+
+    def test_compare_duplicates_merged(self) -> None:
+        edit(
+            self.db,
+            record_sql("exp-a-2", "alt", "d1", 5.0),
+            record_sql("exp-a-2", "alt", "d2", 20.0),
+        )
+        by = {
+            r.label: r for r in MimirView(self.db).compare("exp-a-", "exp-a-1/base", "vpr.cpd").rows
+        }
+        self.assertEqual(by["exp-a-2/alt"].duplicates, 2)
+        self.assertEqual(by["exp-a-2/alt"].n, 3)
+        self.assertAlmostEqual(
+            by["exp-a-2/alt"].ratio or 0, math.exp((math.log(0.5) + math.log(2)) / 3)
+        )
+
+    def test_compare_dropped_nonpositive(self) -> None:
+        edit(self.db, "UPDATE records SET value = 0 WHERE source='exp-a-2' AND design='d3'")
+        by = {
+            r.label: r for r in MimirView(self.db).compare("exp-a-", "exp-a-1/base", "vpr.cpd").rows
+        }
+        self.assertEqual((by["exp-a-2/alt"].n, by["exp-a-2/alt"].dropped), (2, 1))
+        self.assertIn(
+            "dropped", self.v.compare("exp-a-", "exp-a-1/base", "vpr.cpd").as_table().columns[4]
+        )
+
+    def test_compare_flags_mixed(self) -> None:
+        edit(self.db, record_sql("exp-a-1", "base", "d1", 10.0, commit="tc2"))
+        by = {
+            r.label: r for r in MimirView(self.db).compare("exp-a-", "exp-a-1/base", "vpr.cpd").rows
+        }
+        self.assertEqual(by["exp-a-1/base"].commits, 2)
+        self.assertTrue(by["exp-a-1/base"].mixed)
+        edit(
+            self.db,
+            "INSERT INTO run SELECT 'r9', slug, 'c2', source, design, arch, 2, arm, family, "
+            "tool_commits, command_line, time_s, peak_rss_mib, host, origin, tool_commit, "
+            "input_sha256 FROM run WHERE run_id='r3'",
+        )
+        by = {
+            r.label: r for r in MimirView(self.db).compare("exp-a-", "exp-a-1/base", "vpr.cpd").rows
+        }
+        self.assertEqual(by["exp-a-2/alt"].configs, 2)
+        self.assertTrue(by["exp-a-2/alt"].mixed)
+
+    def test_compare_per_level(self) -> None:
+        edit(self.db, record_sql("exp-a-1", "base", "d1", 40.0, level="placed"),
+             record_sql("exp-a-2", "alt", "d1", 20.0, level="placed"))  # fmt: skip
+        c = MimirView(self.db).compare("exp-a-", "exp-a-1/base", "vpr.cpd")
+        self.assertTrue(c.multi_level)
+        placed = {r.label: r for r in c.rows if r.level == "placed"}
+        self.assertAlmostEqual(placed["exp-a-2/alt"].ratio or 0, 0.5)
+        only = MimirView(self.db).compare("exp-a-", "exp-a-1/base", "vpr.cpd", "routed")
+        self.assertFalse(only.multi_level)
+
+    def test_prefix_boundary(self) -> None:
+        edit(
+            self.db,
+            record_sql("exp-a-1x", "base", "d1", 1.0),
+            record_sql("exp-ab", "base", "d1", 1.0),
+            record_sql("exp-a", "base", "d1", 1.0),
+        )
+        v = MimirView(self.db)
+        self.assertEqual(v.config_labels("exp-a-1"), ["exp-a-1/base", "exp-a-1x/base"])
+        self.assertEqual(
+            v.config_labels("exp-a-"), ["exp-a-1/base", "exp-a-1x/base", "exp-a-2/alt"]
+        )
+        self.assertEqual(v.config_labels("exp-a-1x"), ["exp-a-1x/base"])
+
+    def test_runs_only_store(self) -> None:
+        edit(self.db, "DELETE FROM records")
+        v = MimirView(self.db)
+        s = v.summary()
+        self.assertEqual(s.note, mimirview.RUNS_ONLY_NOTE)
+        self.assertEqual(v.config_labels("exp-a-"), ["exp-a-1/base", "exp-a-2/alt"])
+        self.assertEqual(v.metric_names(), ["run.time_s", "run.peak_rss_mib"])
+        edit(self.db, "UPDATE run SET time_s = 3.0 WHERE run_id='r3'")
+        c = MimirView(self.db).compare("exp-a-", "exp-a-1/base", "run.time_s")
+        by = {r.label: r for r in c.rows}
+        self.assertEqual(by["exp-a-1/base"].ratio, 1.0)
+        self.assertAlmostEqual(by["exp-a-2/alt"].ratio or 0, 2.0)  # 3.0 vs 1.5 on d1
+        self.assertEqual(by["exp-a-2/alt"].level, "")
+
+    def test_normal_store_has_no_note(self) -> None:
+        self.assertEqual(self.v.summary().note, "")
+
+    def test_like_wildcards_literal(self) -> None:
+        self.assertEqual(len(self.v.designs(text="d_").rows), 0)
+        self.assertEqual(len(self.v.designs(text="%").rows), 0)
+        self.assertEqual(len(self.v.designs(text="D1").rows), 2)
+
+    def test_special_path_and_no_new_files(self) -> None:
+        odd = self.dir / "a#b%20c?d"
+        odd.mkdir()
+        db = mimir_fixture.build(odd / "s.db")
+        before = sorted(os.listdir(odd))
+        v = MimirView(db)
+        v.summary()
+        v.design("d1")
+        v.compare("exp-a-", "exp-a-1/base", "vpr.cpd")
+        v.scatter("vpr.cpd", "vpr.logic_clbs")
+        self.assertEqual(sorted(os.listdir(odd)), before)
+        self.assertFalse(v.wal_present)
+        Path(f"{db}-wal").write_bytes(b"")
+        self.assertTrue(v.wal_present)
+
+    def test_design_level_filter(self) -> None:
+        d = self.v.design("d1", level="clb")
+        self.assertEqual({r[1] for r in d.metrics.rows}, {"clb"})
+        self.assertEqual(len(self.v.design("d1", limit=0).metrics.rows), 6)
+
+    def test_csv_truncated_note(self) -> None:
+        t = self.v.designs(limit=2)
+        self.assertTrue(mimirview.render_csv(t).endswith("# truncated at 2 rows\n"))
+        self.assertNotIn("truncated", mimirview.render_csv(self.v.designs(limit=0)))
 
     def test_geomean_none(self) -> None:
         self.assertEqual(mimirview.geomean_ratio({"a": 0.0}, {"a": 1.0}), (0, None))

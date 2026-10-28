@@ -17,9 +17,7 @@ MB = 2**20
 def make_settings(**changes: Any) -> settings.Settings:
     with mock.patch.dict("os.environ", {"WYRD_CONFIG": "/nonexistent/m.toml"}):
         base = settings.load(None, {})
-    plain = dataclasses.replace(
-        base, launcher="plain", jobs=1, mem_budget=8 * GB, vtr_root=None
-    )
+    plain = dataclasses.replace(base, launcher="plain", jobs=1, mem_budget=8 * GB, vtr_root=None)
     return dataclasses.replace(plain, **changes)
 
 

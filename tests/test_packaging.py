@@ -44,8 +44,9 @@ class PackagingTest(unittest.TestCase):
         project = cfg["project"]
         extras = project["optional-dependencies"]
         self.assertEqual(extras["midgard"], ["pygame-ce>=2.5,<3", "odin3>=1.0.3", *extras["gui"]])
-        self.assertEqual(project["gui-scripts"]["midgard-editor"],
-                         "wyrd.midgard.editors.level_editor:main")
+        self.assertEqual(
+            project["gui-scripts"]["midgard-editor"], "wyrd.midgard.editors.level_editor:main"
+        )
         self.assertEqual(project["gui-scripts"]["midgard"], "wyrd.midgard.app:main")
         data = cfg["tool"]["setuptools"]["package-data"]["wyrd"]
         self.assertIn("midgard/assets/**/*", data)

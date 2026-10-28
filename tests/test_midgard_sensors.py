@@ -31,8 +31,12 @@ class SensorTest(unittest.TestCase):
         g[7][12].car = None
         g[5][12].car = None
         for node, bits in (
-            (g[6][10], 64), (g[5][13], 16), (g[4][11], 32),
-            (g[6][11], 8), (g[5][11], 4), (g[6][12], 2),
+            (g[6][10], 64),
+            (g[5][13], 16),
+            (g[4][11], 32),
+            (g[6][11], 8),
+            (g[5][11], 4),
+            (g[6][12], 2),
         ):
             put_car(node, g[5][0])
             self.assertEqual(c.read_sensors(), bits)
@@ -102,9 +106,7 @@ class SensorTest(unittest.TestCase):
         self.assertLess(ss.general_word(), 2**30)
 
     def test_sensor_file(self) -> None:
-        self.assertEqual(
-            SensorSet().to_text(), "0 0 0\n1 0 0\n2 0 0\n3 0 0\n4 0 0\n5 0 0\n6 0 0\n"
-        )
+        self.assertEqual(SensorSet().to_text(), "0 0 0\n1 0 0\n2 0 0\n3 0 0\n4 0 0\n5 0 0\n6 0 0\n")
         ss = SensorSet.from_text("0 5 13\n3 6 10\n")
         self.assertEqual((ss.sensors[0].x, ss.sensors[0].y), (5, 13))
         self.assertEqual((ss.sensors[3].x, ss.sensors[3].y), (6, 10))

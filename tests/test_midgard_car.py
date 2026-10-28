@@ -88,10 +88,14 @@ class CarRulesTest(unittest.TestCase):
         self.assertIs(d(None, Node(0, 0, GT.START_WEDGE2E)), Direction.E)
         frm = Node(5, 5, GT.STRAIGHT_ROAD_N2N)
         table = {
-            GT.CORNER_ROAD_W2S: Direction.S, GT.CORNER_ROAD_E2S: Direction.S,
-            GT.CORNER_ROAD_N2E: Direction.E, GT.CORNER_ROAD_S2E: Direction.E,
-            GT.CORNER_ROAD_N2W: Direction.W, GT.CORNER_ROAD_S2W: Direction.W,
-            GT.CORNER_ROAD_E2N: Direction.N, GT.CORNER_ROAD_W2N: Direction.N,
+            GT.CORNER_ROAD_W2S: Direction.S,
+            GT.CORNER_ROAD_E2S: Direction.S,
+            GT.CORNER_ROAD_N2E: Direction.E,
+            GT.CORNER_ROAD_S2E: Direction.E,
+            GT.CORNER_ROAD_N2W: Direction.W,
+            GT.CORNER_ROAD_S2W: Direction.W,
+            GT.CORNER_ROAD_E2N: Direction.N,
+            GT.CORNER_ROAD_W2N: Direction.N,
         }
         for kind, expect in table.items():
             self.assertIs(d(frm, Node(9, 9, kind)), expect, kind)
@@ -159,7 +163,9 @@ class CarRulesTest(unittest.TestCase):
         self.assertEqual((c.px, c.py), (0, 0))
         c.state = CarState.MOVING
         for direction, expect in (
-            (Direction.N, (0, 4)), (Direction.S, (0, 0)), (Direction.E, (4, 0)),
+            (Direction.N, (0, 4)),
+            (Direction.S, (0, 0)),
+            (Direction.E, (4, 0)),
             (Direction.W, (0, 0)),
         ):
             c.animation_direction = direction

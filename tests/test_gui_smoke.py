@@ -263,9 +263,7 @@ class ShellTest(unittest.TestCase):
         w = live_window(self.tmp)
         w.open_project(copy_project(self.tmp))
         w.editor.text.setPlainText("x = 1\n")
-        with mock.patch.object(
-            QMessageBox, "question", return_value=QMessageBox.StandardButton.No
-        ):
+        with mock.patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No):
             self.assertFalse(w.open_project(SAMPLES))
         self.assertTrue(w.editor.is_modified())
 
@@ -739,8 +737,10 @@ class EditorTest(unittest.TestCase):
     def test_editor_error_line(self) -> None:
         w = window(self.tmp)
         w.open_project(SAMPLES)
-        text = (SAMPLES / "wyrd.toml").read_text(encoding="utf-8").replace(
-            'name = "samples"', "name = 1"
+        text = (
+            (SAMPLES / "wyrd.toml")
+            .read_text(encoding="utf-8")
+            .replace('name = "samples"', "name = 1")
         )
         w.editor.text.setPlainText(text)
         result = w.editor.validate_now()

@@ -157,10 +157,13 @@ class BuildTest(ControllerBase):
 
     def test_unavailable(self) -> None:
         f = self.write("g.v")
-        with patch(
-            "wyrd.midgard.model.controllers.default_backend",
-            side_effect=SimUnavailable("no odin3"),
-        ), self.assertRaises(SimUnavailable):
+        with (
+            patch(
+                "wyrd.midgard.model.controllers.default_backend",
+                side_effect=SimUnavailable("no odin3"),
+            ),
+            self.assertRaises(SimUnavailable),
+        ):
             build_controllers([f])
 
     def test_level_through_bifrost_equals_scripted(self) -> None:

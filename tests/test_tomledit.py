@@ -95,9 +95,7 @@ class TomlEditTest(unittest.TestCase):
         self.assertIn('design = ["newd"  # none\n]', got)
 
     def test_sweep_continuation_line_starting_with_bracket(self) -> None:
-        text = self.text.replace(
-            "[sweep]", '[sweep]\nother = [\n  [1],\n  [2],\n]', 1
-        )
+        text = self.text.replace("[sweep]", "[sweep]\nother = [\n  [1],\n  [2],\n]", 1)
         got = add_design(text, "newd", ["src/a.v"], None, True)
         self.assertIn('design = ["one", "two", "newd"]', got)
         self.assertTrue(validate_text(self.path, got).ok)
