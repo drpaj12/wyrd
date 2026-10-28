@@ -448,7 +448,7 @@ def _strip(d: dict[str, float]) -> dict[str, float]:
     return {k.split("\x00", 1)[1]: v for k, v in d.items()}
 
 
-def _cell(x: object) -> str:
+def cell_text(x: object) -> str:
     if isinstance(x, float):
         return f"{x:.6g}"
     return "" if x is None else str(x)
@@ -459,20 +459,20 @@ def render_csv(t: Table) -> str:
     buf = io.StringIO()
     w = csv.writer(buf, lineterminator="\n")
     w.writerow(t.columns)
-    w.writerows([[_cell(c) for c in r] for r in t.rows])
+    w.writerows([[cell_text(c) for c in r] for r in t.rows])
     return buf.getvalue()
 
 
 def render_tsv(t: Table) -> str:
     """The table as tab-separated text, for the clipboard."""
     lines = ["\t".join(t.columns)]
-    lines += ["\t".join(_cell(c) for c in r) for r in t.rows]
+    lines += ["\t".join(cell_text(c) for c in r) for r in t.rows]
     return "\n".join(lines) + "\n"
 
 
 def render_text(t: Table) -> str:
     """The table as aligned plain text; a final line says when the limit cut rows off."""
-    cells = [[_cell(c) for c in r] for r in t.rows]
+    cells = [[cell_text(c) for c in r] for r in t.rows]
     widths = [len(c) for c in t.columns]
     for r in cells:
         widths = [max(w, len(c)) for w, c in zip(widths, r, strict=True)]
