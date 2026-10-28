@@ -112,3 +112,19 @@ fetching blobs by URL (that is `mimir fetch`).
   default-unrecorded, unknown. `run_artifact` holds no size.
 - Fetch hook: button runs `mimir fetch --run ID --db DB --out DIR` through `subprocess` (no
   shell) after a directory dialog; disabled with a tooltip when `mimir` is not on PATH.
+
+## Fix round (2026-10-28, PR review of f20ced6a)
+
+- `compare`: dedup, two-stage mean (seeds per arch, then archs, per design), per-level rows, per
+  config `dropped`, duplicates merged, distinct tool_commit and config_hash counts with a MIXED
+  flag; `run.time_s` / `run.peak_rss_mib` as metrics (runs-only stores). `scatter` averages each
+  (source, design) over the arms that have both metrics and returns the 20000 cap in a note.
+- Truncation: CSV from the CLI ends with `# truncated at N rows` and warns on stderr; GUI Export
+  CSV re-queries without the cap; the Design tab has a level filter for the metrics table.
+- GUI: all store queries (list, design, run, compare, plot, open) run on the worker pool; opening
+  a store drops in-flight results and clears the previous store's views, and the previous store
+  stays until the new one is read; `mimir fetch` runs in a QProcess with output and Cancel;
+  metric tooltips come from the Mimir registry (when importable) and the `run.*` descriptions.
+- The store is opened with `Path.resolve().as_uri() + "?mode=ro"`; a `-wal` file beside the store
+  is mentioned in the status line (a read-only session creates no file).
+- The design filter is a literal, ASCII case-insensitive substring (LIKE wildcards escaped).
