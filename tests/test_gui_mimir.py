@@ -1,5 +1,7 @@
 """Mímir panel; Qt runs offscreen. Synthetic store from tests/mimir_fixture.py."""
 
+from __future__ import annotations
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
