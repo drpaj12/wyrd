@@ -22,7 +22,14 @@ STOPS: tuple[tuple[float, tuple[int, int, int]], ...] = (
     (1.0, (0xD7, 0x19, 0x1C)),
 )
 DECL_KEYWORDS = r"input|output|inout|wire|reg|logic"
-LEGEND_NOTE = "Token columns are derived by name match; bits are shown MSB first."
+LEGEND_NOTE = (
+    "Token columns are derived by name match; bits are shown MSB first. "
+    "A token with more characters than bits gives the extra characters to the leading segments; "
+    "a token with fewer characters than bits shows a bit strip under it and the maximum crit. "
+    "A dotted underline marks a bit that is unknown."
+)
+UNKNOWN_BIT = -1
+UNKNOWN_CRIT = -1.0
 
 
 def crit_rgb(crit: float) -> tuple[int, int, int]:
@@ -66,6 +73,7 @@ class HeatRange:
     segments: tuple[BitSeg, ...] = ()
     strip: tuple[tuple[int, float], ...] = ()
     unknown_bits: bool = False
+    beyond_width: bool = False
     paths: tuple[int, ...] = ()
     tooltip: str = ""
 
@@ -107,29 +115,81 @@ def _matches(word: str, line: str, mask: list[bool]) -> list[tuple[int, int]]:
     return [m.span() for m in _token_re(word).finditer(line) if mask[m.start()]]
 
 
-def declaration_line(word: str, lines: Sequence[str]) -> int | None:
-    """1-based first line where ``word`` is declared (after input/output/inout/wire/reg/logic)."""
+LineRange = tuple[int, int]
+"""1-based inclusive (first, last) line numbers."""
+_MODULE = re.compile(r"(?<![\w$])module\s+([\w$]+)")
+_ENDMODULE = re.compile(r"(?<![\w$])endmodule(?![\w$])")
+
+
+def _is_code(mask: list[list[bool]] | None, i: int, col: int) -> bool:
+    return mask is None or (i < len(mask) and col < len(mask[i]) and mask[i][col])
+
+
+def module_range(
+    name: str, lines: Sequence[str], mask: list[list[bool]] | None = None
+) -> LineRange | None:
+    """Lines of ``module name ... endmodule`` (code only); None when the module is not there."""
+    start: int | None = None
+    for i, line in enumerate(lines):
+        if start is None:
+            m = _MODULE.search(line)
+            if m and m.group(1) == name and _is_code(mask, i, m.start()):
+                start = i
+        if start is not None:
+            e = _ENDMODULE.search(line)
+            if e and _is_code(mask, i, e.start()):
+                return start + 1, i + 1
+    return None if start is None else (start + 1, len(lines))
+
+
+def _within(lines: Sequence[str], rng: LineRange | None) -> range:
+    first, last = rng if rng is not None else (1, len(lines))
+    return range(max(first, 1) - 1, min(last, len(lines)))
+
+
+def declaration_line(
+    word: str,
+    lines: Sequence[str],
+    mask: list[list[bool]] | None = None,
+    rng: LineRange | None = None,
+) -> int | None:
+    """1-based first line where ``word`` is declared (after input/output/inout/wire/reg/logic).
+
+    Comments and strings are skipped (``mask``); ``rng`` limits the search to one module.
+    """
     kw = re.compile(rf"\b(?:{DECL_KEYWORDS})\b")
     tok = _token_re(word)
-    for i, line in enumerate(lines, 1):
-        k = kw.search(line)
-        m = tok.search(line, k.end()) if k else None
-        if m:
-            return i
+    for i in _within(lines, rng):
+        line = lines[i]
+        for k in kw.finditer(line):
+            if not _is_code(mask, i, k.start()):
+                continue
+            m = tok.search(line, k.end())
+            if m and _is_code(mask, i, m.start()):
+                return i + 1
     return None
 
 
-def declared_range(word: str, lines: Sequence[str]) -> tuple[int, int] | None:
-    """(hi, lo) of a literal ``[hi:lo]`` before ``word`` in its declaration, else None."""
+def declared_range(
+    word: str,
+    lines: Sequence[str],
+    mask: list[list[bool]] | None = None,
+    rng: LineRange | None = None,
+) -> tuple[int, int] | None:
+    """(hi, lo) of a literal ``[hi:lo]`` before ``word`` in its declaration, else None.
+
+    None also when the declarations of ``word`` in ``rng`` (a module) disagree.
+    """
     stop = rf"(?:(?!\b(?:{DECL_KEYWORDS})\b)[^;\n])*?"
     pat = re.compile(
         rf"\b(?:{DECL_KEYWORDS})\b{stop}\[\s*(\d+)\s*:\s*(\d+)\s*\]{stop}(?<![\w$]){re.escape(word)}(?![\w$])"
     )
-    for line in lines:
-        m = pat.search(line)
-        if m:
-            return int(m.group(1)), int(m.group(2))
-    return None
+    found: set[tuple[int, int]] = set()
+    for i in _within(lines, rng):
+        m = pat.search(lines[i])
+        if m and _is_code(mask, i, m.start()):
+            found.add((int(m.group(1)), int(m.group(2))))
+    return next(iter(found)) if len(found) == 1 else None
 
 
 def bit_order(width: tuple[int, int] | None, seen: int, msb_first: bool) -> list[int]:
@@ -161,14 +221,47 @@ def _make_segments(
 
 
 def _tooltip(
-    word: str, crit: float, order: list[int], bits: dict[int, float], unknown: bool, npaths: int
+    word: str,
+    crit: float,
+    order: list[int],
+    bits: dict[int, float],
+    flags: tuple[bool, bool, bool],
+    npaths: int,
 ) -> str:
+    unknown, beyond, partial = flags
     parts = [f"{word}: crit {crit:.3f}, {npaths} path(s)"]
     if order:
-        parts.append("bits: " + ", ".join(f"[{b}] {bits.get(b, 0.0):.3f}" for b in order))
+        parts.append("bits: " + ", ".join(
+            "[rest] unknown" if b == UNKNOWN_BIT else f"[{b}] {bits.get(b, 0.0):.3f}"
+            for b in order))  # fmt: skip
+    if partial:
+        parts.append("only bit 0 seen and the width is unknown")
+    if beyond:
+        parts.append("bits outside the declared width")
     if unknown:
         parts.append("bit unknown")
     return "\n".join(parts)
+
+
+def _known_bits(facts: Sequence[Fact]) -> dict[int, float]:
+    bits: dict[int, float] = {}
+    for f in facts:
+        if f.bit_known and f.bit is not None:
+            bits[f.bit] = max(bits.get(f.bit, 0.0), f.crit)
+    return bits
+
+
+def _display_order(
+    width: tuple[int, int] | None, seen: int, msb_first: bool, bits: dict[int, float]
+) -> tuple[list[int], bool, bool]:
+    """(order, beyond declared width, partial): partial = one bit seen, width unknown."""
+    order = bit_order(width, max(seen, max(bits) + 1 if bits else 0), msb_first) if bits else []
+    extras = [b for b in bits if b not in order]
+    if width is not None and extras:
+        return sorted(set(order) | set(extras), reverse=msb_first), True, False
+    if bits and not order and width is None and len(bits) == 1:
+        return ([UNKNOWN_BIT, 0] if msb_first else [0, UNKNOWN_BIT]), False, True
+    return order, False, False
 
 
 def _range(
@@ -179,30 +272,53 @@ def _range(
     order_args: tuple[tuple[int, int] | None, int, bool],
 ) -> HeatRange:
     width, seen, msb_first = order_args
-    bits: dict[int, float] = {}
-    for f in facts:
-        if f.bit_known and f.bit is not None:
-            bits[f.bit] = max(bits.get(f.bit, 0.0), f.crit)
+    bits = _known_bits(facts)
     crit = max(f.crit for f in facts)
-    order = bit_order(width, max(seen, max(bits) + 1 if bits else 0), msb_first) if bits else []
-    unknown = not bits
+    unknown = any(not f.bit_known for f in facts)
+    order, beyond, partial = _display_order(width, seen, msb_first, bits)
+    if partial:
+        bits = {**bits, UNKNOWN_BIT: UNKNOWN_CRIT}
+        unknown = True
     start, end = span
     segments: tuple[BitSeg, ...] = ()
     strip: tuple[tuple[int, float], ...] = ()
     if order and len(order) <= end - start:
         segments = _make_segments(start, end - start, order, bits)
     elif order:
-        strip = tuple((b, bits.get(b, 0.0)) for b in order)
+        strip = tuple((b, bits.get(b, 0.0)) for b in order if b != UNKNOWN_BIT)
     paths = tuple(sorted({f.path for f in facts if f.path >= 0}))
-    tip = _tooltip(word, crit, order, bits, unknown, len(paths))
-    return HeatRange(line, start, end, word, crit, segments, strip, unknown, paths, tip)
+    tip = _tooltip(word, crit, order, bits, (unknown, beyond, partial), len(paths))
+    return HeatRange(line, start, end, word, crit, segments, strip, unknown, beyond, paths, tip)
 
 
 def _facts_ok(model: HeatModel, f: Fact, names: set[str]) -> bool:
     if f.file is not None:
         return f.file in names
     known = model.module_files.get(f.module)
+    if model.source == "mimir":
+        return known is not None and bool(known & names)
     return known is None or bool(known & names)
+
+
+class _Source:
+    """The text of one file with its code mask and module line ranges."""
+
+    def __init__(self, text: str, strict_modules: bool) -> None:
+        self.lines = text.split("\n")
+        self.mask = _code_mask(text)
+        self.strict = strict_modules
+        self._modules: dict[str, LineRange | None] = {}
+
+    def module(self, name: str) -> LineRange | None:
+        if name not in self._modules:
+            self._modules[name] = module_range(name, self.lines, self.mask) if name else None
+        return self._modules[name]
+
+    def order_args(
+        self, model: HeatModel, module: str, word: str, msb_first: bool
+    ) -> tuple[tuple[int, int] | None, int, bool]:
+        width = declared_range(word, self.lines, self.mask, self.module(module))
+        return width, model.seen_width.get((module, word), 0), msb_first
 
 
 def build_file_heat(
@@ -214,8 +330,7 @@ def build_file_heat(
 ) -> FileHeat:
     """Colour data for one file. ``names`` are the attribution names that resolve to it."""
     mine = [f for f in facts if _facts_ok(model, f, names)]
-    lines = text.split("\n")
-    mask = _code_mask(text)
+    src = _Source(text, model.source == "mimir")
     heat = FileHeat()
     _line_tints(heat, mine)
     all_words: dict[tuple[str, str], list[Fact]] = {}
@@ -226,19 +341,16 @@ def build_file_heat(
         all_words.setdefault((f.module, f.word), []).append(f)
         if f.line is not None:
             at_line.setdefault((f.line, f.module, f.word), []).append(f)
-
-    def args(module: str, word: str) -> tuple[tuple[int, int] | None, int, bool]:
-        return declared_range(word, lines), model.seen_width.get((module, word), 0), msb_first
-
     for (line, module, word), group in sorted(at_line.items()):
-        if not 1 <= line <= len(lines):
+        if not 1 <= line <= len(src.lines):
             continue
-        for span in _matches(word, lines[line - 1], mask[line - 1]):
-            heat.ranges.append(_range(line, span, word, group, args(module, word)))
+        oargs = src.order_args(model, module, word, msb_first)
+        for span in _matches(word, src.lines[line - 1], src.mask[line - 1]):
+            heat.ranges.append(_range(line, span, word, group, oargs))
     for (module, word), group in sorted(all_words.items()):
-        unlined = [f for f in group if f.line is None]
-        if unlined:
-            _place_declaration(heat, model, lines, mask, module, word, group, args(module, word))
+        if any(f.line is None for f in group):
+            oargs = src.order_args(model, module, word, msb_first)
+            _place_declaration(heat, src, module, word, group, oargs)
     heat.ranges.sort(key=lambda r: (r.line, r.col_start))
     return heat
 
@@ -256,22 +368,27 @@ def _line_tints(heat: FileHeat, facts: Sequence[Fact]) -> None:
 
 def _place_declaration(
     heat: FileHeat,
-    model: HeatModel,
-    lines: Sequence[str],
-    mask: list[list[bool]],
+    src: _Source,
     module: str,
     word: str,
     group: Sequence[Fact],
     order_args: tuple[tuple[int, int] | None, int, bool],
 ) -> None:
-    line = declaration_line(word, lines)
-    spans = _matches(word, lines[line - 1], mask[line - 1]) if line else []
+    """Colour the declaration of ``word`` inside its module (the whole file for a module not found
+    in the file, except for Mímir models, whose word rows must match a module of this file)."""
+    rng = src.module(module)
+    label = f"{module}.{word}" if module else word
+    if rng is None and src.strict:
+        heat.unplaced.append(label)
+        return
+    line = declaration_line(word, src.lines, src.mask, rng)
+    spans = _matches(word, src.lines[line - 1], src.mask[line - 1]) if line else []
+    if not (line and spans):
+        heat.unplaced.append(label)
+        return
     kw = re.compile(rf"\b(?:{DECL_KEYWORDS})\b")
-    if line and spans:
-        k = kw.search(lines[line - 1])
-        after = [s for s in spans if k is not None and s[0] >= k.end()]
-        span = after[0] if after else spans[0]
-        heat.ranges = [r for r in heat.ranges if (r.line, r.col_start) != (line, span[0])]
-        heat.ranges.append(_range(line, span, word, group, order_args))
-    else:
-        heat.unplaced.append(f"{module}.{word}" if module else word)
+    k = kw.search(src.lines[line - 1])
+    after = [s for s in spans if k is not None and s[0] >= k.end()]
+    span = after[0] if after else spans[0]
+    heat.ranges = [r for r in heat.ranges if (r.line, r.col_start) != (line, span[0])]
+    heat.ranges.append(_range(line, span, word, group, order_args))

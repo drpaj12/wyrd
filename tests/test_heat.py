@@ -237,7 +237,7 @@ class MimirAdapterTest(unittest.TestCase):
         model = heatmimir.model_from_objects(self.ROWS)
         self.assertFalse(model.has_paths)
         self.assertEqual(model.select(Scope(heat.SCOPE_CRITICAL)), [])
-        self.assertEqual(len(model.select(Scope(heat.SCOPE_NEAR, theta=0.95))), 3)
+        self.assertEqual(len(model.select(Scope(heat.SCOPE_NEAR, theta=0.95))), 2)
 
     def test_colours_declaration_bits(self) -> None:
         model = heatmimir.model_from_objects(self.ROWS)
@@ -250,6 +250,123 @@ class MimirAdapterTest(unittest.TestCase):
     def test_real_json_round_trip(self) -> None:
         data = json.loads(ADDER.read_text(encoding="utf-8"))
         self.assertEqual(heat.parse_heat(data).facts, heat.load_heat(ADDER).facts)
+
+
+TWO_MODULES = (
+    "module a(input [7:0] data, output y);\n"
+    "endmodule\n"
+    "module b(input [3:0] data, output z);\n"
+    "endmodule\n"
+)
+
+
+def _mimir_rows(module: str) -> list[tuple[str, str, int, str, float]]:
+    return [
+        ("span", "top.v:2", -1, "", 0.97),
+        ("word", f"{module}/data", 3, "name", 1.0),
+        ("word", f"{module}/data", 0, "name", 0.1),
+    ]
+
+
+class FixRoundTest(unittest.TestCase):
+    def mimir(self, module: str, text: str, names: set[str]) -> heatview.FileHeat:
+        model = heatmimir.model_from_objects(_mimir_rows(module))
+        return heatview.build_file_heat(model, model.select(Scope(heat.SCOPE_NEAR)), names, text)
+
+    def test_h1_unrelated_file_gets_nothing(self) -> None:
+        h = self.mimir("a", TWO_MODULES, {"other.v"})
+        self.assertEqual((h.lines, h.ranges), ({}, []))
+
+    def test_h1_only_matching_module(self) -> None:
+        h = self.mimir("b", TWO_MODULES, {"top.v"})
+        self.assertEqual([r.line for r in h.ranges], [3])
+        self.assertEqual(len(h.ranges[0].segments), 4)  # [3:0] of module b
+
+    def test_h1_module_missing_in_file_is_unplaced(self) -> None:
+        h = self.mimir("zz", TWO_MODULES, {"top.v"})
+        self.assertEqual(h.ranges, [])
+        self.assertEqual(h.unplaced, ["zz.data"])
+
+    def test_m1_unknown_bit_keeps_known_bits(self) -> None:
+        paths = [_path(1, -1.0, [_node("top.v:2", "SIGNAL", 2, "name"),
+                                 _node("top.v:2", "SIGNAL", None, "declarator")])]
+        model = heat.parse_heat({"schema_version": 1, "words": [], "paths": paths})
+        h = heatview.build_file_heat(model, model.select(Scope()), {"top.v"}, BUS_SRC)
+        r = next(r for r in h.ranges if r.line == 2)
+        self.assertTrue(r.unknown_bits)
+        self.assertEqual([s.crit for s in r.segments], [1.0, 0.0, 0.0])
+
+    def test_m2_declared_range_per_module(self) -> None:
+        lines = TWO_MODULES.split("\n")
+        self.assertEqual(heatview.declared_range("data", lines, None, (1, 2)), (7, 0))
+        self.assertEqual(heatview.declared_range("data", lines, None, (3, 4)), (3, 0))
+        self.assertIsNone(heatview.declared_range("data", lines))  # ambiguous
+        self.assertEqual(heatview.module_range("b", lines), (3, 4))
+        self.assertIsNone(heatview.module_range("c", lines))
+
+    def test_m2_attribution_uses_module_width(self) -> None:
+        def pad(b: int) -> dict[str, object]:
+            n = _node(None, "data", b, "pad")
+            n["module"] = "b"
+            return n
+
+        model = heat.parse_heat({"schema_version": 1, "words": [],
+                                 "paths": [_path(1, -1.0, [pad(3), pad(0)])]})
+        model = heat.HeatModel(model.facts, model.paths, model.seen_width, {})
+        h = heatview.build_file_heat(model, model.select(Scope()), {"x.v"}, TWO_MODULES)
+        r = next(r for r in h.ranges if r.line == 3)
+        self.assertEqual([s.bit for s in r.segments], [3, 2, 1, 0][:len(r.segments)])
+
+    def test_l1_skipped_pair_at_rank_zero_keeps_scope(self) -> None:
+        bad = _path(1, 1.0, [_node("top.v:2", "SIGNAL", 0, "name")])
+        bad["required_ns"] = -5.0
+        bad["startpoint"] = "q (.input clocked by other)"
+        good = _path(2, -1.0, [_node("top.v:2", "SIGNAL", 0, "name")])
+        model = heat.parse_heat({"schema_version": 1, "words": [], "paths": [bad, good]})
+        self.assertEqual({f.path for f in model.select(Scope(heat.SCOPE_CRITICAL))}, {2})
+
+    def test_l1_rank_by_crit_then_slack(self) -> None:
+        a = _path(1, 0.5, [_node("top.v:2", "SIGNAL", 0, "name")])
+        b = _path(2, -1.0, [_node("top.v:2", "SIGNAL", 0, "name")])
+        model = heat.parse_heat({"schema_version": 1, "words": [], "paths": [a, b]})
+        self.assertEqual({f.path for f in model.select(Scope(heat.SCOPE_CRITICAL))}, {2})
+
+    def test_l2_declaration_skips_comments(self) -> None:
+        text = "// input a\nmodule m(input a);\nendmodule\n"
+        lines = text.split("\n")
+        mask = heatview._code_mask(text)
+        self.assertEqual(heatview.declaration_line("a", lines), 1)
+        self.assertEqual(heatview.declaration_line("a", lines, mask), 2)
+
+    def test_l3_bits_beyond_declared_width(self) -> None:
+        src = "module top(input [1:0] AB, output y);\nendmodule\n"
+        paths = [_path(1, -1.0, [_node(None, "AB", 3, "pad"), _node(None, "AB", 0, "pad")])]
+        model = heat.parse_heat({"schema_version": 1, "words": [], "paths": paths})
+        h = heatview.build_file_heat(model, model.select(Scope()), {"x.v"}, src)
+        r = next(r for r in h.ranges if r.line == 1)
+        self.assertTrue(r.beyond_width)
+        self.assertEqual([b for b, _ in r.strip or tuple((s.bit, 0.0) for s in r.segments)],
+                         [3, 1, 0])
+        self.assertIn("outside the declared width", r.tooltip)
+
+    def test_l6_rounding_before_theta(self) -> None:
+        self.assertEqual(heat.round_crit(0.8999999999), 0.9)
+        row = ("span", "top.v:2", -1, "", 0.8999999999)
+        model = heatmimir.model_from_objects([row])
+        self.assertEqual(len(model.select(Scope(heat.SCOPE_NEAR, theta=0.9))), 1)
+
+    def test_l9_single_bit_zero_is_not_whole_token_hot(self) -> None:
+        src = "module top(input SIGNALX, output y);\nendmodule\n"
+        paths = [_path(1, -1.0, [_node(None, "SIGNALX", 0, "pad")])]
+        model = heat.parse_heat({"schema_version": 1, "words": [], "paths": paths})
+        h = heatview.build_file_heat(model, model.select(Scope()), {"x.v"}, src)
+        r = next(r for r in h.ranges if r.line == 1)
+        self.assertTrue(r.unknown_bits)
+        self.assertEqual([s.crit for s in r.segments], [heatview.UNKNOWN_CRIT, 1.0])
+        self.assertEqual(r.segments[-1].bit, 0)
+
+    def test_l4_note_states_remainder_rule(self) -> None:
+        self.assertIn("extra characters to the leading segments", heatview.LEGEND_NOTE)
 
 
 if __name__ == "__main__":

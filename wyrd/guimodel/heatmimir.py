@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 
 from wyrd.guimodel import timing
-from wyrd.guimodel.heat import Fact, HeatModel
+from wyrd.guimodel.heat import Fact, HeatModel, round_crit
 
 ObjectRow = Sequence[object]
 """(kind, object_key, bit, via, crit_max)"""
@@ -27,7 +27,7 @@ def _num(x: object) -> float:
 def _fact(row: ObjectRow) -> Fact | None:
     kind, key = str(row[0]), str(row[1])
     bit = int(_num(row[2]))
-    via, crit = str(row[3]), _num(row[4])
+    via, crit = str(row[3]), round_crit(_num(row[4]))
     if kind == "span":
         where = timing.split_span(key)
         if where is None:
@@ -41,13 +41,25 @@ def _fact(row: ObjectRow) -> Fact | None:
     return None
 
 
+def _drop_aggregates(facts: list[Fact]) -> list[Fact]:
+    """A word row with bit -1 is the aggregate of its bit rows: drop it when bit rows exist."""
+    with_bits = {(f.module, f.word) for f in facts if f.bit is not None}
+    return [f for f in facts if f.bit is not None or (f.module, f.word) not in with_bits]
+
+
 def model_from_objects(rows: Iterable[ObjectRow]) -> HeatModel:
-    facts = [f for f in (_fact(r) for r in rows) if f is not None]
+    facts = _drop_aggregates([f for f in (_fact(r) for r in rows) if f is not None])
     widths: dict[tuple[str, str], int] = {}
     for f in facts:
         if f.bit_known and f.bit is not None:
             widths[(f.module, f.word)] = max(widths.get((f.module, f.word), 0), f.bit + 1)
-    model = HeatModel(tuple(facts), {}, widths, {}, [NOTE], has_paths=False, source="mimir")
+    # Word rows carry no file: they colour only the files named by the span rows.
+    span_files = {f.file for f in facts if f.file is not None}
+    modules = {f.module for f in facts if f.module}
+    module_files = {m: set(span_files) for m in modules}
+    model = HeatModel(
+        tuple(facts), {}, widths, module_files, [NOTE], has_paths=False, source="mimir"
+    )
     if not facts:
         model.notes.append("the run has no span or word rows")
     return model

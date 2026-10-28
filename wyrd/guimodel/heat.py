@@ -28,6 +28,11 @@ DEFAULT_TOP = 10
 _CLOCKED = re.compile(r"clocked by ([^)\s]+)")
 
 
+def round_crit(c: float) -> float:
+    """Clamp to 0..1 and round to 9 decimals before any theta comparison (as Mímir)."""
+    return round(min(1.0, max(0.0, c)), 9)
+
+
 @dataclass(frozen=True)
 class Scope:
     """Which facts count: the critical path, the worst ``n`` paths, or crit >= ``theta``."""
@@ -89,7 +94,7 @@ class HeatModel:
             return [f for f in self.facts if f.rank == 0]
         if scope.kind == SCOPE_TOP:
             return [f for f in self.facts if 0 <= f.rank < max(scope.n, 0)]
-        return [f for f in self.facts if f.crit >= scope.theta]
+        return [f for f in self.facts if round_crit(f.crit) >= scope.theta]
 
     def path_infos(self, indexes: Sequence[int]) -> list[PathInfo]:
         return [self.paths[i] for i in indexes if i in self.paths]
@@ -126,7 +131,7 @@ def path_criticalities(paths: Sequence[PathRow]) -> tuple[dict[int, float], int,
             continue
         for r in rows:
             c = 1.0 if denom == 0 else 1.0 - (r.slack + shift) / denom
-            crit[r.index] = min(1.0, max(0.0, c))
+            crit[r.index] = round_crit(c)
     return crit, len(groups), skipped
 
 
@@ -218,10 +223,10 @@ def parse_heat(data: object) -> HeatModel:
     crit, _pairs, skipped = path_criticalities(rows)
     facts: list[Fact] = []
     infos: dict[int, PathInfo] = {}
-    for rank, (p, row) in enumerate(zip(paths, rows, strict=True)):
-        c = crit.get(row.index)
-        if c is None:
-            continue
+    usable = [(p, row) for p, row in zip(paths, rows, strict=True) if row.index in crit]
+    usable.sort(key=lambda pr: (-crit[pr[1].index], pr[1].slack, pr[1].index))
+    for rank, (p, row) in enumerate(usable):
+        c = crit[row.index]
         infos[row.index] = PathInfo(row.index, row.slack, c, row.end)
         for n in _dicts(p.get("nodes")):
             fact = _node_fact(n, c, row.index, rank)
