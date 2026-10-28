@@ -32,11 +32,15 @@ class IncludeRulesTest(unittest.TestCase):
         inc = load_tool().include
         self.assertEqual(inc(ANDROID + "data/stop_tran.png"), "data/stop_tran.png")
         self.assertIsNone(inc(ANDROID + "data/car_sheet1.png"))
-        self.assertEqual(inc(ANDROID + "ASSET_RESOURCES/level12_normal.png"),
-                         "ASSET_RESOURCES/level12_normal.png")
+        self.assertEqual(
+            inc(ANDROID + "ASSET_RESOURCES/level12_normal.png"),
+            "ASSET_RESOURCES/level12_normal.png",
+        )
         self.assertIsNone(inc(ANDROID + "ASSET_RESOURCES/level13_normal.png"))
-        self.assertEqual(inc(ANDROID + "ASSET_RESOURCES/score_level3_pressed.png"),
-                         "ASSET_RESOURCES/score_level3_pressed.png")
+        self.assertEqual(
+            inc(ANDROID + "ASSET_RESOURCES/score_level3_pressed.png"),
+            "ASSET_RESOURCES/score_level3_pressed.png",
+        )
         self.assertIsNone(inc(ANDROID + "ASSET_RESOURCES/score_level3_normal.png"))
         self.assertIsNone(inc(ANDROID + "ASSET_RESOURCES/score_level3_mouse_on.png"))
         self.assertIsNone(inc(ANDROID + "ASSET_RESOURCES/verilogTown.png"))
@@ -84,8 +88,12 @@ class ZipTest(unittest.TestCase):
         self.assertEqual(sum(b for _, b in got.values()), 9971638)
         self.assertEqual(
             set(authored),
-            {"starter.v", "examples/constant_outputs.v", "templates/combinational.v",
-             "templates/sequential.v"},
+            {
+                "starter.v",
+                "examples/constant_outputs.v",
+                "templates/combinational.v",
+                "templates/sequential.v",
+            },
         )
         self.assertIn("general_sensors, debug_port);", authored["templates/combinational.v"])
 
@@ -117,9 +125,9 @@ class CommittedTreeTest(unittest.TestCase):
         self.assertEqual(on_disk, {p for p in listed if p.split("/")[0] != "editors"})
         font = ASSETS / "fonts"
         self.assertTrue(
-            (font / "OFL.txt").read_text(encoding="utf-8").startswith(
-                "Copyright (c) 2011, Font Diner, Inc (diner@fontdiner.com),"
-            )
+            (font / "OFL.txt")
+            .read_text(encoding="utf-8")
+            .startswith("Copyright (c) 2011, Font Diner, Inc (diner@fontdiner.com),")
         )
         ttf = font / "Creepster-Regular.ttf"
         self.assertTrue(ttf.exists())

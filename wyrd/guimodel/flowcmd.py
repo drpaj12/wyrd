@@ -8,9 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 _PLAN = re.compile(r"^plan: (\d+) to run, (\d+) reused$")
-_RUN = re.compile(
-    r"^(\S+/\S+) \[([0-9a-f]{12})\] (ok|fail|oom|timeout|cancelled)(?:: (.*))?$"
-)
+_RUN = re.compile(r"^(\S+/\S+) \[([0-9a-f]{12})\] (ok|fail|oom|timeout|cancelled)(?:: (.*))?$")
 
 
 @dataclass(frozen=True)

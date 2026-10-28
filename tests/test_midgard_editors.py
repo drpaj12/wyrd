@@ -456,9 +456,7 @@ class MapWindowTest(unittest.TestCase):
         old = target.read_bytes()
         doc = LevelDoc.from_xml_file(target)
         doc.set_type(5, 5, "NON_ROAD" if doc.groups[5][5] != "NON_ROAD" else "STRAIGHT_EW")
-        with mock.patch(
-            "wyrd.midgard.model.atomicio.os.replace", side_effect=OSError("disk full")
-        ):
+        with mock.patch("wyrd.midgard.model.atomicio.os.replace", side_effect=OSError("disk full")):
             self.assertEqual(le.export_level(doc, target), ["Error when exporting XML file"])
         self.assertEqual(target.read_bytes(), old)
         with mock.patch.object(QImage, "save", return_value=False):

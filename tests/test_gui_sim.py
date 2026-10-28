@@ -225,7 +225,6 @@ class SimPanelTest(unittest.TestCase):
         sim[0].trigger()
         self.assertIs(w.tabs.currentWidget(), w.sim_panel)
 
-
     def test_long_run_returns_control_and_stops(self) -> None:
         panel = self.opened().sim_panel
         compiled(panel)

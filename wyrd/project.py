@@ -156,9 +156,7 @@ def _load_recipe(ctx: _Ctx, name: str, raw: object) -> Recipe:
     steps: list[StepSpec] = []
     for s in steps_raw:
         if not isinstance(s, dict) or not isinstance(s.get("use"), str):
-            raise ctx.err_recipe(
-                name, "steps", f"recipe '{name}': each step needs a string 'use'"
-            )
+            raise ctx.err_recipe(name, "steps", f"recipe '{name}': each step needs a string 'use'")
         args = {k: v for k, v in s.items() if k != "use"}
         steps.append(StepSpec(use=str(s["use"]), args=args))
     return Recipe(name=name, steps=tuple(steps))

@@ -105,8 +105,6 @@ class _DrawTask(QRunnable):
             self.signals.drawn.emit(self.token, data, text, cells)
 
 
-
-
 class SchematicPanel(QWidget):
     """Read-only schematic view; never raises on bad input, shows the reason in `status`.
 

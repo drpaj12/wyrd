@@ -26,6 +26,7 @@ from wyrd.gui.atlaspanel import AtlasPanel
 from wyrd.gui.editor import TomlEditor
 from wyrd.gui.flowpanel import FlowPanel
 from wyrd.gui.messages import MessagesPane
+from wyrd.gui.mimirpanel import MimirPanel
 from wyrd.gui.projecttree import ProjectTree
 from wyrd.gui.reportview import ReportView
 from wyrd.gui.schematicpanel import SchematicPanel
@@ -77,6 +78,7 @@ class MainWindow(QMainWindow):
         self.timing = TimingPanel()
         self.schematic = SchematicPanel()
         self.atlas = AtlasPanel()
+        self.mimir = MimirPanel()
         self.editor = TomlEditor(silent)
         self.sim_panel = SimPanel(sim_backend)
         self.docks: dict[str, QDockWidget] = {}
@@ -109,6 +111,8 @@ class MainWindow(QMainWindow):
         self._build_menus()
         self.project_tree.file_activated.connect(self.show_source)
         self.messages.location_activated.connect(self.show_source)
+        self.mimir.store_opened.connect(self._remember_mimir)
+        self.mimir.set_last(str(self.settings.value("lastMimirStore", "") or ""))
         self.sim_panel.location_activated.connect(self.show_source)
         self.timing.location_activated.connect(self.show_source)
         self.timing.heat_changed.connect(self._refresh_heat)
@@ -238,14 +242,15 @@ class MainWindow(QMainWindow):
             "Timing": self.timing,
             "Schematic": self.schematic,
             "Atlas": self.atlas,
+            "Mímir": self.mimir,
         }
         return docks[name]
 
     def _build_docks(self) -> None:
         previous: QDockWidget | None = None
-        for name in ("Messages", "Flow", "Timing", "Schematic", "Atlas"):
+        for name in ("Messages", "Flow", "Timing", "Schematic", "Atlas", "Mímir"):
             dock = QDockWidget(name, self)
-            dock.setObjectName(f"dock-{name.lower()}")
+            dock.setObjectName("dock-" + name.lower().replace("í", "i"))
             dock.setWidget(self._dock_widget(name))
             self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, dock)
             if previous is not None:
@@ -272,6 +277,7 @@ class MainWindow(QMainWindow):
             self._action(file_menu, "Open Project...", self._open_dialog, "Ctrl+O"),
         ]
         file_menu.addMenu(self.recent_menu)
+        self._action(file_menu, "Open Mímir store...", self._open_mimir)
         file_menu.addSeparator()
         self._action(file_menu, "Save wyrd.toml", self.editor.save, "Ctrl+S")
         self._action(file_menu, "Quit", self.close, "Ctrl+Q")
@@ -448,6 +454,14 @@ class MainWindow(QMainWindow):
         chosen = QFileDialog.getExistingDirectory(self, "Open Project")
         if chosen:
             self.open_project(Path(chosen))
+
+    def _open_mimir(self) -> None:
+        self.docks["Mímir"].show()
+        self.docks["Mímir"].raise_()
+        self.mimir.choose()
+
+    def _remember_mimir(self, path: str) -> None:
+        self.settings.setValue("lastMimirStore", path)
 
     def _new_project(self) -> None:
         chosen = QFileDialog.getExistingDirectory(self, "New Project directory")

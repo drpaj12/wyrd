@@ -34,6 +34,7 @@ getting-started
 projects
 running
 gui
+mimir
 simulation
 midgard
 samples

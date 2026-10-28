@@ -56,9 +56,7 @@ class Camera:
         self.x = _clamp(self.x, min_x, W - min_x)
         self.y = _clamp(self.y, min_y, H - min_y - (1 - self.zoom) * 100)
 
-    def to_world(
-        self, lx: float, ly: float, win: tuple[int, int] = (W, H)
-    ) -> tuple[float, float]:
+    def to_world(self, lx: float, ly: float, win: tuple[int, int] = (W, H)) -> tuple[float, float]:
         z = self.zoom
         real_x = (self.x - W * z / 2) + (lx / win[0]) * W * z
         real_y = (self.y - H * z / 2) + (1 - ly / win[1]) * H * z

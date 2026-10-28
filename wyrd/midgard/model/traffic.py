@@ -23,9 +23,7 @@ class TrafficControl:
             return self.facing[_ORDER[location]]
         return SignalState.NO_SIGNAL
 
-    def set_signals(
-        self, n: SignalState, s: SignalState, e: SignalState, w: SignalState
-    ) -> None:
+    def set_signals(self, n: SignalState, s: SignalState, e: SignalState, w: SignalState) -> None:
         self.facing = {Direction.N: n, Direction.S: s, Direction.E: e, Direction.W: w}
 
     def read_sensors(self) -> int:

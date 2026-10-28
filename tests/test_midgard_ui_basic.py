@@ -95,8 +95,10 @@ class DrawTest(unittest.TestCase):
     def test_button_draw(self) -> None:
         a = Assets()
         s = pygame.Surface((400, 100))
-        b = Button((0, 0, 250, 60), *(f"ASSET_RESOURCES/level1_{k}.png" for k in
-                                       ("normal", "mouse_on", "pressed")))
+        b = Button(
+            (0, 0, 250, 60),
+            *(f"ASSET_RESOURCES/level1_{k}.png" for k in ("normal", "mouse_on", "pressed")),
+        )
         for state in ("normal", "hover", "pressed"):
             b.draw(s, a, state)
 

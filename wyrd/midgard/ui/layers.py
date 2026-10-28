@@ -102,9 +102,7 @@ def draw_cars(
         surface.blit(img, world_to_screen(car.px, car.py))
 
 
-def draw_path_preview(
-    surface: pygame.Surface, assets: Assets, car: Car, count: int
-) -> None:
+def draw_path_preview(surface: pygame.Surface, assets: Assets, car: Car, count: int) -> None:
     rel = "data/red_dot.png" if car.forced_turned else "data/green_dot.png"
     img = assets.image(rel)
     for node in car.path[max(0, len(car.path) - count) :]:
@@ -126,9 +124,7 @@ def draw_placing(
         surface.blit(assets.image("data/ban.png"), pos)
 
 
-def draw_digits(
-    surface: pygame.Surface, assets: Assets, x: int, value: int, digits: int
-) -> None:
+def draw_digits(surface: pygame.Surface, assets: Assets, x: int, value: int, digits: int) -> None:
     text = f"{max(0, min(value, 10**digits - 1)):0{digits}d}"
     for i, ch in enumerate(text):
         pos = (x + 70 * i, BAR_Y)

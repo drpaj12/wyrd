@@ -14,12 +14,21 @@ from wyrd.midgard.ui.view import SCORE_SIZE
 H = SCORE_SIZE[1]
 LAST_LEVEL = 12
 CREDITS = (
-    ("Dr. Peter Jamieson", "Created the game design, and programmed many parts of the game\n"
-     "including the Verilog Simulation and car movement and path planning."),
-    ("Naoki Mizuno", "Built the XML level descriptions and a separate tool for level creation.\n"
-     "Naoki is one of the main developers of the Beta release of verilogTown."),
-    ("Boyu Zhang", "Built the standalone Verilog Editor and structured much of the game control.\n"
-     "Boyu is one of the main developers of the Beta release of verilogTown."),
+    (
+        "Dr. Peter Jamieson",
+        "Created the game design, and programmed many parts of the game\n"
+        "including the Verilog Simulation and car movement and path planning.",
+    ),
+    (
+        "Naoki Mizuno",
+        "Built the XML level descriptions and a separate tool for level creation.\n"
+        "Naoki is one of the main developers of the Beta release of verilogTown.",
+    ),
+    (
+        "Boyu Zhang",
+        "Built the standalone Verilog Editor and structured much of the game control.\n"
+        "Boyu is one of the main developers of the Beta release of verilogTown.",
+    ),
     ("Alex Williams", "Built the early version of the Verilog parser using ANTLR 4.0."),
     ("Josh Collins", "Built the early parts of the game including animation and level."),
     ("Lindsay Grace", "Collaborator on game design."),

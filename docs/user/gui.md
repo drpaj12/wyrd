@@ -16,7 +16,7 @@ A step-by-step PDF tutorial does everything below in the interface, with a figur
   steps) and Archs. Double-click a file to open it in the Source tab.
 - **Tabs** (centre): *Source*, *Report*, *wyrd.toml* and *Simulate*. When `wyrd.toml` has an error only the
   *wyrd.toml* tab is enabled.
-- **Messages**, **Flow**, **Timing**, **Schematic** and **Atlas** (bottom docks, tabbed; View menu shows or hides them).
+- **Messages**, **Flow**, **Timing**, **Schematic**, **Atlas** and **Mímir** (bottom docks, tabbed; View menu shows or hides them).
 
 ### Source
 
@@ -93,3 +93,20 @@ it. The Timing dock warns when you select a line of a file that is newer than th
 
 **Settings...** edits `machine.toml` (the table of {doc}`getting-started`) with one field per key.
 The Simulate and Midgard entries are covered in {doc}`simulation` and {doc}`midgard`.
+
+### Mímir panel (browse the Mímir dataset)
+
+File > Open Mímir store... (or the button in the Mímir dock; *Reopen last* remembers the last
+store) opens a Mímir SQLite store, schema version 4, read only: Wyrd never writes it and never
+builds an index, so a store that another process is writing can be browsed. The left list holds
+designs (source box and filter; at most 500 shown). Tabs: *Summary* (row counts, sources, levels);
+*Design* (metric records with unit, measurer and origin; runs, double-click one to open it; design
+meta and lineage with how each field is known; structure counts); *Run* (flow parameters coloured
+given green, default grey, default-unrecorded amber, unknown red; artifacts; *Fetch artifacts...*
+runs `mimir fetch` and is disabled when `mimir` is not on PATH); *Compare* (source prefix, base
+config `source/arm`, metric, optional level: the geometric mean of value / base over the designs
+both configs have, with n, as a table and a dot chart); *Plot* (scatter of two metrics, one point
+per design, optional log axes, hover names the design). Every table has Copy and Export CSV.
+The same data is on the command line: `wyrd mimir` (see `running.md`). Spec:
+`docs/specs/2026-10-28-mimir-browser.md`.
+

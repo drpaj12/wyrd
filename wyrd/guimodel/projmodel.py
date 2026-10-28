@@ -39,9 +39,7 @@ def project_tree(project: Project) -> tuple[TreeNode, ...]:
         TreeNode("recipe", r.name, None, tuple(TreeNode("step", s.use) for s in r.steps))
         for r in project.recipes.values()
     )
-    archs = tuple(
-        TreeNode("arch", a) for a in sorted({run.arch for run in project.runs} - {""})
-    )
+    archs = tuple(TreeNode("arch", a) for a in sorted({run.arch for run in project.runs} - {""}))
     return (
         TreeNode("group", "Designs", None, designs),
         TreeNode("group", "Recipes", None, recipes),

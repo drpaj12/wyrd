@@ -44,8 +44,12 @@ class ProjectTests(unittest.TestCase):
         got = [(r.recipe.name, r.design.name, r.arch) for r in proj.runs]
         self.assertEqual(
             got,
-            [("vtr", "one", "k6"), ("vtr", "one", "EArch"), ("vtr", "two", "k6"),
-             ("vtr", "two", "EArch")],
+            [
+                ("vtr", "one", "k6"),
+                ("vtr", "one", "EArch"),
+                ("vtr", "two", "k6"),
+                ("vtr", "two", "EArch"),
+            ],
         )
         self.assertEqual(proj.run, {"step_timeout": 100})
         self.assertEqual(proj.recipes["vtr"].steps[0].use, "odin3-flow")
@@ -62,8 +66,10 @@ class ProjectTests(unittest.TestCase):
         self.assertEqual(one, (DATA / "src" / "a.v", DATA / "src" / "b.v"))
 
     def test_empty_glob_is_config_error(self) -> None:
-        path = _write(BASE.replace('"x.v"', '"nope/*.v"') + '[sweep]\nrecipe=["r"]\n'
-                      'design=["d"]\narch=["a"]\n')
+        path = _write(
+            BASE.replace('"x.v"', '"nope/*.v"') + '[sweep]\nrecipe=["r"]\n'
+            'design=["d"]\narch=["a"]\n'
+        )
         with self.assertRaises(ConfigError) as cm:
             load_project(path)
         self.assertIn("d", str(cm.exception))
@@ -84,8 +90,9 @@ class ProjectTests(unittest.TestCase):
         self.assertEqual(cm.exception.line, 4)
 
     def test_param_sweep(self) -> None:
-        path = _write(BASE + '[sweep]\nrecipe = ["r"]\ndesign = ["d"]\narch = ["a"]\n'
-                      "seed = [1, 2]\n")
+        path = _write(
+            BASE + '[sweep]\nrecipe = ["r"]\ndesign = ["d"]\narch = ["a"]\nseed = [1, 2]\n'
+        )
         proj = load_project(path)
         self.assertEqual(len(proj.runs), 2)
         self.assertEqual(proj.runs[0].params, {"seed": 1})
@@ -119,13 +126,11 @@ class ProjectTests(unittest.TestCase):
         proj_dir = outer / "proj"
         proj_dir.mkdir()
         (proj_dir / "x.v").write_text("module x; endmodule\n")
-        text = (BASE.replace('["x.v"]', f'["../ext/*.v", "{outer}/ext/z.v", "x.v"]')
-                + SWEEP)
+        text = BASE.replace('["x.v"]', f'["../ext/*.v", "{outer}/ext/z.v", "x.v"]') + SWEEP
         path = proj_dir / "wyrd.toml"
         path.write_text(text)
         files = load_project(path).designs["d"].files
-        self.assertEqual(files, (
-            (outer / "ext" / "z.v").resolve(), (proj_dir / "x.v").resolve()))
+        self.assertEqual(files, ((outer / "ext" / "z.v").resolve(), (proj_dir / "x.v").resolve()))
 
     def test_env_var_expansion(self) -> None:
         outer = Path(tempfile.mkdtemp())
@@ -171,12 +176,14 @@ class ProjectTests(unittest.TestCase):
         self._err('[project]\nname = "t"\n[design]\nname = "d"\n' + tail)
 
     def test_wrong_types(self) -> None:
-        for old, new in (('files = ["x.v"]', 'files = "x.v"'),
-                         ('files = ["x.v"]', "files = [1]"),
-                         ('files = ["x.v"]', 'files = ["x.v"]\ntop = 3'),
-                         ('steps = [{ use = "odin3-flow" }]', "steps = [1]"),
-                         ('steps = [{ use = "odin3-flow" }]', "steps = [{ use = 1 }]"),
-                         ('steps = [{ use = "odin3-flow" }]', "steps = []")):
+        for old, new in (
+            ('files = ["x.v"]', 'files = "x.v"'),
+            ('files = ["x.v"]', "files = [1]"),
+            ('files = ["x.v"]', 'files = ["x.v"]\ntop = 3'),
+            ('steps = [{ use = "odin3-flow" }]', "steps = [1]"),
+            ('steps = [{ use = "odin3-flow" }]', "steps = [{ use = 1 }]"),
+            ('steps = [{ use = "odin3-flow" }]', "steps = []"),
+        ):
             self._err(BASE.replace(old, new) + SWEEP)
 
     def test_missing_required(self) -> None:
@@ -194,9 +201,11 @@ class ProjectTests(unittest.TestCase):
 
     def test_line_lookup_from_header(self) -> None:
         # steps key appears earlier in an unrelated recipe and a design 'files' precedes.
-        text = ('[project]\nname = "t"\n\n[[design]]\nname = "d1"\nfiles = ["x.v"]\n\n'
-                '[[design]]\nname = "d2"\nfiles = "bad"\n\n'
-                '[recipe.a]\nsteps = [{ use = "u" }]\n\n[recipe.b]\nsteps = []\n')
+        text = (
+            '[project]\nname = "t"\n\n[[design]]\nname = "d1"\nfiles = ["x.v"]\n\n'
+            '[[design]]\nname = "d2"\nfiles = "bad"\n\n'
+            '[recipe.a]\nsteps = [{ use = "u" }]\n\n[recipe.b]\nsteps = []\n'
+        )
         e = self._err(text + SWEEP)
         self.assertEqual(e.line, 10)
         text = text.replace('files = "bad"', 'files = ["x.v"]')

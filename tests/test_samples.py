@@ -59,8 +59,9 @@ def _machine_file(path: Path, vtr_root: str, env: dict[str, str]) -> None:
 
 def _odin3_version() -> str:
     """The version of the odin3 the machine file names (the one on PATH)."""
-    proc = subprocess.run([str(shutil.which("odin3")), "--version"], capture_output=True, text=True,
-                          check=False)
+    proc = subprocess.run(
+        [str(shutil.which("odin3")), "--version"], capture_output=True, text=True, check=False
+    )
     return proc.stdout.splitlines()[0] if proc.stdout else "unknown"
 
 
