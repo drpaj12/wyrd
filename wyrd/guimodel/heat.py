@@ -80,6 +80,8 @@ class HeatModel:
     has_paths: bool = True
     source: str = "attribution"
     origin: str = ""
+    store: str = ""  # a Mímir model: the store file and the run its rows come from
+    run_id: str = ""
 
     def files(self) -> set[str]:
         return {f.file for f in self.facts if f.file is not None}

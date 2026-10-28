@@ -127,6 +127,22 @@ PANELS: dict[str, tuple[str, str, str, str]] = {
         "HDL heat (hot/cold) beside that line; it is grey, with a tooltip, when the circuit "
         "has no timing. List entries marked 'timing' carry it.",
     ),
+    ls.PATHS: (
+        "The stored timing paths that run through the line, word or bit you clicked in the "
+        "Source panel, and one chosen path walked step by step through the logic.",
+        "The heat of a line says how critical it is; this panel says why: the paths that run "
+        "through it.",
+        "A cut-off setting, a table of paths (rank, crit, slack, start and end, number of "
+        "nodes), Previous and Next buttons, an All paths through here box, and the steps of "
+        "the chosen path. In the Source panel the path shows as numbered markers in the gutter "
+        "with each step's delay; every line off the path is dimmed.",
+        "Open a Mímir store, press Show HDL heat, then click a hot word or line. Choose a path: "
+        "click a step to jump to its line (a step in another file opens that file). Crit is as "
+        "in the Timing panel; only paths with crit at least the cut-off (0.90, 0.95, 0.99 or "
+        "off) are shown, the rest are kept in the store but not drawn. All paths through here "
+        "colours the lines of the near-critical paths through the click by the largest crit "
+        "among them. A store written before schema 6 has no per-path data: the panel says so.",
+    ),
 }
 
 
