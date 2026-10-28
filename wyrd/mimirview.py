@@ -7,7 +7,9 @@ safe on a worker thread and while another process writes the store.
 
 from __future__ import annotations
 
+import csv
 import importlib
+import io
 import math
 import shutil
 import sqlite3
@@ -444,3 +446,39 @@ def _f(x: object) -> float:
 def _strip(d: dict[str, float]) -> dict[str, float]:
     """Keys "source\\x00design" to the design name, so configs of different sources match."""
     return {k.split("\x00", 1)[1]: v for k, v in d.items()}
+
+
+def _cell(x: object) -> str:
+    if isinstance(x, float):
+        return f"{x:.6g}"
+    return "" if x is None else str(x)
+
+
+def render_csv(t: Table) -> str:
+    """The table as CSV text (header row first)."""
+    buf = io.StringIO()
+    w = csv.writer(buf, lineterminator="\n")
+    w.writerow(t.columns)
+    w.writerows([[_cell(c) for c in r] for r in t.rows])
+    return buf.getvalue()
+
+
+def render_tsv(t: Table) -> str:
+    """The table as tab-separated text, for the clipboard."""
+    lines = ["\t".join(t.columns)]
+    lines += ["\t".join(_cell(c) for c in r) for r in t.rows]
+    return "\n".join(lines) + "\n"
+
+
+def render_text(t: Table) -> str:
+    """The table as aligned plain text; a final line says when the limit cut rows off."""
+    cells = [[_cell(c) for c in r] for r in t.rows]
+    widths = [len(c) for c in t.columns]
+    for r in cells:
+        widths = [max(w, len(c)) for w, c in zip(widths, r, strict=True)]
+    fmt = "  ".join(f"{{:<{w}}}" for w in widths)
+    lines = [fmt.format(*t.columns).rstrip(), "  ".join("-" * w for w in widths)]
+    lines += [fmt.format(*r).rstrip() for r in cells]
+    if t.more:
+        lines.append(f"... more rows (limit {len(t.rows)}); use --limit")
+    return "\n".join(lines)
