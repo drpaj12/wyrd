@@ -1,4 +1,4 @@
-"""Command line of Wyrd III: init, run, status, table, compare, timing, config, sim, mimir."""
+"""Command line of Wyrd III: init, run, status, table, compare, timing, config, sim, tb, mimir."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from collections import Counter
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from wyrd import mimircli, report, settings
+from wyrd import mimircli, report, settings, tbcli
 from wyrd.guimodel import timing
 from wyrd.preflight import ProjectLocked, acquire_lock, preflight
 from wyrd.project import ConfigError, Project, load_project
@@ -398,6 +398,7 @@ def _parser() -> argparse.ArgumentParser:
     sim.add_argument("--save-vectors", metavar="FILE")
     sim.add_argument("--csv", action="store_true")
     mimircli.add_parser(sub)
+    tbcli.add_parser(sub)
     return p
 
 
@@ -412,6 +413,8 @@ def main(argv: list[str] | None = None) -> int:
         return _init(args.dir)
     if args.command == "mimir":
         return mimircli.main(args)
+    if args.command == "tb":
+        return tbcli.main(args)
     handlers = {
         "run": _run,
         "status": _status,

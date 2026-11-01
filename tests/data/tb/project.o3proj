@@ -1,0 +1,8 @@
+# Wyrd test project: testbenches of a 4-bit counter
+file verilog counter.v
+top counter
+testbench good file tb_good.v top tb_good dut dut expect good.expect
+testbench bad file tb_good.v top tb_good expect bad.expect
+testbench both file tb_good.v top tb_good on both expect good.expect
+testbench hang file tb_hang.v max-time 100
+testbench err file tb_err.v

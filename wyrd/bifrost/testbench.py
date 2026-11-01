@@ -69,7 +69,7 @@ class TbReport:
         rows = [
             {
                 "name": r.name,
-                "status": r.status,
+                "status": "fail" if r.status == "timeout" else r.status,
                 "on": r.on,
                 "wall_ms": r.wall_ms,
                 "end_time": r.end_time,

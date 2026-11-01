@@ -10,6 +10,7 @@ from wyrd.bifrost.backend import (
     SimHandle,
     default_backend,
     odin3_available,
+    testbench_available,
 )
 from wyrd.bifrost.diagnostics import parse_log
 from wyrd.bifrost.errors import (
@@ -79,6 +80,7 @@ __all__ = [
     "SimHandle",
     "default_backend",
     "odin3_available",
+    "testbench_available",
     "CompileError",
     "Diagnostic",
     "Kind",

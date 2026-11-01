@@ -284,3 +284,11 @@ def odin3_available() -> bool:
     except SimUnavailable:
         return False
     return True
+
+
+def testbench_available() -> bool:
+    try:
+        Odin3Runner()
+    except SimUnavailable:
+        return False
+    return True
