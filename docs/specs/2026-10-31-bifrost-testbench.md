@@ -105,3 +105,14 @@ Bifrost line format as the testbench's print format (foreign testbenches are not
 testbench, no stimulus files. D-6 VCD is derived from vector lines because `sim_tb --vcd` is unimplemented.
 D-7 DUT top is detected by a regex over the sources when `--dut-top` is absent; ambiguity is an error.
 D-8 paths containing whitespace, `"`, `;` are refused (the project syntax is word-based).
+
+## 9. As built (deviations)
+
+1. `ScriptRunner.run(script)` has no `cwd` (all paths are absolute). `Odin3Runner` hides what passes print
+   to fd 1 (the report lines) while a script runs; the log is captured instead. `testbench_available()`
+   checks that the library registers `run_testbenches`.
+2. Files: `wyrd/bifrost/testbench.py` (runs, results), `tbconvert.py` (text conversion), `tbflow.py` (file
+   level, derived VCD), `wyrd/tbcli.py` (CLI). `wyrd.cli` imports `tbcli` only; `wyrd.bifrost` loads lazily.
+3. File-mode `output` comes from a second `sim_tb --out` script on the same project (rtl and both: RTL;
+   netlist: after `abc`); it is None when that run fails (the first result carries the error).
+4. Project mode returns no output text (Odin III's JSON holds the line count and first mismatch only).

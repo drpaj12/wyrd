@@ -101,6 +101,10 @@ The command line runs vector files or random inputs:
     wyrd sim traffic.v --random 100 --seed 3 --vcd traffic.vcd
     wyrd sim traffic.v --vectors in.txt --save-vectors out.txt
 
+Testbench mode (needs an Odin III with `run_testbenches`, main after PR 310): `wyrd tb run --project p.o3proj`
+or `wyrd tb run --tb tb.v --dut dut.v` runs Verilog testbenches (RTL, netlist or both); `wyrd tb convert --to tb|vectors`
+converts between vector files and testbenches. See `docs/user/testbench.md`.
+
 A vector line is `CYCLE INPUTS [OUTPUTS]` with ports written MSB first. The GUI has a Simulate tab
 (Tools menu, Ctrl+T): compile a project design, edit inputs, step or run, run random inputs or a vector
 file, view the built-in waveform and open the recording in GTKWave (`WYRD_GTKWAVE` or `gtkwave` on PATH).

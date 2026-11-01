@@ -4,7 +4,7 @@ W1 experiment runner and W2 GUI, part of Wyrd III. Expands a TOML project into r
 memory budget, stores results (run directories plus `wyrd.db`), prints tables. Depends on Odin III
 only as programs (`odin3`, `odin3-flow`, `vpr`, `abc`); never imports its Python, except `wyrd.bifrost` (W3), the one exception, contained in `wyrd/bifrost/backend.py`.
 
-Specs: `docs/specs/2026-10-21-w1-runner-design.md`, `docs/specs/2026-10-21-w2-gui-design.md`.
+Specs: `docs/specs/2026-10-31-bifrost-testbench.md`, `docs/specs/2026-10-21-w1-runner-design.md`, `docs/specs/2026-10-21-w2-gui-design.md`.
 Plans: `docs/plans/2026-10-21-w1-runner-plan.md`, `docs/plans/2026-10-21-w2-gui-plan.md`.
 
 ## Setup
@@ -19,6 +19,7 @@ Plans: `docs/plans/2026-10-21-w1-runner-plan.md`, `docs/plans/2026-10-21-w2-gui-
     PYTHONPATH=~/odin3-ws/work/odin3-s1/plugins/python ODIN3_LIB=<S1 build>/libodin3.so .venv/bin/python -m unittest tests.test_sim_odin3 -v   # real Odin III (needs cffi)
     SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy .venv/bin/python -m unittest tests.test_midgard_ui_basic tests.test_midgard_ui tests.test_midgard_time_ui -v   # Midgard III game (pygame-ce)
     QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest tests.test_midgard_editors -v   # Midgard III editors
+    PYTHONPATH=<odin3>/plugins/python ODIN3_LIB=<build>/libodin3.so .venv/bin/python -m unittest tests.test_tb_odin3 -v   # testbench mode (Odin III main after PR 310)
     .venv/bin/ruff check .
     .venv/bin/mypy --strict wyrd tests
 

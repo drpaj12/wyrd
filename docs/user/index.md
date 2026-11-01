@@ -36,6 +36,7 @@ running
 gui
 mimir
 simulation
+testbench
 midgard
 samples
 ```
