@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import contextlib
+import ctypes
 import importlib
-from collections.abc import Sequence
+import os
+import sys
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Protocol
+from typing import Any, NamedTuple, Protocol
 
 from wyrd.bifrost.diagnostics import parse_log
 from wyrd.bifrost.errors import (
@@ -25,6 +29,11 @@ _BAD_PATH_CHARS = ('"', ";", "\n", "\r")
 UNAVAILABLE = (
     'odin3 with the simulation API is not installed; run: pip install "wyrd[sim]" '
     "(needs Odin III 1.0.3 or later)"
+)
+
+NO_TESTBENCH = (
+    "this Odin III has no run_testbenches pass; testbench mode needs an Odin III main after "
+    "PR 310 (v1.2.0, not tagged yet): set ODIN3_LIB and PYTHONPATH to a checkout"
 )
 
 
@@ -202,6 +211,69 @@ class Odin3Backend:
         raise CompileError(diagnostics, None if has_error else str(failure) or None)
 
 
+class ScriptOutcome(NamedTuple):
+    """The result of one Odin III script: `ok`, the last error text, every log record."""
+
+    ok: bool
+    error: str | None
+    log: tuple[tuple[int, str], ...]
+
+
+class ScriptRunner(Protocol):
+    def run(self, script: str) -> ScriptOutcome: ...
+
+
+@contextlib.contextmanager
+def _quiet_stdout() -> Iterator[None]:
+    """Hide what passes print straight to fd 1 (the report lines); the log is captured anyway."""
+    libc = ctypes.CDLL(None)
+    sys.stdout.flush()
+    libc.fflush(None)
+    saved = os.dup(1)
+    with open(os.devnull, "wb") as null:
+        os.dup2(null.fileno(), 1)
+        try:
+            yield
+        finally:
+            libc.fflush(None)
+            os.dup2(saved, 1)
+            os.close(saved)
+
+
+class Odin3Runner:
+    """Runs a script on a fresh Design; a failing pass is an outcome, not a raise."""
+
+    def __init__(self) -> None:
+        try:
+            module = importlib.import_module("odin3")
+        except ImportError as e:
+            raise SimUnavailable(UNAVAILABLE) from e
+        if not hasattr(module, "Design"):
+            raise SimUnavailable(UNAVAILABLE)
+        self._odin3 = module
+        if "run_testbenches" not in module.default().passes():
+            raise SimUnavailable(NO_TESTBENCH)
+
+    def run(self, script: str) -> ScriptOutcome:
+        design = self._odin3.Design()
+        failure: str | None = None
+        try:
+            with _quiet_stdout(), design.odin3.capture_log() as records:
+                try:
+                    design.run_script(script)
+                except self._odin3.Odin3Error as e:
+                    failure = str(e)
+        finally:
+            design.close()
+        log = tuple((r.level, r.message) for r in records)
+        errors = [m for lvl, m in log if lvl == 0]
+        return ScriptOutcome(failure is None, errors[-1] if errors else failure, log)
+
+
+def default_runner() -> ScriptRunner:
+    return Odin3Runner()
+
+
 def default_backend() -> Backend:
     return Odin3Backend()
 
@@ -209,6 +281,14 @@ def default_backend() -> Backend:
 def odin3_available() -> bool:
     try:
         Odin3Backend()
+    except SimUnavailable:
+        return False
+    return True
+
+
+def testbench_available() -> bool:
+    try:
+        Odin3Runner()
     except SimUnavailable:
         return False
     return True
