@@ -33,7 +33,7 @@ def data_ports(ports: Sequence[Signal]) -> tuple[Signal, ...]:
     return tuple(p for p in ports if p.kind == "input")
 
 
-def _port_lines(ports: Sequence[Signal], outputs: Sequence[Signal]) -> list[str]:
+def port_lines(ports: Sequence[Signal], outputs: Sequence[Signal]) -> list[str]:
     lines = [
         f"# clock {p.name} 0" if p.kind == "clock" else f"# input {p.name} {p.width}" for p in ports
     ]
@@ -63,7 +63,7 @@ def format_vectors(
     seed: int = 0,
 ) -> str:
     data = data_ports(ports)
-    lines = [f"# {title} seed {seed} cycles {len(vf.rows)}", *_port_lines(ports, outputs)]
+    lines = [f"# {title} seed {seed} cycles {len(vf.rows)}", *port_lines(ports, outputs)]
     for c, row in enumerate(vf.rows):
         line = f"{c} {_bits(row, data)}"
         if recording is not None:
@@ -135,7 +135,7 @@ def parse_vectors(
 
 def _parse(text: str, ports: Sequence[Signal], outputs: Sequence[Signal]) -> VectorFile:
     data = data_ports(ports)
-    expected = _port_lines(ports, outputs)
+    expected = port_lines(ports, outputs)
     rows: list[tuple[int, ...]] = []
     seen = 0
     number = 0
