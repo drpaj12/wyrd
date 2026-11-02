@@ -1,6 +1,20 @@
 # wyrd
 
-Experiment runner for Odin III flows (W1 of Wyrd III). Python 3.11+, no runtime dependencies.
+Wyrd III is the canopy of Yggdrasil III: the experiment runner and workbench around Odin III. Python 3.11+, no runtime
+dependencies for the runner. It does four jobs:
+
+- **Run experiments** (W1, always available): a `wyrd.toml` project of designs, recipes and architectures expands to runs under a
+  memory budget; every run directory is kept and indexed in `wyrd.db`; `wyrd table`, `compare` and `timing` read them.
+- **Show them** (extra `[gui]`): `wyrd-gui` with the project tree, source, Quartus-style report, `wyrd.toml` editor and flow runner,
+  plus the visualizations: schematic and cone views, the Norns placement atlas, the Mimir browser with HDL heat, path view and
+  Structures and Timing tabs, and a Floorplan button.
+- **Simulate** (Bifrost III, extra `[sim]`): `wyrd.bifrost` compiles a design with Odin III and steps it one clock edge at a time;
+  `wyrd sim`, the Simulate tab, VCD, and testbench mode `wyrd tb run|convert`.
+- **Play** (Midgard III, extra `[midgard]`): Verilog Town, where you write one Verilog module per traffic light.
+
+Wyrd III has no paper of its own; it is the tool the experiments of the other pieces run through, and it has two PDF tutorials
+([command line](https://drpaj12.github.io/wyrd/wyrd-tutorial.pdf), [GUI](https://drpaj12.github.io/wyrd/wyrd-gui-tutorial.pdf)).
+Manual: <https://drpaj12.github.io/wyrd/>. Hub: <https://github.com/drpaj12/YggdrasilIII>.
 
 Wyrd III is part of **Yggdrasil III**, the suite of Odin III (<https://github.com/drpaj12/odin3>, the trunk), Wyrd III (<https://github.com/drpaj12/wyrd>, the canopy, with Bifrost III and Midgard III), Loki III (<https://github.com/drpaj12/loki>), The Norns III (<https://github.com/drpaj12/nornsIII>) and Verdandi III (<https://github.com/drpaj12/verdandiIII>) on side branches, and Mímir III (<https://github.com/drpaj12/mimirIII>, the fruit). Wyrd III is the canopy, with Bifrost III (the simulation bridge) and Midgard III (Verilog Town, W4, after the original verilogTown: Jamieson, Grace, Mizuno, Zhang, ASEE 2017). Version 0.1.0 (`pyproject.toml`). The hub is <https://github.com/drpaj12/YggdrasilIII> (documentation: <https://drpaj12.github.io/YggdrasilIII/>, versions of every piece: <https://drpaj12.github.io/YggdrasilIII/versions.html>) and its picture of the tree is <https://github.com/drpaj12/YggdrasilIII/blob/main/images/yggdrasil-tree.png>.
 
