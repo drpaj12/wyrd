@@ -11,6 +11,26 @@ Wyrd III is part of **Yggdrasil III**, the suite of Odin III (<https://github.co
 Settings precedence, lowest first: built-in defaults, `machine.toml`, the project's `[run]`
 table (`step_timeout` only), command-line flags. Design: `docs/specs/`.
 
+## Features
+
+Status: **works** = on `main` with tests; **optional** = needs an extra (`[gui]`, `[sim]`, `[midgard]`) or an external program.
+
+| Feature | Status | Where |
+|---|---|---|
+| Experiment runner: a `wyrd.toml` project (designs, recipes, architectures) expands to runs under a memory budget, every run directory is kept and indexed in `wyrd.db` | works | `wyrd init`, `run`, `status`, `table`, `compare`, `script`; [projects](docs/user/projects.md), [running](docs/user/running.md) |
+| Machine settings with a clear precedence (defaults, `machine.toml`, project, flags) | works | `wyrd config init\|show` |
+| Critical-path attribution of a run | works | `wyrd timing`; GUI Timing panel |
+| Sample project with expected results | works | `samples/`, [samples](docs/user/samples.md) |
+| Desktop GUI: project tree, source, Quartus-style report, parsed warnings and errors, `wyrd.toml` editor with live validation, flow runner, docked and zoomable panels | optional (`[gui]`) | `wyrd-gui`; [gui](docs/user/gui.md) |
+| Visualization: schematic of a module or a fan-in cone of a net or HDL line (netlistsvg, optional Node.js program) | optional | Schematic panel; [gui](docs/user/gui.md) |
+| Visualization: placement atlas of a Norns round-7 placement on the device grid, side by side and difference views | optional | Atlas panel; `docs/specs/2026-10-26-placement-atlas.md` |
+| Visualization: Mimir browser (designs, metric records with run provenance, flow parameters, config comparisons; schema 6 per-path tables), HDL hot/cold colouring per bit, Structures and Timing tabs, path view, fan-in and fan-out cones from a clicked token | optional (`[gui]`) | `wyrd mimir summary\|designs\|design\|run\|compare`, Mimir and Paths panels; [mimir](docs/user/mimir.md) |
+| Floorplan: re-run VPR with its graphics for a run | optional (VPR built with Qt6 graphics) | GUI Floorplan button |
+| Bifrost III simulation: compile Verilog with Odin III, set inputs, step, reset, record, VCD; `wyrd sim` with random or vector-file inputs; GUI Simulate tab with waveform and GTKWave | optional (`[sim]`) | `wyrd.bifrost`, `wyrd sim`; [simulation](docs/user/simulation.md) |
+| Testbench mode: run Verilog testbenches on RTL, netlist or both, and convert between vector files and testbenches (needs an Odin III with `run_testbenches`) | optional (`[sim]`) | `wyrd tb run\|convert`; [testbench](docs/user/testbench.md) |
+| Midgard III (Verilog Town): replication of the verilogTown game with a Verilog editor and a level editor | optional (`[midgard]`) | `midgard`; [midgard](docs/user/midgard.md) |
+| Step types: `odin3`, `vpr`, `abc`, `shell`, `odin3-flow`, and Python plugins registered as entry points (Loki III registers step plugins) | works | `wyrd/steps/`; [projects](docs/user/projects.md) |
+
 ## Documentation
 
 Start at the Yggdrasil III hub; every manual links to the others.

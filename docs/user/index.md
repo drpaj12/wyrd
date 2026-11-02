@@ -27,6 +27,19 @@ The other Yggdrasil III manuals are linked in the sidebar: the
 [Loki III](https://drpaj12.github.io/loki/), with [Verdandi III](https://drpaj12.github.io/verdandiIII/) beside them.
 The Norns III runs its placement experiments through Wyrd III: <https://github.com/drpaj12/nornsIII>.
 
+## Features at a glance
+
+Status: works (on `main` with tests), optional (needs the `gui`, `sim` or `midgard` extra or an external program).
+The table with commands is in the [repository README](https://github.com/drpaj12/wyrd#features).
+
+- Run experiments: projects, sweeps, run directories, `wyrd.db`, `wyrd table` and `compare`, critical-path
+  attribution ([projects](projects.md), [running](running.md)).
+- Visualize (optional): the GUI, the schematic and cone views, the placement atlas, the Mímir browser with HDL heat, path view
+  and Structures tab, the Floorplan button ([gui](gui.md), [mimir](mimir.md)).
+- Simulate (optional): Bifrost III, `wyrd sim`, the Simulate tab, VCD ([simulation](simulation.md)) and testbench mode
+  `wyrd tb run|convert` ([testbench](testbench.md)).
+- Play (optional): Midgard III, Verilog Town ([midgard](midgard.md)).
+
 ```{toctree}
 :maxdepth: 2
 
