@@ -51,6 +51,7 @@ def shoot(
         page.screenshot(path=str(out))
         browser.close()
     srv.shutdown()
+    srv.server_close()
     return errors
 
 

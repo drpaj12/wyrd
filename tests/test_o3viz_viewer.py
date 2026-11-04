@@ -33,7 +33,12 @@ class TestVendored(unittest.TestCase):
 class TestExprJs(unittest.TestCase):
     def test_expression_language(self) -> None:
         r = subprocess.run(
-            ["node", "--test", str(ROOT / "tests" / "js" / "expr.test.mjs")],
+            [
+                "node",
+                "--test",
+                str(ROOT / "tests" / "js" / "expr.test.mjs"),
+                str(ROOT / "tests" / "js" / "stats.test.mjs"),
+            ],
             capture_output=True,
             text=True,
             check=False,
@@ -67,6 +72,15 @@ class TestSmoke(unittest.TestCase):
                     "window.__o3viz.setAnchor('ast')",
                     "window.__o3viz.setAnchor('level')",
                     "window.__o3viz.setAnchor('pipeline')",
+                    "window.__o3viz.setGroupMode('cluster')",
+                    "window.__o3viz.setEdges('groups')",
+                    "window.__o3viz.setGroupMode('')",
+                    "window.__o3viz.setEdges('khop', 2)",
+                    "window.__o3viz.setMorph('lut', 'clb', 0.5)",
+                    "window.__o3viz.setView('placed')",
+                    "window.__o3viz.discover()",
+                    "window.__o3viz.brushAll('lut')",
+                    "window.__o3viz.setView('stack')",
                 ],
             )
             self.assertEqual(errors, [])

@@ -539,6 +539,21 @@ def tool_versions(record: Path | None) -> dict[str, str]:
     return out
 
 
+def compact_links(
+    order: list[str], planes: dict[str, Plane], links: list[tuple[str, str, str, str]]
+) -> dict[str, Any]:
+    """Links as integer rows [from, to, kind, confidence].
+
+    Object numbers count through the plane files in manifest order; kinds and confidences index the
+    two tables.
+    """
+    num = {oid: n for n, oid in enumerate(i for p in order for i in planes[p].ids)}
+    kinds = sorted({lk[2] for lk in links})
+    confs = sorted({lk[3] for lk in links})
+    rows = [[num[a], num[b], kinds.index(k), confs.index(c)] for a, b, k, c in links]
+    return {"kinds": kinds, "confidences": confs, "rows": rows}
+
+
 def write_json(path: Path, obj: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(dumps(obj), encoding="utf-8", newline="\n")
@@ -556,7 +571,7 @@ def export_bundle(flow: Path, out: Path, benchmark: str, src_dirs: list[Path]) -
     sources = find_sources(meta["index"], planes, [*src_dirs, flow.parent])
     for p in order:
         write_json(out / "planes" / f"{p}.json", plane_json(planes[p]))
-    write_json(out / "links.json", [list(lk) for lk in links])
+    write_json(out / "links.json", compact_links(order, planes, links))
     write_json(out / "edges" / "lut.json", [list(e) for e in edges])
     for name, aset in anchor_sets.items():
         write_json(out / "anchors" / f"{name}.json", aset)
