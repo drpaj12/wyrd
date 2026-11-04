@@ -76,6 +76,25 @@ object kind. Two joins build new metrics, which then appear in every dropdown:
 - Across planes: `min`, `max`, `mean`, `sum` or `count` of a metric over the objects linked below (for an HDL
   construct, its LUTs) or above (for a LUT, its constructs). Direct links only, one hop.
 
+## Exploring a bigger design (M3)
+
+- Discovery panel (right): pick a plane and Spearman correlation or mutual information (8 equal-width bins, bits);
+  it shows the matrix of the metrics with 10 or more values. Click a cell: colour = row metric, size = column
+  metric. Pairs with a missing value on either side are left out.
+- 2D view: "View" shows one plane from above (rotation off). Morph: choose two adjacent planes and drag the slider;
+  the lower plane rises to the upper one and its objects slide to the centroid of the upper objects they link to.
+- Brush: hold Shift and drag a rectangle; the objects of the chosen plane inside it are selected and their linked
+  objects on the other planes are highlighted (counts in the right panel).
+- Edges: "k-hop of selection" draws the netlist edges within k hops of the selected LUT-plane objects (loaded on
+  demand); "between groups" draws one line per pair of groups, brighter for more edges.
+- Grouping: by HDL module or by VPR cluster, one blob per group on the lut and placed planes (colour = mean of the
+  colour metric); click a blob to expand it; selecting an object expands its group.
+
+Large benchmark used: VTR `sha` (1289 LUTs, 142 CLBs by `odin3-flow`; planes hdl 201, lut 2893, clb 216,
+placed 2568; 344806 links). Bundle sizes: ch_intrinsics 448 kB (65 kB gzipped), sha 7.3 MB (1.4 MB gzipped), the
+links table being 4.7 MB of that. At this size JSON loads without trouble, so Arrow is not needed yet; the reader
+is the one function `loadBundle` if a design of 100x this size needs it.
+
 ## Metrics
 
 Measured by Odin III's BLIF or VPR files, never invented: `fanin`, `fanout`, `logic_level` (LUT depth from

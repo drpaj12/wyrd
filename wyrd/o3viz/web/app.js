@@ -2,6 +2,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "./vendor/OrbitControls.js";
 import { parse, evaluate, varsOf } from "./expr.js";
+import { spearman, mutualInfo } from "./stats.js";
 
 const BUNDLE = "./bundle/";
 const GREY = new THREE.Color("#5b6572");
@@ -12,7 +13,8 @@ const $ = (id) => document.getElementById(id);
 
 const S = { man: null, planes: {}, order: [], links: [], up: new Map(), down: new Map(), pos: {},
   bounds: [0, 0, 1, 1], colour: "", size: "", sel: null, core: new Set(), gap: 6, byId: new Map(), ranges: {},
-  height: "", fade: "", slot: {}, anchor: "" };
+  height: "", fade: "", slot: {}, anchor: "", brush: null, vis: {}, view: "stack",
+  morph: { a: "", b: "", m: 0 }, group: { mode: "", expanded: new Set(), keys: {}, blobs: {} }, edges: null, edgeOn: false };
 
 async function getJson(path) {
   const r = await fetch(BUNDLE + path);
@@ -24,13 +26,15 @@ export async function loadBundle() {
   S.man = await getJson("manifest.json");
   S.order = S.man.planes;
   for (const p of S.order) S.planes[p] = await getJson(`planes/${p}.json`);
-  S.links = await getJson("links.json");
+  const lj = await getJson("links.json");
+  const all = S.order.flatMap((p) => S.planes[p].ids);
+  S.links = lj.rows.map(([a, b]) => [all[a], all[b]]);
   for (const [a, b] of S.links) {
     (S.down.get(a) ?? S.down.set(a, []).get(a)).push(b);
     (S.up.get(b) ?? S.up.set(b, []).get(b)).push(a);
   }
   for (const p of S.order) S.planes[p].ids.forEach((id, i) => S.byId.set(id, { plane: p, i }));
-  await loadAnchor(S.man.anchors[0]);
+  await loadAnchor(S.man.anchors.includes("placement") ? "placement" : S.man.anchors[0]);
 }
 
 async function loadAnchor(name) {
@@ -161,6 +165,7 @@ function layout() {
 }
 
 function stateOf(id) {
+  if (S.brush) return S.brush.has(id) ? 2 : S.core.has(id) ? 1 : -1;
   if (!S.sel) return 0;
   if (id === S.sel) return 2;
   return S.core.has(id) ? 1 : -1;
@@ -174,20 +179,43 @@ function heightOf(d, i) {
   return v === null || v === undefined ? 0 : norm(S.height, v) * S.gap * 0.45;
 }
 
+function morphTarget(p, i) {
+  const { a, b, m } = S.morph;
+  if (p !== b || !m || !a || S.order.indexOf(a) >= S.order.indexOf(b)) return null;
+  const id = S.planes[p].ids[i];
+  const ups = (S.up.get(id) ?? []).filter((u) => S.byId.get(u)?.plane === a);
+  if (!ups.length) return { y: m, x: null, z: null };
+  const xs = ups.map((u) => S.pos[a][u]);
+  return { y: m, x: xs.reduce((t, q) => t + q[0], 0) / xs.length, z: xs.reduce((t, q) => t + q[1], 0) / xs.length };
+}
+
+function hiddenByGroup(p, i) {
+  const keys = S.group.keys[p];
+  return !!keys && keys[i] !== null && keys[i] !== undefined && !S.group.expanded.has(keys[i]);
+}
+
 function refreshPlane(p) {
   const d = S.planes[p], k = S.order.indexOf(p);
   const col = S.colour ? d.metrics[S.colour] : null;
   const sz = S.size ? d.metrics[S.size] : null;
   const fd = S.fade ? d.metrics[S.fade] : null;
-  const r0 = (RADIUS[p] ?? 0.15) * Math.max(1, Math.max(S.bounds[2] - S.bounds[0], S.bounds[3] - S.bounds[1]) / 12);
+  const r0 = unitR(p);
   d.ids.forEach((id, i) => {
     const [m, j] = S.slot[p][i];
     const pos = S.pos[p][id];
-    dummy.position.set(pos[0] - cx(), planeY(k) + heightOf(d, i), pos[1] - cz());
+    let x = pos[0] - cx(), z = pos[1] - cz(), y = planeY(k) + heightOf(d, i);
+    const mt = morphTarget(p, i);
+    if (mt) {
+      const ya = planeY(S.order.indexOf(S.morph.a));
+      y = y + (ya - y) * mt.y;
+      if (mt.x !== null) { x += (mt.x - cx() - x) * mt.y; z += (mt.z - cz() - z) * mt.y; }
+    }
+    dummy.position.set(x, y, z);
     let s = r0;
     if (sz) s *= sz[i] === null ? 0.5 : 0.6 + 1.8 * norm(S.size, sz[i]);
     const st = stateOf(id);
     if (st === 2) s *= 2.4; else if (st === 1) s *= 1.5; else if (st === -1) s *= 0.55;
+    if (hiddenByGroup(p, i)) s = 1e-4;
     dummy.scale.setScalar(s);
     dummy.updateMatrix();
     m.setMatrixAt(j, dummy.matrix);
@@ -202,8 +230,74 @@ function refreshPlane(p) {
     m.instanceColor.needsUpdate = true;
     m.computeBoundingSphere();
   }
+  refreshBlobs(p);
 }
-const refreshAll = () => { S.order.forEach(refreshPlane); drawLines(); legend(); };
+const unitR = (p) => (RADIUS[p] ?? 0.15) * Math.max(1, Math.max(S.bounds[2] - S.bounds[0], S.bounds[3] - S.bounds[1]) / 12);
+
+// ---- grouping: one blob per group (HDL module or VPR cluster); click a blob to expand it ----
+function groupKeys(mode) {
+  const keys = {};
+  if (!mode) return keys;
+  for (const p of ["lut", "placed"]) {
+    if (!S.planes[p]) continue;
+    keys[p] = S.planes[p].ids.map((id) => {
+      const lut = p === "lut" ? id : (S.up.get(id) ?? []).find((u) => S.byId.get(u)?.plane === "lut");
+      if (mode === "cluster") {
+        const links = p === "lut" ? S.down.get(id) ?? [] : S.up.get(id) ?? [];
+        const c = links.find((u) => S.byId.get(u)?.plane === "clb");
+        return c ? S.planes.clb.name[S.byId.get(c).i] : null;
+      }
+      const m = (lut ? S.up.get(lut) ?? [] : []).find((u) => { const o = S.byId.get(u); return o?.plane === "hdl" && S.planes.hdl.type[o.i] === "module"; });
+      return m ? S.planes.hdl.name[S.byId.get(m).i] : null;
+    });
+  }
+  return keys;
+}
+
+function setGroupMode(mode) {
+  $("grouping").value = mode;
+  for (const p of Object.keys(S.group.blobs)) { group.remove(S.group.blobs[p].mesh); S.group.blobs[p].mesh.dispose(); }
+  S.group = { mode, expanded: new Set(), keys: groupKeys(mode), blobs: {} };
+  for (const p of Object.keys(S.group.keys)) {
+    const gs = new Map();
+    S.group.keys[p].forEach((key, i) => { if (key !== null) (gs.get(key) ?? gs.set(key, []).get(key)).push(i); });
+    const list = [...gs.entries()].sort((x, y) => (x[0] < y[0] ? -1 : 1)).map(([key, members]) => ({ key, members }));
+    const mesh = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 14, 10), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.85 }), Math.max(1, list.length));
+    mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(Math.max(1, list.length) * 3), 3);
+    mesh.userData = { blob: p, list };
+    mesh.count = list.length;
+    group.add(mesh);
+    S.group.blobs[p] = { mesh, list };
+  }
+  refreshAll();
+}
+
+function refreshBlobs(p) {
+  const bl = S.group.blobs[p];
+  if (!bl) return;
+  const d = S.planes[p], k = S.order.indexOf(p);
+  const col = S.colour ? d.metrics[S.colour] : null;
+  bl.list.forEach((g, n) => {
+    const open = S.group.expanded.has(g.key);
+    let x = 0, z = 0, sum = 0, cnt = 0;
+    for (const i of g.members) {
+      const q = S.pos[p][d.ids[i]];
+      x += q[0]; z += q[1];
+      if (col && col[i] !== null) { sum += col[i]; cnt++; }
+    }
+    dummy.position.set(x / g.members.length - cx(), planeY(k), z / g.members.length - cz());
+    dummy.scale.setScalar(open ? 1e-4 : Math.min(unitR(p) * (0.8 + 0.3 * Math.cbrt(g.members.length)), Math.max(S.bounds[2] - S.bounds[0], S.bounds[3] - S.bounds[1]) / 9));
+    dummy.updateMatrix();
+    bl.mesh.setMatrixAt(n, dummy.matrix);
+    bl.mesh.setColorAt(n, col && cnt ? colourOf(S.colour, sum / cnt) : new THREE.Color("#8fc1ff"));
+  });
+  bl.mesh.instanceMatrix.needsUpdate = true;
+  bl.mesh.instanceColor.needsUpdate = true;
+  bl.mesh.visible = S.vis[p] !== false && (S.view === "stack" || S.view === p);
+  bl.mesh.computeBoundingSphere();
+}
+
+const refreshAll = () => { S.order.forEach(refreshPlane); drawLines(); drawEdges(); legend(); };
 
 function worldPos(plane, id) {
   const k = S.order.indexOf(plane), i = S.byId.get(id).i, p = S.pos[plane][id];
@@ -272,11 +366,16 @@ function closure(start, dir) {
 export function select(id) {
   if (!S.byId.has(id)) return;
   S.sel = id;
+  S.brush = null;
+  for (const p of Object.keys(S.group.keys)) {
+    const k = S.group.keys[p][S.byId.get(id).plane === p ? S.byId.get(id).i : -1];
+    if (k) S.group.expanded.add(k);
+  }
   S.core = new Set([...closure(id, "up"), ...closure(id, "down")]);
   refreshAll();
   showSelection();
 }
-function clearSel() { S.sel = null; S.core = new Set(); refreshAll(); $("sel").textContent = "Click a node."; $("sel").className = "sub"; }
+function clearSel() { S.sel = null; S.brush = null; S.core = new Set(); refreshAll(); $("sel").textContent = "Click a node."; $("sel").className = "sub"; }
 
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 const fmt = (v) => (Number.isInteger(v) ? String(v) : v.toFixed(3));
@@ -339,15 +438,159 @@ function pick(ev) {
   const r = $("view").getBoundingClientRect();
   raycaster.setFromCamera(new THREE.Vector2(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1), camera);
   let best = null;
+  const take = (hit, what) => { if (hit && (!best || hit.distance < best.distance)) best = { distance: hit.distance, ...what }; };
   for (const p of S.order) {
     for (const m of meshes[p]) {
       if (!m.visible) continue;
       const hit = raycaster.intersectObject(m)[0];
-      if (hit && (!best || hit.distance < best.distance)) best = { distance: hit.distance, id: S.planes[p].ids[m.userData.idx[hit.instanceId]] };
+      take(hit, hit && { id: S.planes[p].ids[m.userData.idx[hit.instanceId]] });
+    }
+    const bl = S.group.blobs[p];
+    if (bl?.mesh.visible) {
+      const hit = raycaster.intersectObject(bl.mesh)[0];
+      take(hit, hit && { blob: bl.list[hit.instanceId], plane: p });
     }
   }
-  return best?.id ?? null;
+  return best;
 }
+
+// ---- edges: k-hop neighbourhood of the selection, or aggregated edges between groups ----
+let edgeLines = null;
+async function ensureEdges() {
+  if (S.edges) return;
+  S.edges = await getJson("edges/lut.json");
+  S.adj = new Map();
+  for (const [a, b] of S.edges) {
+    (S.adj.get(a) ?? S.adj.set(a, []).get(a)).push(b);
+    (S.adj.get(b) ?? S.adj.set(b, []).get(b)).push(a);
+  }
+}
+
+function drawEdges() {
+  if (edgeLines) { group.remove(edgeLines); edgeLines.geometry.dispose(); edgeLines = null; }
+  if (!S.edges || !S.edgeMode || !S.planes.lut) return;
+  const pts = [], cols = [];
+  if (S.edgeMode === "groups") {
+    const bl = S.group.blobs.lut;
+    if (!bl) return;
+    const of = new Map();
+    bl.list.forEach((g, n) => g.members.forEach((i) => of.set(S.planes.lut.ids[i], n)));
+    const cen = bl.list.map((g) => {
+      let x = 0, z = 0;
+      for (const i of g.members) { const q = S.pos.lut[S.planes.lut.ids[i]]; x += q[0]; z += q[1]; }
+      return new THREE.Vector3(x / g.members.length - cx(), planeY(S.order.indexOf("lut")), z / g.members.length - cz());
+    });
+    const cnt = new Map();
+    for (const [a, b] of S.edges) {
+      const ga = of.get(a), gb = of.get(b);
+      if (ga === undefined || gb === undefined || ga === gb) continue;
+      const key = ga < gb ? `${ga}|${gb}` : `${gb}|${ga}`;
+      cnt.set(key, (cnt.get(key) ?? 0) + 1);
+    }
+    const mx = Math.max(1, ...cnt.values());
+    for (const [key, c] of cnt) {
+      const [ga, gb] = key.split("|").map(Number);
+      pts.push(cen[ga], cen[gb]);
+      const t = 0.25 + 0.75 * (c / mx);
+      cols.push(t, t * 0.8, 0.2, t, t * 0.8, 0.2);
+    }
+  } else {
+    const start = new Set();
+    const ids = S.brush ? [...S.brush, ...S.core] : S.sel ? [S.sel, ...S.core] : [];
+    for (const id of ids) if (S.byId.get(id)?.plane === "lut" && start.size < 300) start.add(id);
+    let seen = new Set(start), frontier = [...start];
+    for (let h = 0; h < S.hops; h++) {
+      const next = [];
+      for (const id of frontier) for (const t of S.adj.get(id) ?? []) if (!seen.has(t)) { seen.add(t); next.push(t); }
+      frontier = next;
+    }
+    let n = 0;
+    for (const [a, b] of S.edges) {
+      if (!seen.has(a) || !seen.has(b) || n++ > 4000) continue;
+      pts.push(worldPos("lut", a), worldPos("lut", b));
+      cols.push(0.3, 0.9, 1, 0.3, 0.9, 1);
+    }
+  }
+  if (!pts.length) return;
+  const g = new THREE.BufferGeometry().setFromPoints(pts);
+  g.setAttribute("color", new THREE.Float32BufferAttribute(cols, 3));
+  edgeLines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.7 }));
+  group.add(edgeLines);
+}
+
+// ---- views: the 3D stack, or one plane seen from above ----
+function applyVisibility() {
+  for (const p of S.order) {
+    const v = S.vis[p] !== false && (S.view === "stack" || S.view === p);
+    meshes[p].forEach((m) => { m.visible = v; });
+    quads[p].q.visible = quads[p].edge.visible = quads[p].lab.visible = v;
+    if (S.group.blobs[p]) S.group.blobs[p].mesh.visible = v;
+  }
+}
+function setView(v) {
+  S.view = v;
+  $("viewmode").value = v;
+  applyVisibility();
+  if (v === "stack") { controls.enableRotate = true; resetCamera(); return; }
+  const y = planeY(S.order.indexOf(v)), W = Math.max(S.bounds[2] - S.bounds[0], S.bounds[3] - S.bounds[1]);
+  controls.enableRotate = false;
+  controls.autoRotate = false; $("rotate").checked = false;
+  controls.target.set(0, y, 0);
+  camera.position.set(0, y + W * 1.5, 0.001);
+  controls.update();
+}
+
+// ---- brush: shift + drag a rectangle on the screen; objects of the brush plane inside it are selected ----
+function brushSelect(x0, y0, x1, y1) {
+  const p = $("brushplane").value, d = S.planes[p], r = $("view").getBoundingClientRect(), hit = new Set();
+  d.ids.forEach((id, i) => {
+    if (hiddenByGroup(p, i)) return;
+    const v = worldPos(p, id).project(camera);
+    const sx = ((v.x + 1) / 2) * r.width + r.left, sy = ((1 - v.y) / 2) * r.height + r.top;
+    if (sx >= Math.min(x0, x1) && sx <= Math.max(x0, x1) && sy >= Math.min(y0, y1) && sy <= Math.max(y0, y1)) hit.add(id);
+  });
+  if (!hit.size) return;
+  const core = new Set();
+  let n = 0;
+  for (const id of hit) { if (n++ > 600) break; for (const t of [...closure(id, "up"), ...closure(id, "down")]) core.add(t); }
+  S.sel = null; S.brush = hit; S.core = core;
+  refreshAll();
+  const per = S.order.map((q) => `${q}: ${[...core].filter((x) => S.byId.get(x).plane === q).length}`).join(", ");
+  $("sel").className = "";
+  $("sel").innerHTML = `<div><b>Brush</b>: ${hit.size} objects of ${p}</div><div class="sub">linked objects on the other planes: ${per}</div>`;
+}
+
+// ---- discovery: Spearman and mutual information between the metrics of one plane ----
+function discover() {
+  const p = $("dplane").value, d = S.planes[p], kind = $("dkind").value;
+  const names = Object.keys(d.metrics).filter((n) => {
+    const v = d.metrics[n].filter((x) => x !== null);
+    return v.length >= 10 && new Set(v).size > 1;
+  });
+  const fn = kind === "mi" ? mutualInfo : spearman;
+  let html = `<div class="sub">${names.length} metrics with 10 or more values on ${p} (${d.ids.length} objects); click a cell: colour = row, size = column</div><table><tr><td></td>${names.map((n, j) => `<td title="${esc(n)}">${j + 1}</td>`).join("")}</tr>`;
+  names.forEach((a, i) => {
+    html += `<tr><td title="${esc(a)}">${i + 1} ${esc(a.slice(0, 14))}</td>`;
+    names.forEach((b) => {
+      const v = a === b ? null : fn(d.metrics[a], d.metrics[b]);
+      const t = v === null ? 0 : kind === "mi" ? Math.min(1, v / 2) : Math.abs(v);
+      const hue = kind === "mi" ? 40 : v !== null && v < 0 ? 5 : 210;
+      const sh = v === null ? "" : kind === "mi" ? v.toFixed(2) : v.toFixed(2);
+      html += `<td data-a="${esc(a)}" data-b="${esc(b)}" style="background:hsla(${hue},70%,50%,${(0.1 + 0.8 * t).toFixed(2)});cursor:pointer;text-align:center">${sh}</td>`;
+    });
+    html += "</tr>";
+  });
+  $("dmat").innerHTML = html + "</table>";
+  $("dmat").querySelectorAll("td[data-a]").forEach((c) => c.addEventListener("click", () => {
+    if (c.dataset.a === c.dataset.b) return;
+    S.colour = c.dataset.a; S.size = c.dataset.b; $("colour").value = S.colour; $("size").value = S.size; refreshAll();
+  }));
+}
+export const discoverMatrix = (plane, kind) => {
+  const d = S.planes[plane], fn = kind === "mi" ? mutualInfo : spearman;
+  const names = Object.keys(d.metrics).filter((n) => d.metrics[n].filter((x) => x !== null).length >= 10);
+  return { names, m: names.map((a) => names.map((b) => (a === b ? null : fn(d.metrics[a], d.metrics[b])))) };
+};
 
 // ---- UI ----
 function fillSelect(sel, names, withNone) {
@@ -446,6 +689,20 @@ function buildUi() {
       $("exmsg").className = "sub"; $("exmsg").textContent = `added ${n}`;
     } catch (err) { $("exmsg").className = "err"; $("exmsg").textContent = err.message; }
   });
+  S.hops = 1; S.edgeMode = "";
+  $("dplane").innerHTML = S.order.map((p) => `<option value="${p}"${p === "lut" ? " selected" : ""}>${p}</option>`).join("");
+  $("brushplane").innerHTML = S.order.map((p) => `<option value="${p}"${p === "placed" ? " selected" : ""}>${p}</option>`).join("");
+  $("viewmode").innerHTML = ["stack", ...S.order].map((p) => `<option value="${p}">${p === "stack" ? "3D stack" : "2D: " + p}</option>`).join("");
+  $("viewmode").addEventListener("change", (e) => setView(e.target.value));
+  $("dgo").addEventListener("click", discover);
+  $("grouping").addEventListener("change", (e) => setGroupMode(e.target.value));
+  $("edgemode").addEventListener("change", async (e) => { S.edgeMode = e.target.value; if (S.edgeMode) await ensureEdges(); drawEdges(); });
+  $("hops").addEventListener("change", (e) => { S.hops = Number(e.target.value); drawEdges(); });
+  const pairs = S.order.slice(0, -1).map((p, k) => `<option value="${k}">${p} to ${S.order[k + 1]}</option>`).join("");
+  $("morphpair").innerHTML = pairs;
+  const setMorph = () => { const k = Number($("morphpair").value); S.morph = { a: S.order[k], b: S.order[k + 1], m: Number($("morph").value) }; refreshAll(); };
+  $("morph").addEventListener("input", setMorph);
+  $("morphpair").addEventListener("change", () => { $("morph").value = "0"; setMorph(); });
   $("rotate").addEventListener("change", (e) => { controls.autoRotate = e.target.checked; });
   controls.autoRotate = $("rotate").checked;
   $("gap").addEventListener("input", (e) => { S.gap = Number(e.target.value); layout(); resetCamera(); });
@@ -454,9 +711,8 @@ function buildUi() {
   $("planes").innerHTML = S.order.map((p) =>
     `<label class="row"><input type="checkbox" data-p="${p}" checked> ${p}<input type="range" data-o="${p}" min="0" max="1" step="0.05" value="0.12"></label>`).join("");
   $("planes").querySelectorAll("input[data-p]").forEach((c) => c.addEventListener("change", () => {
-    const p = c.dataset.p, v = c.checked;
-    meshes[p].forEach((m) => { m.visible = v; });
-    quads[p].q.visible = quads[p].edge.visible = quads[p].lab.visible = v;
+    S.vis[c.dataset.p] = c.checked;
+    applyVisibility();
   }));
   $("planes").querySelectorAll("input[data-o]").forEach((c) => c.addEventListener("input", () => {
     quads[c.dataset.o].q.material.opacity = Number(c.value);
@@ -466,18 +722,35 @@ function buildUi() {
   const c = S.man.counts;
   $("status").textContent = `${S.order.map((p) => `${p} ${c[p]}`).join(", ")}; ${S.man.links} links; ` +
     `${S.man.unanchored} placed by fallback; not in this bundle: ${S.man.missing_planes.join(", ")}`;
-  const cv = $("view"), tip = $("tip");
-  let down = null;
-  cv.addEventListener("pointerdown", (e) => { down = [e.clientX, e.clientY]; });
+  const cv = $("view"), tip = $("tip"), box = $("brush");
+  let down = null, brushing = false;
+  cv.addEventListener("pointerdown", (e) => {
+    down = [e.clientX, e.clientY];
+    brushing = e.shiftKey;
+    if (brushing) { controls.enabled = false; box.style.display = "block"; }
+  });
   cv.addEventListener("pointerup", (e) => {
-    if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4) return;
-    const id = pick(e);
-    if (id) select(id); else clearSel();
+    controls.enabled = true; box.style.display = "none";
+    if (!down) return;
+    if (brushing) { brushing = false; brushSelect(down[0], down[1], e.clientX, e.clientY); return; }
+    if (Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4) return;
+    const h = pick(e);
+    if (h?.blob) {
+      if (S.group.expanded.has(h.blob.key)) S.group.expanded.delete(h.blob.key); else S.group.expanded.add(h.blob.key);
+      refreshAll();
+    } else if (h?.id) select(h.id); else clearSel();
   });
   cv.addEventListener("pointermove", (e) => {
-    const id = pick(e), r = $("stage").getBoundingClientRect();
-    tip.style.display = id ? "block" : "none";
-    if (id) { tip.textContent = id; tip.style.left = e.clientX - r.left + 12 + "px"; tip.style.top = e.clientY - r.top + 12 + "px"; }
+    if (brushing && down) {
+      const r = $("stage").getBoundingClientRect();
+      Object.assign(box.style, { left: Math.min(down[0], e.clientX) - r.left + "px", top: Math.min(down[1], e.clientY) - r.top + "px",
+        width: Math.abs(e.clientX - down[0]) + "px", height: Math.abs(e.clientY - down[1]) + "px" });
+      return;
+    }
+    const h = pick(e), r = $("stage").getBoundingClientRect();
+    const text = h?.id ?? (h?.blob ? `${h.plane}: ${h.blob.key} (${h.blob.members.length} objects, click to expand)` : null);
+    tip.style.display = text ? "block" : "none";
+    if (text) { tip.textContent = text; tip.style.left = e.clientX - r.left + 12 + "px"; tip.style.top = e.clientY - r.top + 12 + "px"; }
   });
 }
 
@@ -491,7 +764,8 @@ async function main() {
   const loop = () => { controls.update(); renderer.render(scene, camera); requestAnimationFrame(loop); };
   loop();
   document.body.dataset.ready = "1";
-  window.__o3viz = { S, select, addExpr, addAgg, setHeight: (n) => { S.height = n; $("height").value = n; refreshAll(); },
+  window.__o3viz = { S, select, discover, setView, setGroupMode, discoverMatrix, brushAll: (p) => { S.brush = new Set(S.planes[p].ids.slice(0, 30)); S.core = new Set(); refreshAll(); },
+    setEdges: async (m, h) => { S.edgeMode = m; S.hops = h ?? 1; await ensureEdges(); drawEdges(); }, setMorph: (a, b, m) => { S.morph = { a, b, m }; refreshAll(); }, addExpr, addAgg, setHeight: (n) => { S.height = n; $("height").value = n; refreshAll(); },
     setAnchor: async (n) => { $("anchor").value = n; $("anchor").dispatchEvent(new Event("change")); }, setColour: (n) => { S.colour = n; $("colour").value = n; refreshAll(); },
     setSize: (n) => { S.size = n; $("size").value = n; refreshAll(); }, stop: () => { controls.autoRotate = false; } };
 }

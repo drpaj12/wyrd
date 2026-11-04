@@ -25,6 +25,7 @@
     font-size:12px; display:none; white-space:nowrap; }
   #legend { margin-top:6px; } #bar { height:12px; border-radius:3px; border:1px solid var(--line); }
   #legend .ends { display:flex; justify-content:space-between; font-size:11px; color:var(--dim); }
+  #dmat td { white-space:nowrap; padding:1px 2px; font-size:11px; }
   table { border-collapse:collapse; width:100%; font-size:12px; } td { padding:1px 4px; border-bottom:1px solid #2a313b;
     vertical-align:top; word-break:break-all; } td:first-child { color:var(--dim); white-space:nowrap; }
   pre { background:#10131780; border:1px solid var(--line); padding:6px; overflow:auto; font-size:11px;
@@ -57,7 +58,17 @@
     <select id="aggop"><option>min</option><option>max</option><option>mean</option><option>sum</option><option>count</option></select>
     <button id="addagg">add aggregated metric</button>
     <div id="exmsg" class="sub"></div>
+    <h2>Grouping</h2>
+    <select id="grouping"><option value="">none</option><option value="module">HDL module</option><option value="cluster">VPR cluster</option></select>
+    <div class="sub">Click a blob to expand it; selecting an object expands its group.</div>
+    <h2>Edges</h2>
+    <select id="edgemode"><option value="">off</option><option value="khop">k-hop of selection (lut plane)</option><option value="groups">between groups (needs grouping)</option></select>
+    <select id="hops"><option>1</option><option>2</option><option>3</option></select>
+    <h2>Morph</h2>
+    <select id="morphpair"></select><input type="range" id="morph" min="0" max="1" step="0.02" value="0">
     <h2>View</h2>
+    <select id="viewmode"></select>
+    <div class="sub">Shift + drag brushes objects of:</div><select id="brushplane"></select>
     <label class="row"><input type="checkbox" id="rotate" checked> auto-rotate</label>
     <label class="row">plane gap <input type="range" id="gap" min="2" max="40" step="0.5" value="6"></label>
     <button id="reset">reset camera</button>
@@ -65,9 +76,12 @@
     <h2>Planes</h2><div id="planes"></div>
     <div id="status"></div>
   </aside>
-  <div id="stage"><canvas id="view"></canvas><div id="tip"></div></div>
+  <div id="stage"><canvas id="view"></canvas><div id="tip"></div><div id="brush" style="position:absolute;display:none;border:1px dashed #ffb454;background:#ffb45422;pointer-events:none"></div></div>
   <aside id="right"><h2 style="margin-top:0">Selection</h2>
-    <div id="sel" class="sub">Click a node. Its column through the planes is highlighted.</div></aside>
+    <div id="sel" class="sub">Click a node. Its column through the planes is highlighted.</div>
+    <h2>Discovery</h2>
+    <select id="dplane"></select><select id="dkind"><option value="sp">Spearman correlation</option><option value="mi">mutual information (bits)</option></select>
+    <button id="dgo">compute matrix</button><div id="dmat"></div></aside>
 </div>
 <script type="module" src="./app.js"></script>
 </body>

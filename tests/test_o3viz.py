@@ -181,9 +181,16 @@ class TestExport(unittest.TestCase):
             run_export(out)
             anc = json.loads((out / "anchors" / "placement.json").read_text())["pos"]
             have = {i for plane in anc.values() for i in plane}
-            for a, b, _k, _c in json.loads((out / "links.json").read_text()):
-                self.assertIn(a, have)
-                self.assertIn(b, have)
+            order = [
+                i
+                for p in ("hdl", "lut", "clb", "placed")
+                for i in json.loads((out / "planes" / f"{p}.json").read_text())["ids"]
+            ]
+            rows = json.loads((out / "links.json").read_text())["rows"]
+            self.assertTrue(rows)
+            for a, b, _k, _c in rows:
+                self.assertIn(order[a], have)
+                self.assertIn(order[b], have)
 
     def test_deterministic(self) -> None:
         with tempfile.TemporaryDirectory() as d:
