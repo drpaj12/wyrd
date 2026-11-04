@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from wyrd.o3viz import anchors, blif, vprfiles
+from wyrd.o3viz import anchors, anchorset, blif, vprfiles
 
 BUNDLE_VERSION = 1
 CONF_RANK = {"exact": 4, "high": 3, "medium": 2, "low": 1, "ambiguous": 0}
@@ -71,6 +71,14 @@ METRICS: list[dict[str, Any]] = [
         "planes": ["lut", "placed"],
         "scale": "seq",
         "measurer": "wyrd.o3viz.export, .names depth from inputs and register/block outputs",
+        "source": "odin3 BLIF",
+    },
+    {
+        "name": "stage",
+        "unit": "register stages",
+        "planes": ["lut", "placed"],
+        "scale": "seq",
+        "measurer": "wyrd.o3viz.export, registers and block outputs add one to the deepest input",
         "source": "odin3 BLIF",
     },
     {
@@ -311,6 +319,10 @@ def build_lut(
     plane.set_metric("fanin", fanin)
     plane.set_metric("fanout", fo)
     plane.set_metric("logic_level", lvl)
+    stg = blif.stages_of(nl)
+    plane.set_metric(
+        "stage", {i: float(stg[lut_local(i)]) for i in plane.ids if lut_local(i) in stg}
+    )
     plane.set_metric("hdl_links", hl)
     plane.set_metric("weakest_confidence", wc)
     if timing:
@@ -388,9 +400,9 @@ def build_clb_and_placed(
     py: dict[str, float] = {}
     members: dict[tuple[int, int], list[str]] = {}
     pm: dict[str, dict[str, float]] = {
-        k: {} for k in ("fanin", "fanout", "logic_level", "slack_worst", "paths_through")
+        k: {} for k in ("fanin", "fanout", "logic_level", "stage", "slack_worst", "paths_through")
     }
-    fo, lv = nl.fanout(), nl.levels()
+    fo, lv, stg = nl.fanout(), nl.levels(), blif.stages_of(nl)
     for o in placed_objs:
         pid, name = o["id"], o["name"]
         drv = nl.drivers.get(name)
@@ -398,6 +410,7 @@ def build_clb_and_placed(
         if name in nl.drivers:
             pm["fanin"][pid] = float(len(set(nl.inputs[name])))
             pm["logic_level"][pid] = float(lv.get(name, 0))
+            pm["stage"][pid] = float(stg.get(name, 0))
         if name in fo:
             pm["fanout"][pid] = float(fo[name])
         if timing and name in timing.worst_slack:
@@ -536,26 +549,17 @@ def export_bundle(flow: Path, out: Path, benchmark: str, src_dirs: list[Path]) -
     ff = find_files(flow)
     meta, planes, links, edges, parent, bottom, fallback = build_planes(ff)
     order = [p for p in PLANE_ORDER if planes[p].ids]
-    ids = {p: planes[p].ids for p in order}
     grid = meta["grid"]
-    centre = ((grid[0] + 1) / 2, (grid[1] + 1) / 2)
-    ulinks = [(a, b) for a, b, _, _ in links]
-    pos, unanchored = anchors.placement_anchor(
-        order, ids, ulinks, bottom, centre, parent, [(a, b) for a, b, _ in edges], fallback
+    anchor_sets = anchorset.compute_all(
+        order, planes, links, edges, parent, bottom, fallback, tuple(grid)
     )
     sources = find_sources(meta["index"], planes, [*src_dirs, flow.parent])
     for p in order:
         write_json(out / "planes" / f"{p}.json", plane_json(planes[p]))
     write_json(out / "links.json", [list(lk) for lk in links])
     write_json(out / "edges" / "lut.json", [list(e) for e in edges])
-    write_json(
-        out / "anchors" / "placement.json",
-        {
-            "bounds": [0, 0, grid[0] + 1, grid[1] + 1],
-            "unanchored": unanchored,
-            "pos": {p: {i: list(xy) for i, xy in pos[p].items()} for p in order},
-        },
-    )
+    for name, aset in anchor_sets.items():
+        write_json(out / "anchors" / f"{name}.json", aset)
     hashes: dict[str, str] = {}
     for name, path in sources.items():
         dest = out / "hdl" / name
@@ -584,8 +588,8 @@ def export_bundle(flow: Path, out: Path, benchmark: str, src_dirs: list[Path]) -
         "counts": {p: len(planes[p].ids) for p in order},
         "links": len(links),
         "dropped_links": meta["dropped_links"],
-        "unanchored": len(unanchored),
-        "anchors": ["placement"],
+        "unanchored": len(anchor_sets["placement"]["unanchored"]),
+        "anchors": sorted(anchor_sets),
         "metrics": metrics,
         "missing_planes": [s for s in ("ir", "gates", "ble", "routed")],
         "grid": list(grid),

@@ -1,7 +1,7 @@
 """Load the o3viz viewer on one bundle in headless Chromium and write a screenshot.
 
 Needs `playwright` (pip install playwright; playwright install chromium); not a Wyrd dependency.
-Usage: python tools/o3viz_shot.py BUNDLE_DIR OUT.png [--colour METRIC] [--select ID]
+Usage: python tools/o3viz_shot.py BUNDLE_DIR OUT.png [--colour METRIC] [--select ID] [--eval JS]
 Exit code 1 if the page logged a console error or did not become ready.
 """
 
@@ -15,7 +15,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
-def shoot(bundle: Path, out: Path, colour: str, select: str, size: str = "") -> list[str]:
+def shoot(
+    bundle: Path,
+    out: Path,
+    colour: str,
+    select: str,
+    size: str = "",
+    evals: list[str] | None = None,
+) -> list[str]:
     from playwright.sync_api import sync_playwright
 
     from wyrd.o3viz import serve
@@ -31,6 +38,9 @@ def shoot(bundle: Path, out: Path, colour: str, select: str, size: str = "") -> 
         page.goto(f"http://127.0.0.1:{srv.server_address[1]}/")
         page.wait_for_selector("body[data-ready='1']", timeout=30000)
         page.evaluate("window.__o3viz.stop()")
+        for js in evals or []:
+            page.evaluate(js)
+            page.wait_for_timeout(300)
         if colour:
             page.evaluate("n => window.__o3viz.setColour(n)", colour)
         if size:
@@ -51,8 +61,9 @@ def main() -> int:
     ap.add_argument("--colour", default="")
     ap.add_argument("--size", default="")
     ap.add_argument("--select", default="")
+    ap.add_argument("--eval", action="append", default=[], help="JavaScript run in the page first")
     a = ap.parse_args()
-    errs = shoot(Path(a.bundle), Path(a.out), a.colour, a.select, a.size)
+    errs = shoot(Path(a.bundle), Path(a.out), a.colour, a.select, a.size, a.eval)
     for e in errs:
         print("console error:", e, file=sys.stderr)
     return 1 if errs else 0

@@ -1,6 +1,7 @@
 // o3viz viewer: one benchmark as a stack of planes (three.js, vendored, no network).
 import * as THREE from "three";
 import { OrbitControls } from "./vendor/OrbitControls.js";
+import { parse, evaluate, varsOf } from "./expr.js";
 
 const BUNDLE = "./bundle/";
 const GREY = new THREE.Color("#5b6572");
@@ -10,7 +11,8 @@ const DIV = ["#d7301f", "#f7f7f7", "#2166ac"].map((c) => new THREE.Color(c));
 const $ = (id) => document.getElementById(id);
 
 const S = { man: null, planes: {}, order: [], links: [], up: new Map(), down: new Map(), pos: {},
-  bounds: [0, 0, 1, 1], colour: "", size: "", sel: null, core: new Set(), gap: 6, byId: new Map(), ranges: {} };
+  bounds: [0, 0, 1, 1], colour: "", size: "", sel: null, core: new Set(), gap: 6, byId: new Map(), ranges: {},
+  height: "", fade: "", slot: {}, anchor: "" };
 
 async function getJson(path) {
   const r = await fetch(BUNDLE + path);
@@ -35,6 +37,12 @@ async function loadAnchor(name) {
   const a = await getJson(`anchors/${name}.json`);
   S.pos = a.pos;
   S.bounds = a.bounds;
+  S.anchor = name;
+  const span = Math.max(S.bounds[2] - S.bounds[0], S.bounds[3] - S.bounds[1]);
+  S.gap = Math.min(24, Math.max(6, span * 0.5));
+  const gs = document.getElementById("gap");
+  if (gs) gs.value = String(S.gap);
+  S.unanchored = new Set(a.unanchored);
 }
 
 // ---- scales ----
@@ -73,16 +81,15 @@ const dummy = new THREE.Object3D();
 const cx = () => (S.bounds[0] + S.bounds[2]) / 2;
 const cz = () => (S.bounds[1] + S.bounds[3]) / 2;
 const planeY = (k) => (S.order.length - 1 - k) * S.gap;
-const worldPos = (plane, id) => {
-  const k = S.order.indexOf(plane), p = S.pos[plane][id];
-  return new THREE.Vector3(p[0] - cx(), planeY(k), p[1] - cz());
-};
 
-function geometryFor(plane) {
-  if (plane === "hdl") return new THREE.OctahedronGeometry(0.26);
-  if (plane === "clb") return new THREE.BoxGeometry(0.34, 0.34, 0.34);
-  return new THREE.SphereGeometry(plane === "placed" ? 0.13 : 0.18, 10, 8);
-}
+// One shape per object kind inside a plane (shape channel): the kinds of a plane are sorted and take the
+// shapes in this order.
+const SHAPES = [
+  () => new THREE.SphereGeometry(1, 10, 8), () => new THREE.BoxGeometry(1.5, 1.5, 1.5),
+  () => new THREE.OctahedronGeometry(1.2), () => new THREE.ConeGeometry(1, 2, 8),
+  () => new THREE.TetrahedronGeometry(1.3), () => new THREE.DodecahedronGeometry(1.1),
+];
+const RADIUS = { hdl: 0.22, lut: 0.17, clb: 0.2, placed: 0.11 };
 
 function label(text) {
   const c = document.createElement("canvas");
@@ -109,11 +116,16 @@ function buildScene() {
   const W = S.bounds[2] - S.bounds[0], H = S.bounds[3] - S.bounds[1];
   S.order.forEach((p) => {
     const d = S.planes[p];
-    const m = new THREE.InstancedMesh(geometryFor(p), new THREE.MeshBasicMaterial(), d.ids.length);
-    m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(d.ids.length * 3), 3);
-    m.userData.plane = p;
-    meshes[p] = m;
-    group.add(m);
+    const kinds = [...new Set(d.kind)].sort();
+    meshes[p] = kinds.map((kind, ki) => {
+      const idx = d.ids.map((_, i) => i).filter((i) => d.kind[i] === kind);
+      const m = new THREE.InstancedMesh(SHAPES[ki % SHAPES.length](), new THREE.MeshBasicMaterial(), idx.length);
+      m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(idx.length * 3), 3);
+      m.userData = { plane: p, kind, idx };
+      idx.forEach((i, j) => { (S.slot[p] ??= [])[i] = [m, j]; });
+      group.add(m);
+      return m;
+    });
     const q = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshBasicMaterial({
       color: 0x4a5a70, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false }));
     q.rotation.x = -Math.PI / 2;
@@ -125,6 +137,16 @@ function buildScene() {
   });
   layout();
   resetCamera();
+}
+
+function resizeQuads() {
+  const W = S.bounds[2] - S.bounds[0], H = S.bounds[3] - S.bounds[1];
+  S.order.forEach((p) => {
+    const { q, edge } = quads[p];
+    q.geometry.dispose(); edge.geometry.dispose();
+    q.geometry = new THREE.PlaneGeometry(W, H);
+    edge.geometry = new THREE.EdgesGeometry(q.geometry);
+  });
 }
 
 function layout() {
@@ -144,31 +166,49 @@ function stateOf(id) {
   return S.core.has(id) ? 1 : -1;
 }
 
+const norm = (name, v) => { const [lo, hi] = metricRange(name); return (v - lo) / (hi - lo); };
+
+function heightOf(d, i) {
+  if (!S.height) return 0;
+  const v = d.metrics[S.height]?.[i];
+  return v === null || v === undefined ? 0 : norm(S.height, v) * S.gap * 0.45;
+}
+
 function refreshPlane(p) {
-  const d = S.planes[p], m = meshes[p], k = S.order.indexOf(p);
+  const d = S.planes[p], k = S.order.indexOf(p);
   const col = S.colour ? d.metrics[S.colour] : null;
   const sz = S.size ? d.metrics[S.size] : null;
-  const [slo, shi] = S.size ? metricRange(S.size) : [0, 1];
+  const fd = S.fade ? d.metrics[S.fade] : null;
+  const r0 = (RADIUS[p] ?? 0.15) * Math.max(1, Math.max(S.bounds[2] - S.bounds[0], S.bounds[3] - S.bounds[1]) / 12);
   d.ids.forEach((id, i) => {
+    const [m, j] = S.slot[p][i];
     const pos = S.pos[p][id];
-    dummy.position.set(pos[0] - cx(), planeY(k), pos[1] - cz());
-    let s = 1;
-    if (sz) s = sz[i] === null ? 0.5 : 0.6 + 1.8 * ((sz[i] - slo) / (shi - slo));
+    dummy.position.set(pos[0] - cx(), planeY(k) + heightOf(d, i), pos[1] - cz());
+    let s = r0;
+    if (sz) s *= sz[i] === null ? 0.5 : 0.6 + 1.8 * norm(S.size, sz[i]);
     const st = stateOf(id);
     if (st === 2) s *= 2.4; else if (st === 1) s *= 1.5; else if (st === -1) s *= 0.55;
     dummy.scale.setScalar(s);
     dummy.updateMatrix();
-    m.setMatrixAt(i, dummy.matrix);
+    m.setMatrixAt(j, dummy.matrix);
     let c = col ? colourOf(S.colour, col[i]) : new THREE.Color("#8fc1ff");
+    if (fd) c.lerp(BG, 0.85 * (1 - (fd[i] === null ? 0 : norm(S.fade, fd[i]))));
     if (st === 2) c = new THREE.Color("#ffb454");
     else if (st === -1) c.lerp(BG, 0.82);
-    m.setColorAt(i, c);
+    m.setColorAt(j, c);
   });
-  m.instanceMatrix.needsUpdate = true;
-  m.instanceColor.needsUpdate = true;
-  m.computeBoundingSphere();
+  for (const m of meshes[p]) {
+    m.instanceMatrix.needsUpdate = true;
+    m.instanceColor.needsUpdate = true;
+    m.computeBoundingSphere();
+  }
 }
 const refreshAll = () => { S.order.forEach(refreshPlane); drawLines(); legend(); };
+
+function worldPos(plane, id) {
+  const k = S.order.indexOf(plane), i = S.byId.get(id).i, p = S.pos[plane][id];
+  return new THREE.Vector3(p[0] - cx(), planeY(k) + heightOf(S.planes[plane], i), p[1] - cz());
+}
 
 function drawLines() {
   if (lines) { group.remove(lines); lines.geometry.dispose(); lines = null; }
@@ -300,9 +340,11 @@ function pick(ev) {
   raycaster.setFromCamera(new THREE.Vector2(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1), camera);
   let best = null;
   for (const p of S.order) {
-    if (!meshes[p].visible) continue;
-    const hit = raycaster.intersectObject(meshes[p])[0];
-    if (hit && (!best || hit.distance < best.distance)) best = { distance: hit.distance, id: S.planes[p].ids[hit.instanceId] };
+    for (const m of meshes[p]) {
+      if (!m.visible) continue;
+      const hit = raycaster.intersectObject(m)[0];
+      if (hit && (!best || hit.distance < best.distance)) best = { distance: hit.distance, id: S.planes[p].ids[m.userData.idx[hit.instanceId]] };
+    }
   }
   return best?.id ?? null;
 }
@@ -326,14 +368,84 @@ function legend() {
   $("unit").textContent = `${meta(name).unit}; grey = not measured. ${meta(name).measurer}`;
 }
 
-function buildUi() {
+// ---- derived metrics: expressions and cross-plane aggregation ----
+function fillMetricSelects() {
   const names = S.man.metrics.map((m) => m.name);
-  fillSelect($("colour"), names, true);
-  fillSelect($("size"), names, true);
+  for (const [id, none] of [["colour", true], ["size", true], ["height", true], ["fade", true], ["aggmetric", false]]) {
+    const el = $(id), cur = el.value;
+    fillSelect(el, names, none);
+    if (names.includes(cur)) el.value = cur;
+  }
+}
+
+function addMetric(name, scale, measurer, cols) {
+  S.man.metrics = S.man.metrics.filter((m) => m.name !== name);
+  S.man.metrics.push({ name, unit: "derived", planes: Object.keys(cols), scale, measurer, source: "o3viz editor" });
+  for (const p of S.order) S.planes[p].metrics[name] = cols[p] ?? S.planes[p].ids.map(() => null);
+  delete S.ranges[name];
+  fillMetricSelects();
+}
+
+export function addExpr(name, text, scale = "seq") {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new Error("name: letters, digits, underscore");
+  const ast = parse(text), vars = [...varsOf(ast)];
+  for (const v of vars) if (!meta(v)) throw new Error(`unknown metric "${v}"`);
+  if (vars.includes(name)) throw new Error("a metric cannot use its own name");
+  const cols = {};
+  for (const p of S.order) {
+    const d = S.planes[p];
+    if (vars.every((v) => d.metrics[v])) cols[p] = d.ids.map((_, i) => evaluate(ast, (n) => d.metrics[n][i]));
+  }
+  if (!Object.keys(cols).length) throw new Error("no plane has all of these metrics");
+  addMetric(name, scale, `expression: ${text}`, cols);
+}
+
+const AGG = {
+  sum: (v) => v.reduce((a, b) => a + b, 0), mean: (v) => v.reduce((a, b) => a + b, 0) / v.length,
+  min: (v) => Math.min(...v), max: (v) => Math.max(...v), count: (v) => v.length,
+};
+
+export function addAgg(metric, dir, op) {
+  if (!meta(metric) || !AGG[op] || !["below", "above"].includes(dir)) throw new Error("bad aggregation");
+  const name = `${op}_${dir}_${metric}`, adj = dir === "below" ? S.down : S.up, cols = {};
+  for (const p of S.order) {
+    cols[p] = S.planes[p].ids.map((id) => {
+      const vals = [];
+      for (const t of adj.get(id) ?? []) {
+        const b = S.byId.get(t), v = S.planes[b.plane].metrics[metric]?.[b.i];
+        if (v !== null && v !== undefined) vals.push(v);
+      }
+      return vals.length ? AGG[op](vals) : null;
+    });
+  }
+  addMetric(name, meta(metric).scale, `${op} of ${metric} over the objects linked ${dir}`, cols);
+  return name;
+}
+
+function buildUi() {
+  fillMetricSelects();
   $("colour").addEventListener("change", (e) => { S.colour = e.target.value; refreshAll(); });
   $("size").addEventListener("change", (e) => { S.size = e.target.value; refreshAll(); });
-  $("anchor").innerHTML = S.man.anchors.map((a) => `<option>${a}</option>`).join("");
-  $("anchor").addEventListener("change", async (e) => { await loadAnchor(e.target.value); refreshAll(); });
+  $("height").addEventListener("change", (e) => { S.height = e.target.value; refreshAll(); });
+  $("fade").addEventListener("change", (e) => { S.fade = e.target.value; refreshAll(); });
+  $("anchor").innerHTML = S.man.anchors.map((a) => `<option${a === S.anchor ? " selected" : ""}>${a}</option>`).join("");
+  $("anchor").addEventListener("change", async (e) => {
+    await loadAnchor(e.target.value); resizeQuads(); layout(); resetCamera(); refreshAll();
+  });
+  $("addexpr").addEventListener("click", () => {
+    try {
+      addExpr($("exname").value.trim(), $("extext").value, $("exscale").value);
+      S.colour = $("exname").value.trim(); $("colour").value = S.colour; refreshAll();
+      $("exmsg").className = "sub"; $("exmsg").textContent = `added ${S.colour}`;
+    } catch (err) { $("exmsg").className = "err"; $("exmsg").textContent = err.message; }
+  });
+  $("addagg").addEventListener("click", () => {
+    try {
+      const n = addAgg($("aggmetric").value, $("aggdir").value, $("aggop").value);
+      S.colour = n; $("colour").value = n; refreshAll();
+      $("exmsg").className = "sub"; $("exmsg").textContent = `added ${n}`;
+    } catch (err) { $("exmsg").className = "err"; $("exmsg").textContent = err.message; }
+  });
   $("rotate").addEventListener("change", (e) => { controls.autoRotate = e.target.checked; });
   controls.autoRotate = $("rotate").checked;
   $("gap").addEventListener("input", (e) => { S.gap = Number(e.target.value); layout(); resetCamera(); });
@@ -343,7 +455,8 @@ function buildUi() {
     `<label class="row"><input type="checkbox" data-p="${p}" checked> ${p}<input type="range" data-o="${p}" min="0" max="1" step="0.05" value="0.12"></label>`).join("");
   $("planes").querySelectorAll("input[data-p]").forEach((c) => c.addEventListener("change", () => {
     const p = c.dataset.p, v = c.checked;
-    meshes[p].visible = quads[p].q.visible = quads[p].edge.visible = quads[p].lab.visible = v;
+    meshes[p].forEach((m) => { m.visible = v; });
+    quads[p].q.visible = quads[p].edge.visible = quads[p].lab.visible = v;
   }));
   $("planes").querySelectorAll("input[data-o]").forEach((c) => c.addEventListener("input", () => {
     quads[c.dataset.o].q.material.opacity = Number(c.value);
@@ -378,7 +491,8 @@ async function main() {
   const loop = () => { controls.update(); renderer.render(scene, camera); requestAnimationFrame(loop); };
   loop();
   document.body.dataset.ready = "1";
-  window.__o3viz = { S, select, setColour: (n) => { S.colour = n; $("colour").value = n; refreshAll(); },
+  window.__o3viz = { S, select, addExpr, addAgg, setHeight: (n) => { S.height = n; $("height").value = n; refreshAll(); },
+    setAnchor: async (n) => { $("anchor").value = n; $("anchor").dispatchEvent(new Event("change")); }, setColour: (n) => { S.colour = n; $("colour").value = n; refreshAll(); },
     setSize: (n) => { S.size = n; $("size").value = n; refreshAll(); }, stop: () => { controls.autoRotate = false; } };
 }
 window.addEventListener("error", (e) => { $("status").className = "err"; $("status").textContent = String(e.message); });

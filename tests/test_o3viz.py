@@ -11,6 +11,7 @@ import urllib.error
 import urllib.request
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from typing import Any
 
 from wyrd import cli
 from wyrd.o3viz import anchors, blif, export, serve, vprfiles
@@ -19,7 +20,7 @@ DATA = Path(__file__).resolve().parent / "data" / "o3viz"
 FLOW = DATA / "flow"
 
 
-def run_export(out: Path) -> dict[str, object]:
+def run_export(out: Path) -> dict[str, Any]:
     return export.export_bundle(FLOW, out, "test:t", [DATA / "src"])
 
 
@@ -75,7 +76,62 @@ class TestAnchors(unittest.TestCase):
         self.assertEqual(un, ["w"])
 
 
+class TestAnchorsM2(unittest.TestCase):
+    def test_tidy_tree(self) -> None:
+        ids = ["r", "a", "b", "c"]
+        pos = anchors.tidy_tree(ids, {"a": "r", "b": "r", "c": "a"})
+        self.assertEqual(pos["r"][1], 0.0)
+        self.assertLess(pos["c"][1], pos["a"][1])
+        self.assertEqual(pos["r"][0], (pos["c"][0] + pos["b"][0]) / 2)
+
+    def test_column_layout_orders_by_key(self) -> None:
+        pos = anchors.column_layout({"a": 0, "b": 0, "c": 1}, {"a": 2.0, "b": -1.0})
+        self.assertLess(pos["b"][0] + pos["b"][1], pos["a"][0] + pos["a"][1])
+        self.assertGreater(pos["c"][0], pos["a"][0])
+
+    def test_strip_moves_only_unanchored(self) -> None:
+        pos = {"p": {"a": (1.0, 1.0), "b": (3.0, 3.0), "z": (2.0, 2.0)}}
+        out = anchors.strip_unanchored(pos, ["z"])
+        self.assertEqual(out["p"]["a"], (1.0, 1.0))
+        self.assertLess(out["p"]["z"][1], 1.0)
+
+    def test_top_down_takes_deepest_ancestor(self) -> None:
+        pos, un = anchors.top_down_anchor(
+            ["h", "l"],
+            {"h": ["root", "leaf"], "l": ["x", "y"]},
+            [("root", "x"), ("leaf", "x"), ("root", "y")],
+            {"root": (0.0, 0.0), "leaf": (4.0, -2.0)},
+            "h",
+            {"root": 0, "leaf": 2},
+            (9.0, 9.0),
+        )
+        self.assertEqual(un, [])
+        self.assertTrue(abs(pos["l"]["x"][0] - 4.0) <= 0.45)
+        self.assertTrue(abs(pos["l"]["y"][0]) <= 0.45)
+
+
 class TestExport(unittest.TestCase):
+    def test_four_anchors_cover_every_object(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "b.o3viz"
+            man = run_export(out)
+            self.assertEqual(man["anchors"], ["ast", "level", "pipeline", "placement"])
+            for a in list(man["anchors"]):
+                anc = json.loads((out / "anchors" / f"{a}.json").read_text())
+                self.assertEqual(len(anc["bounds"]), 4)
+                for p in list(man["planes"]):
+                    ids = json.loads((out / "planes" / f"{p}.json").read_text())["ids"]
+                    self.assertEqual(sorted(anc["pos"][p]), sorted(ids), f"{a}/{p}")
+
+    def test_stage_metric(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "b.o3viz"
+            run_export(out)
+            lut = json.loads((out / "planes" / "lut.json").read_text())
+            self.assertEqual(lut["metrics"]["stage"][lut["ids"].index("luts:t/hq")], 1.0)
+            self.assertEqual(lut["metrics"]["stage"][lut["ids"].index("luts:t/hl2")], 1.0)
+            self.assertEqual(lut["metrics"]["stage"][lut["ids"].index("luts:t/hl1")], 0.0)
+
     def test_bundle_schema(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             out = Path(d) / "b.o3viz"
