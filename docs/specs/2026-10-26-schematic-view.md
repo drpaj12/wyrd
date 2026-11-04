@@ -40,4 +40,4 @@ for them.
 ## Credit
 
 netlistsvg: MIT, not bundled; `wyrd/data/citations.toml`, `docs/CITATIONS.md`, `NOTICE`, README,
-`docs/paper/joined.bib` (key turley2020netlistsvg, `% Checked:` line).
+the Odin III paper bibliography, kept locally by the author (key turley2020netlistsvg, `% Checked:` line).
