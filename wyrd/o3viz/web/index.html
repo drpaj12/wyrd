@@ -15,11 +15,11 @@
   h1 { font-size:15px; margin:0 0 2px; } h2 { font-size:12px; margin:14px 0 4px; color:var(--dim);
     text-transform:uppercase; letter-spacing:.06em; }
   .sub { color:var(--dim); font-size:12px; }
-  select, button, input[type=range] { width:100%; margin:2px 0; background:#2a313b; color:var(--fg);
+  select, button, input[type=range], input:not([type]) { width:100%; margin:2px 0; background:#2a313b; color:var(--fg);
     border:1px solid var(--line); border-radius:4px; padding:3px 4px; font:inherit; }
   button { cursor:pointer; } button:hover { border-color:var(--acc); }
   label.row { display:flex; align-items:center; gap:6px; margin:2px 0; }
-  label.row input[type=range] { flex:1; width:auto; }
+  label.row input[type=range], input[type=text], input:not([type]) { flex:1; width:auto; }
   #stage { position:relative; } #view { position:absolute; inset:0; }
   #tip { position:absolute; pointer-events:none; background:#000c; padding:2px 6px; border-radius:3px;
     font-size:12px; display:none; white-space:nowrap; }
@@ -42,10 +42,24 @@
     <div id="legend"><div id="bar"></div><div class="ends"><span id="lo"></span><span id="mid"></span><span id="hi"></span></div>
     <div class="sub" id="unit"></div></div>
     <h2>Size</h2><select id="size"></select>
+    <h2>Height</h2><select id="height"></select>
+    <h2>Fade</h2><select id="fade"></select>
+    <div class="sub">Shape follows the object kind.</div>
     <h2>Anchor</h2><select id="anchor"></select>
+    <h2>Join: expression</h2>
+    <input id="exname" placeholder="name, e.g. crit_fan" value="">
+    <input id="extext" placeholder="e.g. fanout * (1 - slack_worst)">
+    <select id="exscale"><option value="seq">sequential scale</option><option value="div">diverging scale (0 centre)</option></select>
+    <button id="addexpr">add metric</button>
+    <h2>Join: across planes</h2>
+    <select id="aggmetric"></select>
+    <select id="aggdir"><option value="below">from objects linked below</option><option value="above">from objects linked above</option></select>
+    <select id="aggop"><option>min</option><option>max</option><option>mean</option><option>sum</option><option>count</option></select>
+    <button id="addagg">add aggregated metric</button>
+    <div id="exmsg" class="sub"></div>
     <h2>View</h2>
     <label class="row"><input type="checkbox" id="rotate" checked> auto-rotate</label>
-    <label class="row">plane gap <input type="range" id="gap" min="2" max="14" step="0.5" value="6"></label>
+    <label class="row">plane gap <input type="range" id="gap" min="2" max="40" step="0.5" value="6"></label>
     <button id="reset">reset camera</button>
     <button id="clear">clear selection</button>
     <h2>Planes</h2><div id="planes"></div>

@@ -56,6 +56,33 @@ class Netlist:
         return memo
 
 
+def stages_of(nl: Netlist) -> dict[str, int]:
+    """Register stage: registers and block outputs add one to the deepest input stage."""
+    memo: dict[str, int] = {}
+    visiting: set[str] = set()
+    for root in sorted(nl.drivers):
+        stack = [root]
+        while stack:
+            net = stack[-1]
+            if net in memo:
+                stack.pop()
+                continue
+            visiting.add(net)
+            pending = [
+                s
+                for s in nl.inputs.get(net, [])
+                if s in nl.drivers and s not in memo and s not in visiting
+            ]
+            if pending:
+                stack.extend(pending)
+                continue
+            deepest = max((memo.get(s, 0) for s in nl.inputs.get(net, [])), default=0)
+            memo[net] = deepest + (0 if nl.drivers[net] == "names" else 1)
+            visiting.discard(net)
+            stack.pop()
+    return memo
+
+
 def logical_lines(text: str) -> list[str]:
     lines: list[str] = []
     cur = ""

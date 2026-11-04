@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib.util
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -27,6 +29,18 @@ class TestVendored(unittest.TestCase):
             self.assertNotIn("https://", text)
 
 
+@unittest.skipUnless(shutil.which("node"), "needs node")
+class TestExprJs(unittest.TestCase):
+    def test_expression_language(self) -> None:
+        r = subprocess.run(
+            ["node", "--test", str(ROOT / "tests" / "js" / "expr.test.mjs")],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(r.returncode, 0, r.stdout[-2000:])
+
+
 @unittest.skipUnless(importlib.util.find_spec("playwright"), "needs playwright and chromium")
 class TestSmoke(unittest.TestCase):
     def test_loads_without_console_errors(self) -> None:
@@ -41,7 +55,20 @@ class TestSmoke(unittest.TestCase):
             bundle = Path(d) / "b.o3viz"
             export.export_bundle(DATA / "flow", bundle, "test:t", [DATA / "src"])
             shot = Path(d) / "s.png"
-            errors = o3viz_shot.shoot(bundle, shot, "logic_level", "placed:hl2")
+            errors = o3viz_shot.shoot(
+                bundle,
+                shot,
+                "logic_level",
+                "placed:hl2",
+                evals=[
+                    "window.__o3viz.addExpr('twice', 'fanout * 2')",
+                    "window.__o3viz.addAgg('fanout', 'below', 'max')",
+                    "window.__o3viz.setHeight('twice')",
+                    "window.__o3viz.setAnchor('ast')",
+                    "window.__o3viz.setAnchor('level')",
+                    "window.__o3viz.setAnchor('pipeline')",
+                ],
+            )
             self.assertEqual(errors, [])
             self.assertGreater(shot.stat().st_size, 5000)
 
