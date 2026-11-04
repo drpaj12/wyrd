@@ -1,0 +1,2 @@
+three 0.160.0 (MIT, three.LICENSE): build/three.module.min.js and examples/jsm/controls/OrbitControls.js,
+both unmodified, from the npm package three@0.160.0.

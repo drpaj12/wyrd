@@ -1,0 +1,3 @@
+{"attrs":{"level":"module","parent":null},"id":"hdl:c1","kind":"block","links":[],"name":"t","origin":"hdl","src":[{"file":"t.v","span":"1.1-5.10"}],"stage":"hdl"}
+{"attrs":{"level":"stmt","parent":"hdl:c1"},"id":"hdl:c2","kind":"stmt","links":[],"name":"c2","origin":"hdl","src":[{"file":"t.v","span":"3.3-3.40"}],"stage":"hdl"}
+{"attrs":{"level":"stmt","parent":"hdl:c1"},"id":"hdl:c3","kind":"stmt","links":[],"name":"c3","origin":"hdl","src":[{"file":"t.v","span":"4.3-4.24"}],"stage":"hdl"}

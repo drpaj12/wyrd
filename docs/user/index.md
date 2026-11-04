@@ -48,6 +48,7 @@ projects
 running
 gui
 mimir
+viz
 simulation
 testbench
 midgard
