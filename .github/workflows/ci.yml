@@ -3,13 +3,44 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  changes:
+    # Drafts skip CI. A PR touching only docs/** and *.md reports code=false, so build/test jobs skip
+    # (a skipped job satisfies a required check); the docs job still runs.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.f.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: f
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          code=true
+          if [ "$EVENT" = pull_request ]; then
+            if git diff --name-only "$BASE...$HEAD" | grep -qvE '^(docs/|.*\.md$)'; then code=true; else code=false; fi
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
   lint:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python: ["3.11", "3.12"]
+        # PRs: 3.12 only; push to main: both.
+        python: ${{ fromJSON(github.event_name == 'pull_request' && '["3.12"]' || '["3.11","3.12"]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -20,19 +51,29 @@ jobs:
       - run: mypy --strict wyrd tests
 
   test:
+    # Static matrix + step-level ifs: the required check names stay test (3.11) / test (3.12), the 3.11 leg is a
+    # no-op on PRs. Required check (branch protection: test (3.11), test (3.12)): not skipped by the docs-only filter.
+    needs: changes
+    if: needs.changes.result == 'success'
     runs-on: ubuntu-latest
     strategy:
       matrix:
         python: ["3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - if: ${{ github.event_name != 'pull_request' || matrix.python == '3.12' }}
+        uses: actions/checkout@v4
+      - if: ${{ github.event_name != 'pull_request' || matrix.python == '3.12' }}
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - run: pip install .
-      - run: python -m unittest discover -s tests -t . -v
+      - if: ${{ github.event_name != 'pull_request' || matrix.python == '3.12' }}
+        run: pip install .
+      - if: ${{ github.event_name != 'pull_request' || matrix.python == '3.12' }}
+        run: python -m unittest discover -s tests -t . -v
 
   gui:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     # Every test with PySide6 and pygame-ce present in one process: the Qt modules
     # (test_gui_smoke, test_gui_sim, test_gui_midgard, test_midgard_editors, test_midgard_vedit, ...)
     # do not skip, and Qt and SDL share the interpreter as they do for a user.
@@ -52,6 +93,8 @@ jobs:
       - run: python -X faulthandler -m unittest discover -s tests -t . -v
 
   sim:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     # Real Odin III tests. odin3 is not on PyPI: set the repository variable ODIN3_WHEEL_URL to the
     # Odin III v1.0.3 release wheel. Without it the tests skip. Not required to pass yet.
     runs-on: ubuntu-latest
@@ -69,6 +112,8 @@ jobs:
       - run: python -m unittest tests.test_sim_odin3 -v
 
   midgard:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -79,6 +124,8 @@ jobs:
       - run: SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy python -m unittest tests.test_midgard_ui_basic tests.test_midgard_ui -v
 
   docs:
+    needs: changes
+    if: needs.changes.result == 'success'
     # The user manual (docs/user, Sphinx + MyST). Warnings are errors. Deployed by pages.yml on push
     # to main.
     runs-on: ubuntu-latest
