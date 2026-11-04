@@ -35,11 +35,12 @@ jobs:
 
   lint:
     needs: changes
-    if: needs.changes.outputs.code == 'true' && (github.event_name != 'pull_request' || matrix.python == '3.12')
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python: ["3.11", "3.12"]
+        # PRs: 3.12 only; push to main: both.
+        python: ${{ fromJSON(github.event_name == 'pull_request' && '["3.12"]' || '["3.11","3.12"]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -50,20 +51,25 @@ jobs:
       - run: mypy --strict wyrd tests
 
   test:
-    # Required check (branch protection: test (3.11), test (3.12)): not skipped by the docs-only filter.
+    # Static matrix + step-level ifs: the required check names stay test (3.11) / test (3.12), the 3.11 leg is a
+    # no-op on PRs. Required check (branch protection: test (3.11), test (3.12)): not skipped by the docs-only filter.
     needs: changes
-    if: needs.changes.result == 'success' && (github.event_name != 'pull_request' || matrix.python == '3.12')
+    if: needs.changes.result == 'success'
     runs-on: ubuntu-latest
     strategy:
       matrix:
         python: ["3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - if: ${{ github.event_name != 'pull_request' || matrix.python == '3.12' }}
+        uses: actions/checkout@v4
+      - if: ${{ github.event_name != 'pull_request' || matrix.python == '3.12' }}
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - run: pip install .
-      - run: python -m unittest discover -s tests -t . -v
+      - if: ${{ github.event_name != 'pull_request' || matrix.python == '3.12' }}
+        run: pip install .
+      - if: ${{ github.event_name != 'pull_request' || matrix.python == '3.12' }}
+        run: python -m unittest discover -s tests -t . -v
 
   gui:
     needs: changes
