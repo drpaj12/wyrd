@@ -1,0 +1,4 @@
+{"design":"t","flow":"fpga-vtr","inputs":[],"kind":"odin3-prov-index","odin3_version":"","project":null,"schema":1,"steps":[
+{"count":3,"file":"01-read.json","id":"read","needs":[],"objects":"01-read.objects.jsonl","stage":"hdl"},
+{"count":3,"file":"02-map.json","id":"map","needs":["read"],"objects":"02-map.objects.jsonl","stage":"luts"},
+{"count":4,"file":"03-place.json","id":"place","needs":["map"],"objects":"03-place.objects.jsonl","stage":"placed"}],"tools":[],"top":"t"}

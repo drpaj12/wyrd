@@ -1,0 +1,12 @@
+.model t
+.inputs clk a b
+.outputs y
+.names a b hl1
+11 1
+.latch hl1 hq re clk 0
+.names hq a hl2
+10 1
+01 1
+.names hl2 y
+1 1
+.end

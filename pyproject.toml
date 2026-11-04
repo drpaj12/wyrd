@@ -27,7 +27,7 @@ midgard-editor = "wyrd.midgard.editors.level_editor:main"
 include = ["wyrd*"]
 
 [tool.setuptools.package-data]
-wyrd = ["data/*.toml", "midgard/assets/**/*"]
+wyrd = ["data/*.toml", "midgard/assets/**/*", "o3viz/web/**/*"]
 
 [tool.ruff]
 line-length = 100

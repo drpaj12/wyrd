@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<block name="t.net" instance="FPGA_packed_netlist[0]">
+	<inputs>a b</inputs>
+	<block name="hl1" instance="clb[0]" mode="default">
+		<block name="hl1" instance="fle[0]"><block name="hl1" instance="lut6[0]" /><block name="hq" instance="ff[0]" /></block>
+		<block name="open" instance="fle[1]" />
+	</block>
+	<block name="hl2" instance="clb[1]" mode="default">
+		<block name="hl2" instance="fle[0]" />
+	</block>
+	<block name="out:y" instance="io[2]" mode="outpad"><block name="out:y" instance="outpad[0]" /></block>
+</block>

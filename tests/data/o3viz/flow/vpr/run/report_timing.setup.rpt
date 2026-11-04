@@ -1,0 +1,15 @@
+#Timing report of worst 2 path(s)
+#Path 1
+Startpoint: hq.Q[0] (.latch clocked by clk)
+Endpoint  : out:y.outpad[0] (.output clocked by clk)
+Point                                                             Incr      Path
+hq.Q[0] (.latch) [clock-to-output]                      0.124     0.166
+hl2.in[1] (.names)                                       0.352     0.519
+out:y.outpad[0] (.output)                                0.000     0.800
+slack (VIOLATED)                                                          -0.500
+
+#Path 2
+Startpoint: hl1.out[0] (.names clocked by clk)
+Point                                                             Incr      Path
+hl1.out[0] (.names)                                       0.352     0.519
+slack (MET)                                                          0.250

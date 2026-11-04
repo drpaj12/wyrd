@@ -1,0 +1,8 @@
+Netlist_File: t.net Netlist_ID: SHA256:00
+Array size: 3 x 3 logic blocks
+
+#block name	x	y	subblk	layer	block number
+#----------	--	--	------	-----	------------
+hl1	1	1	0	0	#0
+hl2	2	1	0	0	#1
+out:y	0	2	0	0	#2
