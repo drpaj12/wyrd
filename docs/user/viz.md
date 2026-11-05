@@ -173,17 +173,112 @@ everything else. Metric `is_ff` marks them in the data.
 
 ![flip-flops highlighted, exitcond declaration selected](images/o3viz-m5-ff.png)
 
+## M6: Hutton and Kundarewich circuit views, graded tiers, SCOAP, collapsible panels
+
+Sources (thesis text read for the definitions, PDFs not committed): P. D. Kundarewich, "Synthetic Circuit Generation
+Using Clustering and Iteration", MASc thesis, University of Toronto, 2002 (sections 2.1, 3.1 to 3.3, 5.1), which
+describes M. Hutton, J. Rose, J. Grossman and D. Corneil, "Characterization and parameterized generation of synthetic
+combinational circuits", IEEE TCAD 17(10):985-996, 1998, and M. Hutton, J. Rose and D. Corneil, "Generation of
+synthetic sequential benchmark circuits", FPGA 1997. The two Hutton papers are not on disk; they are used as the
+thesis describes them. Descriptive only: no hypothesis is tested.
+
+**Definitions as implemented** (`wyrd/o3viz/hutton.py`, `circuit.py`, `web/circuit.js`; same numbers in Python and
+JavaScript tests on one hand-computed sequential circuit, `tests/data/o3viz/hutton/s.blif`):
+
+- Objects are the lut-plane objects: LUTs, flip-flops, hard blocks and the primary inputs that something reads.
+- Delay level (metric `logic_level`): 0 for primary inputs, flip-flops and block outputs, a LUT is one more than its
+  deepest input (Hutton's unit delay; Kundarewich 3.1 puts flip-flops at level 0). `dmax` is the largest.
+- Shapes per delay level: node shape (objects), input shape (LUT input pins), output shape (objects that drive
+  something), PO shape (objects that drive a primary output). Fanout distribution: objects per number of LUTs driven
+  (`fanout_comb`). Edge length of an edge into a LUT: level(sink) - level(source); an edge into a flip-flop (the DFF
+  edge from a latched node) has length 0 by definition, an edge into a hard block is counted apart.
+- Latched node (`is_latched`): a LUT that drives a flip-flop's D input.
+- Sequential level (`seq_level`, Hutton 2.1.3): 0 at a primary input, one more through a flip-flop, MIN over the inputs
+  otherwise. On a circuit with feedback the recursion has no unique solution; the viewer uses its least solution, the
+  fewest flip-flops on any path from a primary input. A net no primary input reaches has no value (grey).
+- Comb[i][j] counts the edges from cluster i that drive combinational nodes in cluster j, Latched[i][j] those that
+  drive flip-flops in cluster j (3.3.2). The diagonal is drawn dim (edges inside a cluster).
+
+**Anchors.** `hutton`: x = delay level, objects stacked per level (wrapping into sub-columns), flip-flops at level 0
+with the primary inputs and joined to their latched node by the DFF edge (no longer drawn beside the driver; the
+flag `ff_attached` in the anchor file). `hutton_seq`: the same, one strip per sequential level. `kundarewich-<source>`:
+one strip per cluster of the source. Level ticks and strip names are drawn on the lut plane.
+
+![Hutton layout, role colours](images/o3viz-m6-hutton.png)
+
+**Cluster sources** (`clusters.json`, dropdown in the right panel; choosing one under a Kundarewich anchor switches
+the anchor): `hdl-module`, `hdl-block` (a direct child of a module: an always block, an assign, an instance),
+`hdl-item` (a case item or if/else branch; objects with none fall back to their block) from provenance; an object that
+reaches several clusters takes the one with the smallest span and is counted ("reach several clusters"); a
+flip-flop with no HDL link takes its driver's cluster; `vpr` (the packer's clusters); `mincut` (recursive
+Fiduccia-Mattheyses hypergraph bipartition in `partition.py`, standard library, seeded, deterministic; k defaults to
+the number of HDL block clusters within 2 to 16, `wyrd viz export --clusters K` to choose). Kundarewich used hMETIS;
+this is not hMETIS and its cut is a heuristic result. Objects with no cluster form "(none)".
+
+**Panel.** Shapes of the whole circuit or of the current selection (an HDL line's logic gets its own shape; edges
+count only when both ends are in the selection). For the source: cluster x level counts, Comb and Latched heat maps
+(log scale), the share of edges between clusters (the thesis's inter-cluster percentage). Click a heat-map cell: the
+edges of that cell are drawn in yellow, their endpoints and the HDL lines behind them are selected. "compare with"
+shows two sources side by side with the normalised mutual information of the two partitions, which says how close the
+HDL hierarchy is to the connectivity hierarchy (descriptive). Edges menu: "circuit edges by length" colours every
+lut-plane edge by length (pink = length 0), or only those touching the selection. Colour menu: "cluster" and
+"role" (flip-flop, latched node, primary output).
+
+![Kundarewich view: HDL blocks, Comb and Latched, compare with min-cut](images/o3viz-m6-kundarewich.png)
+
+On `ch_intrinsics`: HDL block 10 clusters, 77.6% of edges between clusters; min-cut with k = 9 (+ none), 34.4%
+between clusters (cut 36 nets); NMI of the two partitions 0.16. Odin III's fsm pass recodes `cur_state` to one-hot, so
+after mapping the LUTs of the case merge all items: the HDL-provenance clusters are coarse there (the case is one
+"block" cluster, and `hdl-item` has 217 objects reaching several items). `sha` has no FSM.
+
+**Graded case tiers.** Below the cell plane a LUT is no longer coloured by one tier. A LUT takes the share of A (own),
+B (shared) and C (context) among the cell-plane objects it was mapped from (the cell to LUT links); colour is the
+mix (orange intensity = A share), a LUT with no cell link keeps its whole tier, a cluster or placed atom takes the mean
+over its LUTs, hover shows the shares and the right panel counts the objects with some share of each tier.
+
+![graded tiers, fsm on](images/o3viz-m6-graded-fsm.png) ![graded tiers, no fsm](images/o3viz-m6-graded-nofsm.png)
+
+How coarse the cell to LUT links are (cells linked to a LUT, over LUTs that have any): `ch_intrinsics` with fsm,
+median 65 of 84 cells (77%); the same design with the fsm pass left out, median 1 cell (1%), 75th percentile 3, max 55;
+`sha`, median 1776 of 1808 cells (98%). Item 170 and item 196 of `ch_intrinsics` give the same count (90) of LUTs with an
+A share with fsm (11 LUTs without it), and no LUT has A as more than half of its cells in either build. Why:
+(1) the fsm pass derives one record from every cell it folds into the state machine, so every gate below
+carries all of them; (2) Odin III's abc pass records the cut cone of each LUT only when the run's parent edges fit a
+budget (16 x (old cells + new objects) + 65,536); `sha` needs 725,231 edges against 205,216, so abc gives all its LUTs
+one shared record derived from every old cell (the log says "the run's LUTs share one record"). The budget can be set
+only through the library API (`odin3_abc_run_limits`), not from a script. To keep per-LUT cell lineage on a big
+design Odin III would need a pass option to raise or lift that budget, or a record that lists the gate cells of
+each LUT's cut cone instead of a derived record; for fsm designs the fsm pass would need to keep one record per
+state-machine cell.
+
+**SCOAP.** The exporter adds Odin III's `scoap` pass to its second run (before the BLIF is written) and shows CC0,
+CC1 and CO as metrics `cc0`, `cc1`, `co` on lut and placed (unreachable = no value). The pass numbers nets by net id;
+the name map gives the same number (`$nN`) to a hash-named net, so that is the join. Each LUT is checked by recomputing
+CC0 and CC1 from its cover and its inputs' values: `ch_intrinsics` 62 of 62, `sha` 1056 of 1056 checkable LUTs
+agree; below 95% the values are dropped and the manifest says so. Limits: nets named after a port (primary outputs
+included) have no value, because the JSON dump numbers bits by code, not by net id and the scoap JSON carries no wire
+names after mapping (Odin III would need to write net ids in `write_json`, or wire names in the scoap file);
+the cell plane has none, because the pass treats word-level cells as opaque (their outputs controllable, inputs
+observable); use "Join: across planes" (min, max, mean) from the lut metrics to the cell and hdl planes.
+Values are SCOAP as Odin III defines it, comparable with other tools only for textbook gates.
+
+**Collapsible panels.** Each side panel has a button (left controls, HDL pane, right selection) that turns it into a
+thin strip; the 3D view takes the space. Keys `[` left, `h` HDL, `]` right (the plane keys 0 to 9 are unchanged); the
+state is kept in `localStorage`. The draggable HDL divider is kept.
+
+![panels collapsed](images/o3viz-m6-collapsed.png)
+
 ## Metrics
 
 Measured by Odin III's BLIF or VPR files, never invented: `fanin`, `fanout`, `logic_level` (LUT depth from
 inputs and register or block outputs; on `clb` the max over the atoms inside, on `hdl` the max over the LUTs
 linked below; a cluster or construct with no measured member stays grey), `stage`, `slack_worst` and `paths_through` (VPR's worst 100 setup paths: the
 worst slack of the paths through the object; objects on no reported path stay grey), `atoms`, `luts_inside`,
-`ffs_inside`, `x`, `y`, and from the step files `depth`, `children`, `span_lines`, `luts_below`, `hdl_links` and
+`ffs_inside`, `x`, `y`, `seq_level`, `is_latched`, `is_po`, `fanout_comb`, `cc0`, `cc1`, `co` (see M6), and from the step files `depth`, `children`, `span_lines`, `luts_below`, `hdl_links` and
 `weakest_confidence`.
 
 ## Test
 
     .venv/bin/python -m unittest tests.test_o3viz tests.test_o3viz_viewer tests.test_o3viz_cells -v
-    node --test tests/js/expr.test.mjs tests/js/select.test.mjs       # expression language, line and cone selection
+    node --test tests/js/*.test.mjs       # expression language, line and cone selection
     python tools/o3viz_shot.py BUNDLE out.png --colour slack_worst   # needs playwright + chromium

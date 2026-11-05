@@ -565,8 +565,10 @@ class MimirPanel(QWidget):
             return
         for i in range(self.designs.count()):
             data = self.designs.item(i).data(Qt.ItemDataRole.UserRole)
-            if data and data[1] == self._current_design and (
-                self._current_source is None or data[0] == self._current_source
+            if (
+                data
+                and data[1] == self._current_design
+                and (self._current_source is None or data[0] == self._current_source)
             ):
                 self.designs.setCurrentRow(i)
                 return

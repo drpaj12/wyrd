@@ -12,6 +12,7 @@ Pos = anchors.Pos
 
 class PlaneLike(Protocol):
     ids: list[str]
+    name: list[str]
     metrics: dict[str, list[float | None]]
 
 

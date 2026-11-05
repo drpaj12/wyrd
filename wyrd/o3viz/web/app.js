@@ -3,7 +3,10 @@ import * as THREE from "three";
 import { OrbitControls } from "./vendor/OrbitControls.js";
 import { parse, evaluate, varsOf } from "./expr.js";
 import { spearman, mutualInfo } from "./stats.js";
-import { parseSpan, innermost, hdlCovering, reachDown, cone as coneOf, chainFor, tiers as tiersOf, busHue, bitLight } from "./select.js";
+import * as pl from "./layout.js";
+import { characterize, edgeLength, cellEdges } from "./circuit.js";
+import { barChart, drawMatrix, drawShape, cellAt } from "./circuitdraw.js";
+import { parseSpan, innermost, hdlCovering, reachDown, cone as coneOf, chainFor, tiers as tiersOf, mixOf, meanMix, mixRGB, mixText, busHue, bitLight } from "./select.js";
 
 const BUNDLE = "./bundle/";
 const GREY = new THREE.Color("#5b6572");
@@ -17,7 +20,7 @@ const S = { man: null, planes: {}, order: [], links: [], up: new Map(), down: ne
   height: "", fade: "", slot: {}, anchor: "", brush: null, vis: {}, view: "stack",
   lineSel: null, mode: { type: "none" }, focus: null, solo: null, cone: null, coneOn: false, path: null, paths: [], texts: {},
   srcFile: "", morph: { a: "", b: "", m: 0 }, group: { mode: "", expanded: new Set(), keys: {}, blobs: {} }, edges: null, edgeOn: false,
-  tier: null, tierInfo: null, ff: "off", busIndex: new Map(), busWidth: new Map(), busFilter: "", ffSlot: {}, clbFF: null };
+  cl: null, csrc: "", clCache: {}, anchorMeta: {}, cellEdges: null, tier: null, tierInfo: null, ff: "off", busIndex: new Map(), busWidth: new Map(), busFilter: "", ffSlot: {}, clbFF: null };
 
 async function getJson(path) {
   const r = await fetch(BUNDLE + path);
@@ -45,6 +48,12 @@ export async function loadBundle() {
     const r = await fetch(BUNDLE + "hdl/" + f);
     S.texts[f] = r.ok ? (await r.text()).split("\n") : null;
   }
+  if (S.man.circuit) {
+    S.cl = await getJson("clusters.json");
+    const lut = S.planes.lut;
+    S.lutAt = new Map(lut.ids.map((id, i) => [id, i]));
+    S.lutByName = new Map(lut.ids.map((id, i) => [id.slice(id.indexOf("/") + 1), i]));
+  }
   await loadAnchor(S.man.anchors.includes("placement") ? "placement" : S.man.anchors[0]);
 }
 
@@ -58,6 +67,7 @@ async function loadAnchor(name) {
   const gs = document.getElementById("gap");
   if (gs) gs.value = String(S.gap);
   S.unanchored = new Set(a.unanchored);
+  S.anchorMeta = { step: a.step ?? 0, ff_attached: a.ff_attached !== false, labels: a.labels ?? [], band_kind: a.band_kind ?? "", source: a.source ?? "" };
 }
 
 // ---- scales ----
@@ -184,6 +194,26 @@ function layout() {
     refreshPlane(p);
   });
   drawLines();
+  drawAnchorLabels();
+}
+
+// level ticks and strip names of the Hutton / Kundarewich anchors, on the lut plane
+let anchorLabels = [];
+function drawAnchorLabels() {
+  for (const l of anchorLabels) { group.remove(l); l.material.map.dispose(); l.material.dispose(); }
+  anchorLabels = [];
+  const k = S.order.indexOf("lut");
+  if (k < 0) return;
+  const a = S.anchorMeta, src = S.cl?.sources[a.source], W = Math.max(S.bounds[2] - S.bounds[0], S.bounds[3] - S.bounds[1]);
+  for (const t of a.labels) {
+    const text = t.band === undefined ? t.text : a.band_kind === "seq" ? `seq ${t.band}` : (src?.names[t.band] ?? String(t.band)).slice(0, 16);
+    const s = label(text);
+    const sc = Math.max(0.5, W / 45);
+    s.scale.set(4 * sc, sc, 1);
+    s.position.set(t.x - cx() - (t.band === undefined ? 0 : 2 * sc), planeY(k) + 0.3, t.z - cz());
+    group.add(s);
+    anchorLabels.push(s);
+  }
 }
 
 function stateOf(id) {
@@ -237,7 +267,9 @@ function refreshPlane(p) {
     let s = r0;
     if (sz) s *= sz[i] === null ? 0.5 : 0.6 + 1.8 * norm(S.size, sz[i]);
     const st = stateOf(id), tr = S.tier?.get(id), ff = isFF(p, i);
-    if (S.tier) s *= tr === "A" ? 2 : tr === "B" ? 1.5 : tr === "C" ? 1.1 : 0.45;
+    const mx = S.tier && p !== "cell" && p !== "hdl" ? S.tierMix?.get(id) : null;
+    if (mx) s *= 0.45 + Math.min(1.55, 1.55 * (mx.A * 1.3 + mx.B * 0.9 + mx.C * 0.5));
+    else if (S.tier) s *= tr === "A" ? 2 : tr === "B" ? 1.5 : tr === "C" ? 1.1 : 0.45;
     else if (st === 2) s *= S.brush ? 1.5 : 2.4; else if (st === 3) s *= 1.3; else if (st === 1) s *= S.brush ? 1.15 : 1.5; else if (st === -1) s *= 0.55;
     if (S.ff !== "off" && p === "clb") s *= 0.45;
     const dim = S.ff === "only" && !ff && !(p === "clb" && ffCount(p, i) > 0);
@@ -247,10 +279,13 @@ function refreshPlane(p) {
     dummy.scale.setScalar(s);
     dummy.updateMatrix();
     m.setMatrixAt(j, dummy.matrix);
-    let c = S.colour === "@bus" ? busColour(d, i) : col ? colourOf(S.colour, col[i]) : new THREE.Color("#8fc1ff");
-    if (ff && (S.ff !== "off" || !col && S.colour !== "@bus")) c = new THREE.Color(FF_COL);
+    let c = S.colour === "@bus" ? busColour(d, i) : S.colour === "@cluster" ? clusterColour(p, i) : S.colour === "@role" ? roleColour(p, i) : col ? colourOf(S.colour, col[i]) : new THREE.Color("#8fc1ff");
+    if (ff && (S.ff !== "off" || !col && !S.colour.startsWith("@"))) c = new THREE.Color(FF_COL);
     if (fd) c.lerp(BG, 0.85 * (1 - (fd[i] === null ? 0 : norm(S.fade, fd[i]))));
-    if (S.tier) {
+    if (mx) {
+      const [r, g, b] = mixRGB(mx, { A: hexRGB(TIER_COL.A), B: hexRGB(TIER_COL.B), C: hexRGB(TIER_COL.C) }, [BG.r, BG.g, BG.b]);
+      c = new THREE.Color(r, g, b);
+    } else if (S.tier) {
       if (tr) { c = new THREE.Color(TIER_COL[tr]); if (tr === "C") c.lerp(BG, 0.4); } else c.lerp(BG, 0.86);
     } else if (st === 3) c = new THREE.Color(CONE_COL[S.cone.nodes.get(id)] ?? "#5fe0ff");
     else if (st === 2 && !(S.colour === "@bus" && S.mode.type === "bus")) c = new THREE.Color("#ffb454");
@@ -265,13 +300,44 @@ function refreshPlane(p) {
   }
   refreshBlobs(p);
 }
+// ---- circuit colours: cluster of the current source, role (flip-flop, latched node, primary output) ----
+function clusterIdx(p, i) {
+  const src = S.cl?.sources[S.csrc];
+  if (!src) return null;
+  const d = S.planes[p], cache = (S.clCache[p] ??= {});
+  if (i in cache) return cache[i];
+  let v = null;
+  if (p === "lut") v = src.of[i];
+  else if (p === "placed") { const l = S.lutByName.get(d.name[i]); v = l === undefined ? null : src.of[l]; }
+  else if (p === "clb") {
+    const votes = new Map();
+    for (const u of S.up.get(d.ids[i]) ?? []) { const l = S.lutAt.get(u); if (l !== undefined) votes.set(src.of[l], (votes.get(src.of[l]) ?? 0) + 1); }
+    v = [...votes.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]?.[0] ?? null;
+  } else if (p === "hdl") { const k = src.construct.indexOf(d.ids[i]); v = k < 0 ? null : k; }
+  return (cache[i] = v);
+}
+function clusterColour(p, i) {
+  const k = clusterIdx(p, i), src = S.cl?.sources[S.csrc];
+  if (k === null || k === undefined || src.names[k] === "(none)") return GREY.clone();
+  return new THREE.Color().setHSL(busHue(k) / 360, 0.75, 0.55);
+}
+const ROLE_COL = { latched: "#ffb454", po: "#4cd9a0", plain: "#8fc1ff" };
+function roleColour(p, i) {
+  const m = S.planes[p].metrics;
+  if (isFF(p, i)) return new THREE.Color(FF_COL);
+  if (m.is_latched?.[i] === 1) return new THREE.Color(ROLE_COL.latched);
+  if (m.is_po?.[i] === 1) return new THREE.Color(ROLE_COL.po);
+  return m.logic_level?.[i] === null || m.logic_level?.[i] === undefined ? GREY.clone() : new THREE.Color(ROLE_COL.plain);
+}
 function busColour(d, i) {
   const b = d.bus?.[i];
   if (!b) return GREY.clone();
   const k = S.busIndex.get(b) ?? 0;
   return new THREE.Color().setHSL(busHue(k) / 360, 0.78, bitLight(d.bit[i], S.busWidth.get(b) ?? 1));
 }
-const unitR = (p) => (RADIUS[p] ?? 0.15) * Math.max(1, Math.max(S.bounds[2] - S.bounds[0], S.bounds[3] - S.bounds[1]) / 12);
+const unitR = (p) => S.anchorMeta.step
+  ? (RADIUS[p] ?? 0.15) / 0.17 * 0.28 * S.anchorMeta.step  // layouts with a fixed grid step: objects sized to it
+  : (RADIUS[p] ?? 0.15) * Math.max(1, Math.max(S.bounds[2] - S.bounds[0], S.bounds[3] - S.bounds[1]) / 12);
 
 // ---- grouping: one blob per group (HDL module or VPR cluster); click a blob to expand it ----
 function groupKeys(mode) {
@@ -341,7 +407,7 @@ const refreshAll = () => { S.order.forEach(refreshPlane); refreshClbFF(); drawFF
 // position on the plane: a flip-flop with a driver (d.attach) sits beside it as a small piece of it
 function posOf(plane, i) {
   const d = S.planes[plane], id = d.ids[i], att = d.attach?.[i], q = att && S.pos[plane][att];
-  if (!q) return S.pos[plane][id];
+  if (!q || !S.anchorMeta.ff_attached) return S.pos[plane][id];
   const k = (S.ffSlot[plane] ??= {})[att] ??= new Map();
   if (!k.has(id)) k.set(id, k.size);
   const r = unitR(plane) * 2.1, a = 0.9 + k.get(id) * 2.2;
@@ -419,6 +485,25 @@ function drawLines() {
   group.add(lines);
 }
 
+// ---- collapsible panels: left controls, HDL pane, right selection ----
+let panels = pl.load(globalThis.localStorage);
+function applyPanels() {
+  $("app").style.gridTemplateColumns = pl.gridColumns(panels);
+  const ids = { left: "left", hdl: "srcpane", right: "right" };
+  for (const p of pl.PANELS) {
+    $(ids[p]).classList.toggle("collapsed", panels[p]);
+    const b = document.querySelector(`button[data-tgl="${p}"]`);
+    b.innerHTML = (p === "right") === panels[p] ? "&laquo;" : "&raquo;";
+  }
+  $("split").classList.toggle("hidden", panels.hdl);
+  if (renderer) resize();
+}
+function togglePanel(name) {
+  panels = pl.toggled(panels, name);
+  pl.save(globalThis.localStorage, panels);
+  applyPanels();
+}
+
 function resize() {
   const r = $("stage").getBoundingClientRect();
   renderer.setSize(r.width, r.height, false);
@@ -473,9 +558,34 @@ function setTier(hdlIds) {
     const rest = S.order.slice(1).map((p) => [p, S.planes[p].ids]);
     S.tier = tiersOf(ch, hdl.ids.filter((x) => !x.startsWith("hdl:sig.")), hdlOf, rest, (x) => S.up.get(x) ?? []);
     S.tierInfo = { chain: ch.chain, item: ch.item, items: ch.items };
+    computeMix();
     return;
   }
 }
+// Graded ownership below the cell plane: a LUT takes the tier mix of the cells it was mapped from; a cluster and
+// a placed atom the mean over their LUTs. A LUT with no cell link keeps its whole tier (share 1).
+function computeMix() {
+  S.tierMix = new Map();
+  const lutMix = new Map();
+  const tierCol = (t) => ({ A: 0, B: 0, C: 0, [t]: 1 });
+  for (const id of S.planes.lut?.ids ?? []) {
+    const cells = (S.up.get(id) ?? []).filter((u) => S.byId.get(u)?.plane === "cell");
+    const m = cells.length ? mixOf(cells.map((c) => S.tier.get(c))) : S.tier.has(id) ? { ...tierCol(S.tier.get(id)), n: 0 } : null;
+    if (m) lutMix.set(id, m);
+  }
+  S.tierMix = new Map(lutMix);
+  for (const id of S.planes.clb?.ids ?? []) {
+    const m = meanMix((S.up.get(id) ?? []).map((u) => lutMix.get(u)));
+    if (m) S.tierMix.set(id, m);
+  }
+  const placed = S.planes.placed;
+  placed?.ids.forEach((id, i) => {
+    const l = S.lutByName?.get(placed.name[i]);
+    const m = l === undefined ? null : lutMix.get(S.planes.lut.ids[l]);
+    if (m) S.tierMix.set(id, m);
+  });
+}
+const hexRGB = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
 function tierCounts() {
   const out = Object.fromEntries(S.order.map((p) => [p, { A: 0, B: 0, C: 0 }]));
   if (S.tier) for (const [id, t] of S.tier) out[S.byId.get(id).plane][t]++;
@@ -498,6 +608,7 @@ export function select(id) {
 }
 function clearSel() {
   S.sel = null; S.brush = null; S.core = new Set(); S.lineSel = null; S.path = null; S.cone = null; S.tier = null; S.tierInfo = null;
+  S.cellEdges = null;
   S.mode = { type: "none" };
   $("pathinfo").textContent = "no path drawn";
   document.querySelectorAll("#pathlist div.on").forEach((e) => e.classList.remove("on"));
@@ -508,6 +619,7 @@ async function afterSelection() {
   if (S.coneOn) await updateCone(); else refreshAll();
   markLines();
   showSelection();
+  showCircuit();
 }
 
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
@@ -538,7 +650,18 @@ function tierTable() {
   const rows = S.order.map((p) => `<tr><td>${p}</td>` + ["A", "B", "C"].map((t) => `<td style="color:${TIER_COL[t]}">${c[p][t]}</td>`).join("") + "</tr>").join("");
   return '<h2>Case tiers per plane</h2><table><tr><td></td>' +
     ["A", "B", "C"].map((t) => `<td style="color:${TIER_COL[t]}" title="${TIER_NAME[t]}"><b>${t}</b></td>`).join("") + `</tr>${rows}</table>` +
-    ["A", "B", "C"].map((t) => `<div class="sub"><span style="color:${TIER_COL[t]}">&#9632;</span> ${t} ${TIER_NAME[t]}</div>`).join("");
+    ["A", "B", "C"].map((t) => `<div class="sub"><span style="color:${TIER_COL[t]}">&#9632;</span> ${t} ${TIER_NAME[t]}</div>`).join("") + mixTable();
+}
+// lut, clb and placed are graded: colour = the tier shares of the cells a LUT was mapped from
+function mixTable() {
+  if (!S.tierMix?.size) return "";
+  const rows = ["lut", "clb", "placed"].filter((p) => S.planes[p]).map((p) => {
+    const ms = S.planes[p].ids.map((id) => S.tierMix.get(id)).filter(Boolean);
+    const some = (k) => ms.filter((m) => m[k] > 0).length;
+    return `<tr><td>${p}</td>` + ["A", "B", "C"].map((k) => `<td style="color:${TIER_COL[k]}">${some(k)}</td>`).join("") + `<td>${ms.length}/${S.planes[p].ids.length}</td></tr>`;
+  }).join("");
+  return '<h2>Graded ownership</h2><div class="sub">lut, clb and placed are coloured by the mix of A, B and C among the cells a LUT was mapped from (clusters and atoms: mean over their LUTs); hover shows the shares. Objects with some share:</div>' +
+    `<table><tr><td></td><td style="color:${TIER_COL.A}">A</td><td style="color:${TIER_COL.B}">B</td><td style="color:${TIER_COL.C}">C</td><td>graded</td></tr>${rows}</table>`;
 }
 
 function showSelection() {
@@ -550,6 +673,7 @@ function showSelection() {
       (m.n ? `${m.n} ${$("enclosing").checked ? "covering" : "innermost covering"} construct${m.n === 1 ? "" : "s"}` : "no construct covers it") + "</div>";
   } else if (m.type === "path") html += `<div><b>Path</b>: ${esc(S.pathInfo ?? "")}</div>`;
   else if (m.type === "brush") html += `<div><b>Brush</b>: ${m.n} objects of ${m.plane}</div>`;
+  if (m.type === "cell") html += `<div><b>${esc(m.text)}</b>: ${m.n} edges, highlighted in yellow; their endpoints and the HDL lines behind them are selected</div>`;
   if (m.type === "bus") html += `<div><b>Bus ${esc(m.name)}</b>: ${m.n} objects across the planes${m.decl ? "; declared at line " + m.decl[1].split(".")[0] : ""}</div>`;
   if (S.tier) html += tierTable();
   const c = planeCounts();
@@ -747,11 +871,40 @@ async function ensureEdges() {
   }
 }
 
+let cellLines = null;
+// the edges of the clicked Comb / Latched cell, bright
+function drawCellEdges() {
+  if (cellLines) { group.remove(cellLines); cellLines.geometry.dispose(); cellLines = null; }
+  if (!S.cellEdges?.length) return;
+  const pts = [];
+  for (const [a, b] of S.cellEdges) pts.push(worldPos("lut", a), worldPos("lut", b));
+  cellLines = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0xffe066 }));
+  group.add(cellLines);
+}
+// every lut-plane edge coloured by Hutton's edge length (DFF and block edges, length 0, pink); with a
+// selection only the edges that touch it
+function lengthEdges(pts, cols) {
+  const lut = S.planes.lut, lv = lut.metrics.logic_level;
+  const hot = new Set([...highlighted()].filter((id) => S.byId.get(id)?.plane === "lut"));
+  const dmax = Math.max(2, ...lv.filter((v) => v !== null));
+  let n = 0;
+  for (const [a, b, kind] of S.edges) {
+    if (hot.size && !hot.has(a) && !hot.has(b)) continue;
+    const ia = S.lutAt.get(a), ib = S.lutAt.get(b);
+    if (lv[ia] == null || lv[ib] == null || n++ > 40000) continue;
+    const len = edgeLength(kind, lv[ia], lv[ib]);
+    const c = len === 0 ? new THREE.Color(FF_COL) : ramp(SEQ, (len - 1) / (dmax - 1));
+    pts.push(worldPos("lut", a), worldPos("lut", b));
+    cols.push(c.r, c.g, c.b, c.r, c.g, c.b);
+  }
+}
 function drawEdges() {
   if (edgeLines) { group.remove(edgeLines); edgeLines.geometry.dispose(); edgeLines = null; }
+  drawCellEdges();
   if (!S.edges || !S.edgeMode || !S.planes.lut) return;
   const pts = [], cols = [];
-  if (S.edgeMode === "groups") {
+  if (S.edgeMode === "length") lengthEdges(pts, cols);
+  else if (S.edgeMode === "groups") {
     const bl = S.group.blobs.lut;
     if (!bl) return;
     const of = new Map();
@@ -875,7 +1028,7 @@ export const discoverMatrix = (plane, kind) => {
 
 // ---- plane control: focus (camera on a plane), zoom towards the cursor, solo ----
 function setColour(n) {
-  if (!meta(n) && n !== "@bus") return;
+  if (!meta(n) && !["@bus", "@cluster", "@role"].includes(n)) return;
   S.colour = n; $("colour").value = n; refreshAll();
 }
 
@@ -1062,6 +1215,7 @@ function legend() {
   const name = S.colour;
   $("buspanel").style.display = name === "@bus" ? "block" : "none";
   if (name === "@bus") { $("legend").style.display = "none"; $("cover").innerHTML = ""; fillBusList(); return; }
+  if (name === "@cluster" || name === "@role") { $("legend").style.display = "none"; $("cover").innerHTML = name === "@role" ? roleLegend() : clusterLegend(); return; }
   $("legend").style.display = name ? "block" : "none";
   if (!name) { coverLegend(); return; }
   const [lo, hi] = metricRange(name), div = meta(name).scale === "div";
@@ -1073,6 +1227,15 @@ function legend() {
   $("mid").textContent = div ? "0" : "";
   coverLegend();
   $("unit").textContent = `${meta(name).unit}; grey = not measured. ${meta(name).measurer}`;
+}
+const roleLegend = () => '<span style="color:#ff4fd8">&#9632;</span> flip-flop <span style="color:#ffb454">&#9632;</span> latched node (drives a D input) ' +
+  '<span style="color:#4cd9a0">&#9632;</span> drives a primary output <span style="color:#8fc1ff">&#9632;</span> other; grey = no delay level';
+function clusterLegend() {
+  const src = S.cl?.sources[S.csrc];
+  if (!src) return "";
+  const head = `<div class="sub">${esc(src.label)}: ${src.k} clusters; grey = no cluster</div>`;
+  return head + src.names.slice(0, 40).map((n, k) => n === "(none)" ? "" : `<div><span style="color:hsl(${busHue(k).toFixed(0)},75%,55%)">&#9632;</span> ${esc(n)} <span class="sub">${src.sizes[k]}</span></div>`).join("") +
+    (src.k > 40 ? `<div class="sub">and ${src.k - 40} more</div>` : "");
 }
 // bus mode: the list of buses (filterable); click selects every object of the bus on every plane
 function fillBusList() {
@@ -1125,6 +1288,7 @@ function fillMetricSelects() {
   for (const [id, none] of [["colour", true], ["size", true], ["height", true], ["fade", true], ["aggmetric", false]]) {
     const el = $(id), cur = el.value;
     fillSelect(el, names, none);
+    if (id === "colour" && S.cl) el.insertAdjacentHTML("beforeend", '<option value="@cluster">cluster (current source)</option><option value="@role">role: FF, latched node, PO</option>');
     if (id === "colour" && S.man.buses?.length) el.insertAdjacentHTML("beforeend", '<option value="@bus">bus (hue per bus, shade per bit)</option>');
     if (names.includes(cur)) el.value = cur;
   }
@@ -1174,6 +1338,101 @@ export function addAgg(metric, dir, op) {
   return name;
 }
 
+async function changeAnchor(name) {
+  $("anchor").value = name;
+  await loadAnchor(name); resizeQuads(); layout(); resetCamera();
+  const a = S.anchorMeta;
+  if (a.source && S.cl) {
+    S.csrc = a.source; S.clCache = {}; $("csrc").value = a.source;
+    if (!S.colour) { S.colour = "@cluster"; $("colour").value = "@cluster"; }
+  }
+  refreshAll();
+  showCircuit();
+}
+
+// ---- circuit panel: Hutton shapes (whole circuit or selection), Kundarewich Comb / Latched matrices ----
+function selectedLut() {
+  const hot = [...highlighted()].filter((id) => S.byId.get(id)?.plane === "lut").map((id) => S.byId.get(id).i);
+  return hot.length ? hot : null;
+}
+function shapePanel() {
+  const lut = S.planes.lut, all = lut.ids.map((_, i) => i);
+  const sel = $("cscope").value === "selection" ? selectedLut() : null;
+  const c = characterize(lut, sel ?? all, S.edges ?? []);
+  S.shape = c;
+  const what = sel ? `${sel.length} selected lut-plane objects` : $("cscope").value === "selection" ? "no lut-plane object selected: whole circuit" : "whole circuit";
+  return `<div class="sub">${what}: ${c.nodes} objects (${c.pis} primary inputs), dmax ${c.dmax}; DFF edges ${c.dff_edges}, block edges ${c.block_edges}</div><div class="shapes">` +
+    barChart("node shape (objects per delay level)", c.node_shape) + barChart("input shape (LUT input pins)", c.input_shape) +
+    barChart("output shape (objects with fanout)", c.output_shape) + barChart("PO shape", c.po_shape) +
+    barChart("edge length (edges into LUTs)", c.edge_length, { max: 16 }) + barChart("fanout (LUTs driven)", c.fanout, { max: 16 }) + "</div>";
+}
+function sourceBlock(key, n) {
+  const sr = S.cl.sources[key];
+  const extra = [sr.cut !== undefined ? `cut ${sr.cut} nets` : "", sr.ambiguous !== undefined ? `${sr.ambiguous} objects reach several clusters (smallest span taken)` : "",
+    sr.fallback ? `${sr.fallback} items fell back to their block` : "", sr.unassigned ? `${sr.unassigned} without cluster` : ""].filter(Boolean).join("; ");
+  return `<div class="src" data-key="${key}"><b>${esc(sr.label)}</b> <span class="sub">k ${sr.k}, ${sr.edges} edges, ${sr.inter_pct === null ? "-" : sr.inter_pct.toFixed(1)}% between clusters${extra ? "; " + esc(extra) : ""}</span>` +
+    `<div class="mats"><div><canvas data-m="shape" data-n="${n}"></canvas><div class="sub">cluster x level</div></div>` +
+    `<div><canvas data-m="comb" data-n="${n}"></canvas><div class="sub">Comb (to LUTs)</div></div>` +
+    `<div><canvas data-m="latched" data-n="${n}"></canvas><div class="sub">Latched (to FFs)</div></div></div></div>`;
+}
+const circuitKeys = () => ($("ccompare").checked ? [S.csrc, $("csrc2").value] : [S.csrc]);
+function clusterPanel(keys) {
+  let html = keys.map(sourceBlock).join("");
+  if (keys.length === 2 && keys[0] !== keys[1]) {
+    const v = S.cl.nmi[`${keys[0]}|${keys[1]}`] ?? S.cl.nmi[`${keys[1]}|${keys[0]}`];
+    html += `<div class="sub">Normalised mutual information of the two partitions: ${v === null || v === undefined ? "not defined" : v.toFixed(3)} (0 unrelated, 1 the same). Descriptive only.</div>`;
+  }
+  return html;
+}
+function paintClusters(keys) {
+  keys.forEach((key, n) => {
+    const sr = S.cl.sources[key];
+    document.querySelectorAll(`#cpanel canvas[data-n="${n}"]`).forEach((cv) => {
+      const which = cv.dataset.m;
+      if (which === "shape") { drawShape(cv, sr.shape); return; }
+      drawMatrix(cv, sr[which]);
+      const hit = (e) => { const r = cv.getBoundingClientRect(); return cellAt(e.clientX - r.left, e.clientY - r.top, sr.k, r.width); };
+      cv.onmousemove = (e) => { const [i, j] = hit(e); cv.title = `${sr.names[i]} -> ${sr.names[j]}: ${sr[which][i][j]}`; };
+      cv.onclick = (e) => { const [i, j] = hit(e); selectCell(key, which, i, j); };
+    });
+  });
+}
+async function selectCell(key, which, i, j) {
+  await ensureEdges();
+  const sr = S.cl.sources[key], list = cellEdges(S.edges, sr.of, S.lutAt, i, j, which);
+  const hit = new Set();
+  for (const [a, b] of list) { hit.add(a); hit.add(b); }
+  const core = new Set();
+  let n = 0;
+  for (const id of hit) { if (n++ > 400) break; for (const t of [...closure(id, "up"), ...closure(id, "down")]) core.add(t); }
+  S.sel = null; S.brush = hit; S.core = core; S.lineSel = null; S.path = null; S.tier = null; S.tierInfo = null; S.cellEdges = list;
+  S.mode = { type: "cell", n: list.length, text: `${which === "comb" ? "Comb" : "Latched"}[${sr.names[i]} -> ${sr.names[j]}]` };
+  await afterSelection();
+}
+async function showCircuit() {
+  if (!S.cl) return;
+  await ensureEdges();
+  const keys = circuitKeys();
+  $("cshapes").innerHTML = shapePanel();
+  $("cpanel").innerHTML = clusterPanel(keys);
+  paintClusters(keys);
+}
+function buildCircuitUi() {
+  if (!S.cl) { $("circuit").style.display = "none"; return; }
+  const opts = S.cl.order.map((k) => `<option value="${k}">${esc(S.cl.sources[k].label)} (k ${S.cl.sources[k].k})</option>`).join("");
+  $("csrc").innerHTML = opts; $("csrc2").innerHTML = opts;
+  S.csrc = S.cl.order.includes("hdl-block") ? "hdl-block" : S.cl.order[0];
+  $("csrc").value = S.csrc;
+  $("csrc2").value = S.cl.order.includes("mincut") ? "mincut" : S.cl.order[S.cl.order.length - 1];
+  $("csrc").addEventListener("change", async (e) => {
+    S.csrc = e.target.value; S.clCache = {};
+    if (S.anchor.startsWith("kundarewich-")) { $("anchor").value = "kundarewich-" + S.csrc; await changeAnchor("kundarewich-" + S.csrc); return; }
+    refreshAll(); showCircuit();
+  });
+  for (const id of ["csrc2", "ccompare", "cscope"]) $(id).addEventListener("change", showCircuit);
+  showCircuit();
+}
+
 function buildUi() {
   fillMetricSelects();
   $("colour").addEventListener("change", (e) => { S.colour = e.target.value; refreshAll(); });
@@ -1183,9 +1442,7 @@ function buildUi() {
   $("height").addEventListener("change", (e) => { S.height = e.target.value; refreshAll(); });
   $("fade").addEventListener("change", (e) => { S.fade = e.target.value; refreshAll(); });
   $("anchor").innerHTML = S.man.anchors.map((a) => `<option${a === S.anchor ? " selected" : ""}>${a}</option>`).join("");
-  $("anchor").addEventListener("change", async (e) => {
-    await loadAnchor(e.target.value); resizeQuads(); layout(); resetCamera(); refreshAll();
-  });
+  $("anchor").addEventListener("change", (e) => changeAnchor(e.target.value));
   $("addexpr").addEventListener("click", () => {
     try {
       addExpr($("exname").value.trim(), $("extext").value, $("exscale").value);
@@ -1234,8 +1491,13 @@ function buildUi() {
   }));
   $("depthpreset").addEventListener("click", () => setColour("logic_level"));
   buildPathsUi();
+  buildCircuitUi();
+  document.querySelectorAll("button[data-tgl]").forEach((b) => b.addEventListener("click", () => togglePanel(b.dataset.tgl)));
+  applyPanels();
   document.addEventListener("keydown", (e) => {
     if (/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName) || e.ctrlKey || e.metaKey || e.altKey) return;
+    const pk = pl.panelForKey(e.key);
+    if (pk) { togglePanel(pk); return; }
     if (e.key === "0") focusPlane(null);
     else if (/^[1-9]$/.test(e.key) && S.order[Number(e.key) - 1]) focusPlane(S.order[Number(e.key) - 1]);
   });
@@ -1271,7 +1533,8 @@ function buildUi() {
       return;
     }
     const h = pick(e), r = $("stage").getBoundingClientRect();
-    const text = h?.id ?? (h?.blob ? `${h.plane}: ${h.blob.key} (${h.blob.members.length} objects, click to expand)` : null);
+    const mx = h?.id && S.tier ? S.tierMix?.get(h.id) : null;
+    const text = h?.id ? h.id + (mx ? "  " + mixText(mx, S.byId.get(h.id).plane === "clb" ? "LUTs" : "cells") : "") : (h?.blob ? `${h.plane}: ${h.blob.key} (${h.blob.members.length} objects, click to expand)` : null);
     tip.style.display = text ? "block" : "none";
     if (text) { tip.textContent = text; tip.style.left = e.clientX - r.left + 12 + "px"; tip.style.top = e.clientY - r.top + 12 + "px"; }
   });
@@ -1288,7 +1551,7 @@ async function main() {
   const loop = () => { controls.update(); renderer.render(scene, camera); requestAnimationFrame(loop); };
   loop();
   document.body.dataset.ready = "1";
-  window.__o3viz = { S, select, selectBus, tierCounts, setFF: (m) => { S.ff = m; $("ffmode").value = m; refreshAll(); }, selectLines, planeCounts, coverage, focusPlane, soloPlane, showPath, updateCone, markLines, setCone: async (dir, depth) => { $("pathsrc").value = "cone"; showPathPanel(); S.coneOn = true; $("conedir").value = dir; $("conedepth").value = String(depth); await updateCone(); markLines(); }, marksOf: () => Object.fromEntries([...marks].map(([f, m]) => [f, Object.fromEntries(m)])), cam: () => ({ target: controls.target.toArray(), pos: camera.position.toArray() }), wheelAt: (x, y, dy) => wheelZoom({ preventDefault() {}, clientX: x, clientY: y, deltaY: dy, deltaMode: 0 }), discover, setView, setGroupMode, discoverMatrix, brushAll: (p) => { S.brush = new Set(S.planes[p].ids.slice(0, 30)); S.core = new Set(); refreshAll(); },
+  window.__o3viz = { S, changeAnchor, selectCell, showCircuit, characterize, setCluster: (k) => { $("csrc").value = k; $("csrc").dispatchEvent(new Event("change")); }, setCompare: (on, k) => { $("ccompare").checked = on; if (k) $("csrc2").value = k; showCircuit(); }, togglePanel, panelState: () => ({ ...panels }), select, selectBus, tierCounts, setFF: (m) => { S.ff = m; $("ffmode").value = m; refreshAll(); }, selectLines, planeCounts, coverage, focusPlane, soloPlane, showPath, updateCone, markLines, setCone: async (dir, depth) => { $("pathsrc").value = "cone"; showPathPanel(); S.coneOn = true; $("conedir").value = dir; $("conedepth").value = String(depth); await updateCone(); markLines(); }, marksOf: () => Object.fromEntries([...marks].map(([f, m]) => [f, Object.fromEntries(m)])), cam: () => ({ target: controls.target.toArray(), pos: camera.position.toArray() }), wheelAt: (x, y, dy) => wheelZoom({ preventDefault() {}, clientX: x, clientY: y, deltaY: dy, deltaMode: 0 }), discover, setView, setGroupMode, discoverMatrix, brushAll: (p) => { S.brush = new Set(S.planes[p].ids.slice(0, 30)); S.core = new Set(); refreshAll(); },
     setEdges: async (m, h) => { S.edgeMode = m; S.hops = h ?? 1; await ensureEdges(); drawEdges(); }, setMorph: (a, b, m) => { S.morph = { a, b, m }; refreshAll(); }, addExpr, addAgg, setHeight: (n) => { S.height = n; $("height").value = n; refreshAll(); },
     setAnchor: async (n) => { $("anchor").value = n; $("anchor").dispatchEvent(new Event("change")); }, setColour,
     setSize: (n) => { S.size = n; $("size").value = n; refreshAll(); }, stop: () => { controls.autoRotate = false; } };

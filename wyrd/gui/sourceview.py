@@ -243,7 +243,7 @@ class HeatTextEdit(QPlainTextEdit):
     def _tint_selections(self, fh: FileHeat, lo: int, hi: int) -> list[QTextEdit.ExtraSelection]:
         out: list[QTextEdit.ExtraSelection] = []
         keys = self._tint_lines
-        for line in keys[bisect_left(keys, lo):bisect_right(keys, hi)]:
+        for line in keys[bisect_left(keys, lo) : bisect_right(keys, hi)]:
             block = self.document().findBlockByNumber(line - 1)
             if not block.isValid():
                 continue
@@ -257,7 +257,7 @@ class HeatTextEdit(QPlainTextEdit):
     def _range_selections(self, fh: FileHeat, lo: int, hi: int) -> list[QTextEdit.ExtraSelection]:
         out: list[QTextEdit.ExtraSelection] = []
         keys = self._range_lines
-        for r in fh.ranges[bisect_left(keys, lo):bisect_right(keys, hi)]:
+        for r in fh.ranges[bisect_left(keys, lo) : bisect_right(keys, hi)]:
             parts = (
                 [(g.col_start, g.col_end, g.crit) for g in r.segments]
                 if r.segments
@@ -315,7 +315,7 @@ class HeatTextEdit(QPlainTextEdit):
             lo, hi = self._window()
             keys = self._range_lines
             on = self.overlay.lines() if self.overlay is not None else None
-            for r in self.file_heat.ranges[bisect_left(keys, lo):bisect_right(keys, hi)]:
+            for r in self.file_heat.ranges[bisect_left(keys, lo) : bisect_right(keys, hi)]:
                 if r.strip and (on is None or r.line in on):
                     self._paint_strip(p, r)
         p.end()

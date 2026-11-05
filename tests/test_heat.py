@@ -63,8 +63,10 @@ def bus_model(second_slack: float = -1.0) -> heat.HeatModel:
 
 class CritTest(unittest.TestCase):
     def test_hand_computed(self) -> None:
-        rows = [heat.PathRow(i, "a (x clocked by c)", "b (y clocked by c)", s, 0.0)
-                for i, s in ((1, -4.0), (2, -3.0), (3, -1.0))]
+        rows = [
+            heat.PathRow(i, "a (x clocked by c)", "b (y clocked by c)", s, 0.0)
+            for i, s in ((1, -4.0), (2, -3.0), (3, -1.0))
+        ]
         crit, pairs, skipped = heat.path_criticalities(rows)
         self.assertEqual((pairs, skipped), (1, 0))
         self.assertAlmostEqual(crit[1], 1.0)
@@ -78,9 +80,11 @@ class CritTest(unittest.TestCase):
         self.assertAlmostEqual(crit[2], 0.6)
 
     def test_pairs_are_separate_and_negative_denominator_skipped(self) -> None:
-        rows = [heat.PathRow(1, "a (x clocked by c1)", "b (y clocked by c1)", -2.0, 0.0),
-                heat.PathRow(2, "a (x clocked by c2)", "b (y clocked by c2)", -1.0, 0.0),
-                heat.PathRow(3, "a (x clocked by c3)", "b (y clocked by c3)", -1.0, -5.0)]
+        rows = [
+            heat.PathRow(1, "a (x clocked by c1)", "b (y clocked by c1)", -2.0, 0.0),
+            heat.PathRow(2, "a (x clocked by c2)", "b (y clocked by c2)", -1.0, 0.0),
+            heat.PathRow(3, "a (x clocked by c3)", "b (y clocked by c3)", -1.0, -5.0),
+        ]
         crit, pairs, skipped = heat.path_criticalities(rows)
         self.assertEqual((pairs, skipped), (3, 1))
         self.assertEqual((crit[1], crit[2]), (1.0, 1.0))
@@ -138,8 +142,10 @@ class BitSplitTest(unittest.TestCase):
     def test_rbr_split_on_declaration(self) -> None:
         r = self.decl(self.heat(Scope(heat.SCOPE_CRITICAL)))
         self.assertEqual(r.word, "SIGNAL")
-        pieces = [(r.word[s.col_start - r.col_start:s.col_end - r.col_start], s.bit, s.crit)
-                  for s in r.segments]
+        pieces = [
+            (r.word[s.col_start - r.col_start : s.col_end - r.col_start], s.bit, s.crit)
+            for s in r.segments
+        ]
         self.assertEqual(pieces, [("SI", 2, 1.0), ("GN", 1, 0.0), ("AL", 0, 1.0)])
 
     def test_lsb_first_setting(self) -> None:
@@ -159,11 +165,13 @@ class BitSplitTest(unittest.TestCase):
 
     def test_width_over_identifier_length_gives_strip(self) -> None:
         src = "module top(input [9:0] AB, output y);\n  assign y = &AB;\nendmodule\n"
+
         def pad(b: int) -> dict[str, object]:
             return _node(None, "AB", b, "pad")
 
-        model = heat.parse_heat({"schema_version": 1, "words": [],
-                                 "paths": [_path(1, -1.0, [pad(9), pad(3)])]})
+        model = heat.parse_heat(
+            {"schema_version": 1, "words": [], "paths": [_path(1, -1.0, [pad(9), pad(3)])]}
+        )
         h = heatview.build_file_heat(model, model.select(Scope()), {"x.v"}, src)
         r = next(r for r in h.ranges if r.line == 1)
         self.assertEqual(r.segments, ())
@@ -290,8 +298,16 @@ class FixRoundTest(unittest.TestCase):
         self.assertEqual(h.unplaced, ["zz.data"])
 
     def test_m1_unknown_bit_keeps_known_bits(self) -> None:
-        paths = [_path(1, -1.0, [_node("top.v:2", "SIGNAL", 2, "name"),
-                                 _node("top.v:2", "SIGNAL", None, "declarator")])]
+        paths = [
+            _path(
+                1,
+                -1.0,
+                [
+                    _node("top.v:2", "SIGNAL", 2, "name"),
+                    _node("top.v:2", "SIGNAL", None, "declarator"),
+                ],
+            )
+        ]
         model = heat.parse_heat({"schema_version": 1, "words": [], "paths": paths})
         h = heatview.build_file_heat(model, model.select(Scope()), {"top.v"}, BUS_SRC)
         r = next(r for r in h.ranges if r.line == 2)
@@ -312,12 +328,13 @@ class FixRoundTest(unittest.TestCase):
             n["module"] = "b"
             return n
 
-        model = heat.parse_heat({"schema_version": 1, "words": [],
-                                 "paths": [_path(1, -1.0, [pad(3), pad(0)])]})
+        model = heat.parse_heat(
+            {"schema_version": 1, "words": [], "paths": [_path(1, -1.0, [pad(3), pad(0)])]}
+        )
         model = heat.HeatModel(model.facts, model.paths, model.seen_width, {})
         h = heatview.build_file_heat(model, model.select(Scope()), {"x.v"}, TWO_MODULES)
         r = next(r for r in h.ranges if r.line == 3)
-        self.assertEqual([s.bit for s in r.segments], [3, 2, 1, 0][:len(r.segments)])
+        self.assertEqual([s.bit for s in r.segments], [3, 2, 1, 0][: len(r.segments)])
 
     def test_l1_skipped_pair_at_rank_zero_keeps_scope(self) -> None:
         bad = _path(1, 1.0, [_node("top.v:2", "SIGNAL", 0, "name")])
@@ -347,8 +364,9 @@ class FixRoundTest(unittest.TestCase):
         h = heatview.build_file_heat(model, model.select(Scope()), {"x.v"}, src)
         r = next(r for r in h.ranges if r.line == 1)
         self.assertTrue(r.beyond_width)
-        self.assertEqual([b for b, _ in r.strip or tuple((s.bit, 0.0) for s in r.segments)],
-                         [3, 1, 0])
+        self.assertEqual(
+            [b for b, _ in r.strip or tuple((s.bit, 0.0) for s in r.segments)], [3, 1, 0]
+        )
         self.assertIn("outside the declared width", r.tooltip)
 
     def test_l6_rounding_before_theta(self) -> None:
@@ -368,7 +386,7 @@ class FixRoundTest(unittest.TestCase):
         self.assertEqual(r.segments[-1].bit, 0)
 
     def test_l7_utf16_columns(self) -> None:
-        text = "a\U0001F600b x"
+        text = "a\U0001f600b x"
         self.assertEqual(heatview.utf16_col(text, 3), 4)
         self.assertEqual(heatview.codepoint_col(text, 4), 3)
         self.assertEqual(heatview.codepoint_col(text, 1), 1)
@@ -380,8 +398,9 @@ class FixRoundTest(unittest.TestCase):
         n = 3000
         src = "module top(input [2:0] SIGNAL, output y);\n" + "  assign y = SIGNAL[1];\n" * n
         nodes = [_node(f"top.v:{i + 2}", "SIGNAL", i % 3, "name") for i in range(n)]
-        model = heat.parse_heat({"schema_version": 1, "words": [],
-                                 "paths": [_path(1, -1.0, nodes)]})
+        model = heat.parse_heat(
+            {"schema_version": 1, "words": [], "paths": [_path(1, -1.0, nodes)]}
+        )
         t = time.monotonic()
         heatview.build_file_heat(model, model.select(Scope()), {"top.v"}, src)
         self.assertLess(time.monotonic() - t, 5.0)  # was quadratic: 10k lines took 59 s
@@ -403,9 +422,7 @@ class SourceFinderTest(unittest.TestCase):
         os.environ.pop("WYRD_TEST_ROOT", None)
 
     def model(self) -> heat.HeatModel:
-        return heatmimir.model_from_objects(
-            self.ROWS, "$WYRD_TEST_ROOT/sub/top.v", "report"
-        )
+        return heatmimir.model_from_objects(self.ROWS, "$WYRD_TEST_ROOT/sub/top.v", "report")
 
     def test_expand_and_unset(self) -> None:
         self.assertEqual(heatsource.expand("$A/x/${B}", {"A": "1", "B": "2"}), "1/x/2")
@@ -475,7 +492,7 @@ class GuideTextTest(unittest.TestCase):
 
         doc = (Path(__file__).parents[1] / "docs" / "user" / "mimir.md").read_text("utf-8")
         a, b = doc.index(mimirhelp.GUIDE_BEGIN), doc.index(mimirhelp.GUIDE_END)
-        self.assertEqual(doc[a + len(mimirhelp.GUIDE_BEGIN):b].strip(), mimirhelp.GUIDE.strip())
+        self.assertEqual(doc[a + len(mimirhelp.GUIDE_BEGIN) : b].strip(), mimirhelp.GUIDE.strip())
 
 
 if __name__ == "__main__":

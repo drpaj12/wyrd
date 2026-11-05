@@ -15,6 +15,8 @@ class Netlist:
     drivers: dict[str, str] = field(default_factory=dict)  # net -> names | latch | subckt
     inputs: dict[str, list[str]] = field(default_factory=dict)  # net -> nets it reads
     primary_inputs: set[str] = field(default_factory=set)
+    primary_outputs: set[str] = field(default_factory=set)
+    covers: dict[str, list[tuple[str, str]]] = field(default_factory=dict)  # net -> (pattern, out)
 
     def edges(self) -> list[tuple[str, str, str]]:
         out: list[tuple[str, str, str]] = []
@@ -102,14 +104,24 @@ def logical_lines(text: str) -> list[str]:
 
 def read_blif(path: Path) -> Netlist:
     nl = Netlist()
+    cur: str | None = None
     for line in logical_lines(path.read_text(encoding="utf-8")):
         words = line.split()
         key = words[0]
+        if not key.startswith("."):
+            if cur is not None:
+                nl.covers[cur].append((words[0], words[1]) if len(words) > 1 else ("", words[0]))
+            continue
+        cur = None
         if key == ".inputs":
             nl.primary_inputs.update(words[1:])
+        elif key == ".outputs":
+            nl.primary_outputs.update(words[1:])
         elif key == ".names" and len(words) >= 2:
             nl.drivers[words[-1]] = "names"
             nl.inputs[words[-1]] = words[1:-1]
+            nl.covers[words[-1]] = []
+            cur = words[-1]
         elif key == ".latch" and len(words) >= 3:
             nl.drivers[words[2]] = "latch"
             nl.inputs[words[2]] = [words[1]]

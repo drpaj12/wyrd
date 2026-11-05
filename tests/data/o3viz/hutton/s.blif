@@ -1,0 +1,16 @@
+.model s
+.inputs clk a b c
+.outputs z
+.names a b q2 n1
+111 1
+.names n1 c n2
+11 1
+.latch n2 q1 re clk 0
+.names q1 n3
+0 1
+.names q1 n3 n4
+11 1
+.latch n4 q2 re clk 0
+.names q2 q1 z
+10 1
+.end

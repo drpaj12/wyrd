@@ -51,8 +51,6 @@ def _fill(t: QTableWidget, rows: list[list[str]]) -> None:
     t.resizeColumnsToContents()
 
 
-
-
 class PathsPanel(QWidget):
     selection_changed = Signal()
     cutoff_changed = Signal()  # the display cut-off changed: redraw the hot/cold colours

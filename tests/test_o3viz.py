@@ -185,11 +185,38 @@ class TestAnchorsM2(unittest.TestCase):
 
 
 class TestExport(unittest.TestCase):
+    def test_circuit_columns_and_clusters(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "b.o3viz"
+            man = run_export(out)
+            lut = json.loads((out / "planes" / "lut.json").read_text())
+            at = {i: k for k, i in enumerate(lut["ids"])}
+            m = lut["metrics"]
+            hq = at["luts:t/hq"]
+            self.assertEqual(m["logic_level"][at["luts:t/hl2"]], 1.0)
+            self.assertEqual(m["seq_level"][at["luts:t/hq"]], 1.0)
+            self.assertEqual(m["is_latched"][at["luts:t/hl1"]], 1.0)
+            self.assertIsNone(m["is_po"][at["luts:t/hl2"]])
+            self.assertEqual(m["logic_level"][hq], 0.0)
+            cl = json.loads((out / "clusters.json").read_text())
+            self.assertIn("mincut", cl["sources"])
+            for src in cl["sources"].values():
+                self.assertEqual(len(src["of"]), len(lut["ids"]))
+                k = src["k"]
+                self.assertEqual(len(src["comb"]), k)
+                self.assertEqual(
+                    sum(map(sum, src["comb"])) + sum(map(sum, src["latched"])), src["edges"]
+                )
+            self.assertEqual(man["circuit"]["sources"], cl["order"])
+            kund = json.loads((out / "anchors" / "kundarewich-mincut.json").read_text())
+            self.assertFalse(kund["ff_attached"])
+
     def test_four_anchors_cover_every_object(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             out = Path(d) / "b.o3viz"
             man = run_export(out)
-            self.assertEqual(man["anchors"], ["ast", "level", "pipeline", "placement"])
+            for name in ("ast", "level", "pipeline", "placement", "hutton", "hutton_seq"):
+                self.assertIn(name, man["anchors"])
             for a in list(man["anchors"]):
                 anc = json.loads((out / "anchors" / f"{a}.json").read_text())
                 self.assertEqual(len(anc["bounds"]), 4)

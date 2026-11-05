@@ -6,6 +6,7 @@ Inputs are the parsed dumps of `nets.py`. Nothing here runs a tool.
 from __future__ import annotations
 
 import bisect
+import itertools
 import re
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
@@ -470,3 +471,71 @@ def lut_buses(d: nets.Dumps, nl: blif.Netlist) -> tuple[dict[str, Bus], str]:
             succ[s].append(net)
     note = f"net numbers paired on the flip-flops; {luts} of {total} LUT cells verified"
     return infer(own, succ, list(nl.drivers)), note
+
+
+SCOAP_INF = 10**18
+
+
+def cube_cost(
+    ins: Sequence[tuple[int, int]], rows: Sequence[tuple[str, str]], v: int
+) -> int | None:
+    """SCOAP controllability of value v for a LUT given as a BLIF cover: 1 + the cheapest cube on
+    which the function is v; `ins` is (CC0, CC1) per input. None when the function cannot be v."""
+    k = len(ins)
+    on = [out == "1" for _, out in rows]
+    if rows and not all(on) and any(on):
+        return None
+    onset = bool(rows) and all(on)
+
+    def f(m: int) -> int:
+        hit = any(all(c == "-" or int(c) == (m >> i) & 1 for i, c in enumerate(p)) for p, _ in rows)
+        return int(hit == onset) if rows else 0
+
+    table = [f(m) for m in range(1 << k)]
+    best: int | None = None
+    for cube in itertools.product("01-", repeat=k):
+        free = [i for i, c in enumerate(cube) if c == "-"]
+        base = sum(1 << i for i, c in enumerate(cube) if c == "1")
+        if all(
+            table[base | sum(1 << i for j, i in enumerate(free) if (m >> j) & 1)] == v
+            for m in range(1 << len(free))
+        ):
+            cost = sum(ins[i][int(c)] for i, c in enumerate(cube) if c != "-")
+            best = cost if best is None or cost < best else best
+    return None if best is None else best + 1
+
+
+def lut_scoap(d: nets.Dumps, nl: blif.Netlist) -> tuple[dict[str, tuple[int, int, int]], str]:
+    """(CC0, CC1, CO) per BLIF net from Odin III's scoap pass, and a note.
+
+    The pass numbers nets as the name map does (`$nN`), so a BLIF net with a hash name takes the
+    values of the net with that number. Nets named after a port have no safe join (the dump
+    numbers bits by code, not by net id) and get no value. Each LUT of up to 6 inputs is checked by
+    recomputing CC0 and CC1 from its cover and the controllabilities of its inputs; the values are
+    dropped if fewer than 95% agree.
+    """
+    if d.scoap is None:
+        return {}, "no scoap values (this Odin III build has no scoap pass)"
+    table: dict[str, tuple[int, int, int]] = {}
+    for net, full in d.net_full.items():
+        nid = net_id(full)
+        if nid is not None and nid in d.scoap:
+            table[net] = d.scoap[nid]
+    ok = bad = 0
+    for net, rows in nl.covers.items():
+        ins = nl.inputs.get(net, [])
+        if net not in table or not 0 < len(ins) <= 6:
+            continue
+        cc = [(table[i][0], table[i][1]) if i in table else (1, 1) for i in ins]
+        if any(i not in table and i not in nl.primary_inputs for i in ins):
+            continue
+        got = (cube_cost(cc, rows, 0), cube_cost(cc, rows, 1))
+        want = (table[net][0], table[net][1])
+        sat = SCOAP_INF in want or SCOAP_INF in [c for pair in cc for c in pair]
+        if sat:
+            continue
+        agree = all(g == w for g, w in zip(got, want, strict=True))
+        ok, bad = (ok + 1, bad) if agree else (ok, bad + 1)
+    if ok + bad == 0 or bad * 20 > ok + bad:
+        return {}, f"scoap numbering not verified ({ok} LUTs agree, {bad} differ); values dropped"
+    return table, f"scoap values: {ok} of {ok + bad} checkable LUTs recompute exactly"

@@ -57,11 +57,21 @@
   .col { font-size:12px; } .col b { color:var(--acc); } .col div { margin:2px 0; word-break:break-all; }
   .col a { color:#8fc1ff; cursor:pointer; text-decoration:none; } #status { color:var(--dim); font-size:12px; margin-top:8px; }
   .err { color:#ff7b72; }
+  .shapes { display:flex; flex-wrap:wrap; gap:4px 8px; } .shp svg { background:#10131a; border:1px solid var(--line); display:block; }
+  .shp .sub { font-size:10px; max-width:150px; } .mats { display:flex; flex-wrap:wrap; gap:4px 6px; } .mats canvas { width:92px; height:92px; image-rendering:pixelated; border:1px solid var(--line); cursor:crosshair; }
+  #cpanel .src { margin:6px 0; }
+  .tglwrap { display:flex; justify-content:flex-end; margin:-4px 0 2px; } .tglwrap button { width:auto; padding:0 7px; line-height:18px; }
+  #left.collapsed, #right.collapsed { padding:6px 2px; overflow:hidden; } #left.collapsed > :not(.tglwrap), #right.collapsed > :not(.tglwrap) { display:none; }
+  .collapsed .tglwrap { justify-content:center; }
+  #srcpane.collapsed { flex:0 0 26px !important; min-width:26px; overflow:hidden; } #srcpane.collapsed > :not(.tglwrap) { display:none; }
+  #srcpane > .tglwrap { margin:0; padding:2px; background:var(--panel); border-bottom:1px solid var(--line); }
+  #split.hidden { display:none; }
 </style>
 </head>
 <body>
 <div id="app">
   <aside id="left">
+    <div class="tglwrap"><button data-tgl="left" title="hide / show this panel ([)">&laquo;</button></div>
     <h1 id="title">o3viz</h1><div class="sub" id="subtitle">loading</div>
     <h2>Colour</h2><select id="colour"></select>
     <div id="legend"><div id="bar"></div><div class="ends"><span id="lo"></span><span id="mid"></span><span id="hi"></span></div>
@@ -93,7 +103,7 @@
     <select id="grouping"><option value="">none</option><option value="module">HDL module</option><option value="cluster">VPR cluster</option></select>
     <div class="sub">Click a blob to expand it; selecting an object expands its group.</div>
     <h2>Edges</h2>
-    <select id="edgemode"><option value="">off</option><option value="khop">k-hop of selection (lut plane)</option><option value="groups">between groups (needs grouping)</option></select>
+    <select id="edgemode"><option value="">off</option><option value="khop">k-hop of selection (lut plane)</option><option value="groups">between groups (needs grouping)</option><option value="length">circuit edges by length (selection: touching it)</option></select>
     <select id="hops"><option>1</option><option>2</option><option>3</option></select>
     <h2>Morph</h2>
     <select id="morphpair"></select><input type="range" id="morph" min="0" max="1" step="0.02" value="0">
@@ -108,14 +118,14 @@
     <div id="status"></div>
   </aside>
   <div id="main">
-    <div id="srcpane"><div id="srctop"><div id="srctabs"></div>
+    <div id="srcpane"><div class="tglwrap"><button data-tgl="hdl" title="hide / show the HDL pane (h)">&laquo;</button></div><div id="srctop"><div id="srctabs"></div>
       <div id="srcinfo">Click a line, drag or shift-click for a range.
         <label><input type="checkbox" id="enclosing"> include enclosing constructs</label></div></div>
       <div id="srclines"></div></div>
     <div id="split" title="drag to resize"></div>
     <div id="stage"><canvas id="view"></canvas><div id="tip"></div><div id="brush" style="position:absolute;display:none;border:1px dashed #ffb454;background:#ffb45422;pointer-events:none"></div></div>
   </div>
-  <aside id="right"><h2 style="margin-top:0">Selection</h2>
+  <aside id="right"><div class="tglwrap"><button data-tgl="right" title="hide / show this panel (])">&raquo;</button></div><h2 style="margin-top:0">Selection</h2>
     <div id="sel" class="sub">Click an HDL line or a node. Everything linked to it is highlighted.</div>
     <h2>Paths</h2>
     <select id="pathsrc"><option value="vpr">VPR setup report (worst first)</option><option value="cone">netlist cone of the selection</option></select>
@@ -126,6 +136,13 @@
       <div class="sub">Stops at flip-flops, I/O and hard blocks. Select an object, a line or a path first.</div></div>
     <div class="sub" id="pathinfo">no path drawn</div>
     <button id="pathclear">clear path</button>
+    <div id="circuit"><h2>Circuit: Hutton and Kundarewich</h2>
+    <select id="cscope"><option value="whole">shapes: whole circuit</option><option value="selection">shapes: selection</option></select>
+    <div id="cshapes"></div>
+    <div class="sub">Cluster source (Kundarewich Comb and Latched matrices; click a cell to select its edges):</div>
+    <select id="csrc"></select>
+    <label class="row"><input type="checkbox" id="ccompare"> compare with</label><select id="csrc2"></select>
+    <div id="cpanel"></div></div>
     <h2>Discovery</h2>
     <select id="dplane"></select><select id="dkind"><option value="sp">Spearman correlation</option><option value="mi">mutual information (bits)</option></select>
     <button id="dgo">compute matrix</button><div id="dmat"></div></aside>
