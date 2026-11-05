@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -548,7 +549,8 @@ def try_dumps(flow: Path, top: str, search: list[Path]) -> tuple[nets.Dumps | No
             nets.run_dumps(flow, Path(t), search)
             return nets.load_dumps(Path(t), top), ""
         except (nets.NetsError, OSError, KeyError, ValueError, subprocess.SubprocessError) as e:
-            return None, f"{type(e).__name__}: {e}"
+            msg = re.sub(r"/[^\s'\"]+", lambda m: m.group(0).rsplit("/", 1)[-1], str(e))
+            return None, f"{type(e).__name__}: {msg}"
 
 
 def pad_metrics(p: Plane) -> None:
@@ -667,8 +669,7 @@ def build_planes(
         else:
             dropped += 1
     planes = {"hdl": hdl, "lut": lut, "clb": clb, "placed": placed}
-    if cplane:
-        planes["cell"] = cplane
+    planes["cell"] = cplane or Plane("cell")
     edges = [
         (f"luts:{top}/{a}", f"luts:{top}/{b}", k)
         for a, b, k in nl.edges()
