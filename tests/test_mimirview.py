@@ -282,6 +282,8 @@ class ViewTest(unittest.TestCase):
         self.assertIsInstance(mimirview.metric_registry(), dict)
 
 
+
+
 class ExploreTest(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()

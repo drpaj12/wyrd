@@ -114,7 +114,9 @@ class WindowTest(unittest.TestCase):
         self.w = MainWindow(QSettings(self.ini, QSettings.Format.IniFormat), silent=True)
         self.addCleanup(dispose, self.w)
         rows = [("span", f"{F}:10", -1, "", 1.0), ("word", "top/a", 3, "name", 1.0)]
-        self.w._on_mimir_heat(heatmimir.model_from_objects(rows, F, "report", str(self.db), "r1"))
+        self.w._on_mimir_heat(
+            heatmimir.model_from_objects(rows, F, "report", str(self.db), "r1")
+        )
 
     def click_token(self) -> None:
         fh = self.w.source_view.text.file_heat
