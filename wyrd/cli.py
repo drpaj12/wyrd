@@ -12,9 +12,8 @@ from collections import Counter
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from wyrd import mimircli, report, settings, tbcli
+from wyrd import mimircli, report, settings, tbcli, vizcli
 from wyrd.guimodel import timing
-from wyrd.o3viz import vizcli
 from wyrd.preflight import ProjectLocked, acquire_lock, preflight
 from wyrd.project import ConfigError, Project, load_project
 from wyrd.sched import run_all

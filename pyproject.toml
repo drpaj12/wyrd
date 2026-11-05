@@ -13,6 +13,7 @@ dependencies = []
 [project.optional-dependencies]
 gui = ["PySide6-Essentials>=6.6,<7"]
 sim = ["odin3>=1.0.3"]
+viz = ["heimdall @ git+https://github.com/drpaj12/heimdallIII.git"]
 midgard = ["pygame-ce>=2.5,<3", "odin3>=1.0.3", "PySide6-Essentials>=6.6,<7"]
 
 [project.scripts]
@@ -27,7 +28,7 @@ midgard-editor = "wyrd.midgard.editors.level_editor:main"
 include = ["wyrd*"]
 
 [tool.setuptools.package-data]
-wyrd = ["data/*.toml", "midgard/assets/**/*", "o3viz/web/**/*"]
+wyrd = ["data/*.toml", "midgard/assets/**/*"]
 
 [tool.ruff]
 line-length = 100
