@@ -12,6 +12,7 @@ to the HDL and to the cell plane by exact HDL span (and, for a case item, by the
 
 from __future__ import annotations
 
+import math
 import re
 from collections import defaultdict, deque
 from collections.abc import Mapping, Sequence
@@ -157,6 +158,20 @@ def layers_bfs(nodes: Sequence[str], edges: Sequence[tuple[str, str]], root: str
     return {n: dist.get(n, deepest) for n in nodes}
 
 
+CIRCLE_MAX = 30  # an STG with up to this many states is drawn on a circle
+
+
+def layout_circle(layer: Mapping[str, int], root: str) -> dict[str, tuple[float, float]]:
+    """States on a circle, the reset state at the top, the others by distance from it (then name),
+    clockwise; unit radius, centre (0, 0)."""
+    order = sorted(layer, key=lambda n: (n != root, layer[n], n))
+    n = len(order)
+    return {
+        s: (math.sin(2 * math.pi * k / n), -math.cos(2 * math.pi * k / n))
+        for k, s in enumerate(order)
+    }
+
+
 def order_layers(
     layer: Mapping[str, int], edges: Sequence[tuple[str, str]], sweeps: int = 4
 ) -> dict[str, float]:
@@ -207,7 +222,8 @@ def to_unit(
             continue
         xs = [v[0] for v in p.values()]
         lo = min(xs)
-        shifted.append({n: (v[0] - lo + x0, v[1]) for n, v in p.items()})
+        ylo = min(v[1] for v in p.values())
+        shifted.append({n: (v[0] - lo + x0, v[1] - ylo) for n, v in p.items()})
         x0 += max(xs) - lo + 2.0
     allp = [v for p in shifted for v in p.values()]
     if not allp:
@@ -293,7 +309,10 @@ def build_stg(doc: Mapping[str, Any], top: str, ix: Index, cd: cells.CellData | 
                 "wire": gr.get("label", ""),
             }
         if ids:
-            parts.append(layout_graph(layers_bfs(ids, pairs, root), pairs))
+            lay = layers_bfs(ids, pairs, root)
+            parts.append(
+                layout_circle(lay, root) if len(ids) <= CIRCLE_MAX else layout_graph(lay, pairs)
+            )
         link_stg(g, gr, ids, ix, cd)
     g.metrics["is_reset"] = reset
     g.layout = to_unit(parts)

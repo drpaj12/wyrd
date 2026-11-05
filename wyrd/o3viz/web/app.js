@@ -6,6 +6,7 @@ import { spearman, mutualInfo } from "./stats.js";
 import * as pl from "./layout.js";
 import { characterize, edgeLength, cellEdges } from "./circuit.js";
 import { barChart, drawMatrix, drawShape, cellAt } from "./circuitdraw.js";
+import { GRAPHS, KEYS as GKEYS, isGraph, khopEdges, nodeEdges, edgeClass, propagate } from "./graphview.js";
 import { parseSpan, innermost, hdlCovering, reachDown, cone as coneOf, chainFor, tiers as tiersOf, mixOf, meanMix, mixRGB, mixText, busHue, bitLight } from "./select.js";
 
 const BUNDLE = "./bundle/";
@@ -20,7 +21,8 @@ const S = { man: null, planes: {}, order: [], links: [], up: new Map(), down: ne
   height: "", fade: "", slot: {}, anchor: "", brush: null, vis: {}, view: "stack",
   lineSel: null, mode: { type: "none" }, focus: null, solo: null, cone: null, coneOn: false, path: null, paths: [], texts: {},
   srcFile: "", morph: { a: "", b: "", m: 0 }, group: { mode: "", expanded: new Set(), keys: {}, blobs: {} }, edges: null, edgeOn: false,
-  cl: null, csrc: "", clCache: {}, anchorMeta: {}, cellEdges: null, tier: null, tierInfo: null, ff: "off", busIndex: new Map(), busWidth: new Map(), busFilter: "", ffSlot: {}, clbFF: null };
+  cl: null, csrc: "", clCache: {}, anchorMeta: {}, cellEdges: null, tier: null, tierInfo: null, ff: "off", busIndex: new Map(), busWidth: new Map(), busFilter: "", ffSlot: {}, clbFF: null,
+  g: { data: {}, hops: 1, all: false, labels: true } };
 
 async function getJson(path) {
   const r = await fetch(BUNDLE + path);
@@ -40,6 +42,7 @@ export async function loadBundle() {
     (S.up.get(b) ?? S.up.set(b, []).get(b)).push(a);
   }
   for (const p of S.order) S.planes[p].ids.forEach((id, i) => S.byId.set(id, { plane: p, i }));
+  for (const p of S.order) if (isGraph(p)) { S.vis[p] = false; S.g.data[p] = await getJson(`graphs/${p}.json`); }
   (S.man.buses ?? []).forEach((b, k) => { S.busIndex.set(b.name, k); S.busWidth.set(b.name, b.width); });
   if (S.man.paths > 0) S.paths = (await getJson("paths.json")).paths;
   const files = new Set(Object.keys(S.man.inputs ?? {}));
@@ -105,7 +108,10 @@ let renderer, scene, camera, controls, group, raycaster, meshes = {}, quads = {}
 const dummy = new THREE.Object3D();
 const cx = () => (S.bounds[0] + S.bounds[2]) / 2;
 const cz = () => (S.bounds[1] + S.bounds[3]) / 2;
-const planeY = (k) => (S.order.length - 1 - k) * S.gap;
+// a graph plane that is switched off leaves no gap in the stack
+const active = (p) => !(isGraph(p) && S.vis[p] === false);
+const activeCount = () => S.order.filter(active).length;
+const planeY = (k) => S.order.slice(k + 1).filter(active).length * S.gap;
 
 // One shape per object kind inside a plane (shape channel): the kinds of a plane are sorted and take the
 // shapes in this order.
@@ -115,7 +121,7 @@ const SHAPES = [
   () => new THREE.TetrahedronGeometry(1.3), () => new THREE.DodecahedronGeometry(1.1),
 ];
 const CONE_COL = { seed: "#ffb454", in: "#5fe0ff", out: "#ff6fd8" };
-const RADIUS = { hdl: 0.22, cell: 0.17, lut: 0.17, clb: 0.2, placed: 0.11 };
+const RADIUS = { stg: 0.14, cfg: 0.1, ddg: 0.07, hdl: 0.22, cell: 0.17, lut: 0.17, clb: 0.2, placed: 0.11 };
 const TIER_COL = { A: "#ff9f1c", B: "#2ec4b6", C: "#9b8cff" };
 const TIER_NAME = { A: "own: only this item", B: "shared: case select / mux, serves this item and others", C: "context: the rest of the case" };
 const FF_COL = "#ff4fd8";
@@ -123,11 +129,11 @@ const FF_COL = "#ff4fd8";
 const isFF = (p, i) => S.planes[p].metrics.is_ff?.[i] === 1;
 const ffCount = (p, i) => (p === "clb" ? S.planes.clb.metrics.ffs_inside?.[i] ?? 0 : 0);
 
-function label(text) {
+function label(text, fs = 34, col = "#d8dee6") {
   const c = document.createElement("canvas");
   c.width = 256; c.height = 64;
   const g = c.getContext("2d");
-  g.fillStyle = "#d8dee6"; g.font = "bold 34px sans-serif"; g.fillText(text, 6, 44);
+  g.fillStyle = col; g.font = `bold ${fs}px sans-serif`; g.fillText(text, 6, 44);
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthTest: false }));
   s.scale.set(4, 1, 1);
   return s;
@@ -195,6 +201,7 @@ function layout() {
   });
   drawLines();
   drawAnchorLabels();
+  drawGraphs();
 }
 
 // level ticks and strip names of the Hutton / Kundarewich anchors, on the lut plane
@@ -402,7 +409,7 @@ function refreshBlobs(p) {
   bl.mesh.computeBoundingSphere();
 }
 
-const refreshAll = () => { S.order.forEach(refreshPlane); refreshClbFF(); drawFFEdges(); drawLines(); drawEdges(); drawPathLines(); legend(); };
+const refreshAll = () => { S.order.forEach(refreshPlane); refreshClbFF(); drawFFEdges(); drawLines(); drawEdges(); drawPathLines(); drawGraphs(); legend(); };
 
 // position on the plane: a flip-flop with a driver (d.attach) sits beside it as a small piece of it
 function posOf(plane, i) {
@@ -513,7 +520,7 @@ function resize() {
 function resetCamera() {
   S.focus = null; markFocus();
   const W = Math.max(S.bounds[2] - S.bounds[0], S.bounds[3] - S.bounds[1]);
-  const h = (S.order.length - 1) * S.gap;
+  const h = (activeCount() - 1) * S.gap;
   controls.target.set(0, h / 2, 0);
   const dist = Math.max(h * 1.1, W * 1.5) * 1.9;
   camera.position.set(dist * 0.5, h / 2 + dist * 0.42, dist * 0.75);
@@ -554,8 +561,8 @@ function setTier(hdlIds) {
   for (const id of hdlIds) {
     const ch = chainFor(hdl, id);
     if (!ch) continue;
-    const hdlOf = (x) => (S.up.get(x) ?? []).filter((u) => S.byId.get(u)?.plane === "hdl" && !u.startsWith("hdl:sig."));
-    const rest = S.order.slice(1).map((p) => [p, S.planes[p].ids]);
+    const hdlOf = (x) => [...(S.up.get(x) ?? []), ...(S.down.get(x) ?? [])].filter((u) => S.byId.get(u)?.plane === "hdl" && !u.startsWith("hdl:sig."));
+    const rest = S.order.filter((p) => p !== "hdl").map((p) => [p, S.planes[p].ids]);
     S.tier = tiersOf(ch, hdl.ids.filter((x) => !x.startsWith("hdl:sig.")), hdlOf, rest, (x) => S.up.get(x) ?? []);
     S.tierInfo = { chain: ch.chain, item: ch.item, items: ch.items };
     computeMix();
@@ -603,7 +610,9 @@ export function select(id) {
     if (k) S.group.expanded.add(k);
   }
   S.core = new Set([...closure(id, "up"), ...closure(id, "down")]);
-  setTier(S.byId.get(id).plane === "hdl" ? [id] : []);
+  const o = S.byId.get(id);
+  // a CFG case node gets the same three tiers as its HDL item
+  setTier(o.plane === "hdl" ? [id] : o.plane === "cfg" && S.planes.cfg.kind[o.i] === "case" ? (S.down.get(id) ?? []).filter((x) => S.byId.get(x)?.plane === "hdl") : []);
   afterSelection();
 }
 function clearSel() {
@@ -673,6 +682,8 @@ function showSelection() {
       (m.n ? `${m.n} ${$("enclosing").checked ? "covering" : "innermost covering"} construct${m.n === 1 ? "" : "s"}` : "no construct covers it") + "</div>";
   } else if (m.type === "path") html += `<div><b>Path</b>: ${esc(S.pathInfo ?? "")}</div>`;
   else if (m.type === "brush") html += `<div><b>Brush</b>: ${m.n} objects of ${m.plane}</div>`;
+  if (m.type === "gedge") html += `<div><b>${esc(m.text)}</b>: ${m.n} HDL construct${m.n === 1 ? "" : "s"} with its span, highlighted with the ends</div>`;
+  if (m.type === "obj" && S.sel && isGraph(S.byId.get(S.sel).plane)) html += graphPanel(S.sel);
   if (m.type === "cell") html += `<div><b>${esc(m.text)}</b>: ${m.n} edges, highlighted in yellow; their endpoints and the HDL lines behind them are selected</div>`;
   if (m.type === "bus") html += `<div><b>Bus ${esc(m.name)}</b>: ${m.n} objects across the planes${m.decl ? "; declared at line " + m.decl[1].split(".")[0] : ""}</div>`;
   if (S.tier) html += tierTable();
@@ -682,6 +693,130 @@ function showSelection() {
   $("sel").className = "";
   $("sel").innerHTML = html;
   $("sel").querySelectorAll("button[data-focus]").forEach((b) => b.addEventListener("click", () => focusPlane(b.dataset.focus)));
+  $("sel").querySelectorAll("tr.gedge").forEach((r) => r.addEventListener("click", () => selectEdge(r.dataset.k, Number(r.dataset.i))));
+  $("sel").querySelectorAll("button[data-bus]").forEach((b) => b.addEventListener("click", () => selectBus(b.dataset.bus)));
+}
+
+// ---- graph planes ----
+const GCOL = { data: 0x5fa8ff, control: 0xff6fd8, transition: 0x2ec4b6, seq: 0x8b96a3 };
+const GCSS = { data: "#5fa8ff", control: "#ff6fd8", transition: "#2ec4b6", seq: "#8b96a3" };
+let gLines = [], gLabels = [];
+function clearGraphDraw() {
+  for (const l of gLines) { group.remove(l); l.geometry.dispose(); l.material.dispose(); }
+  for (const l of gLabels) { group.remove(l); l.material.map.dispose(); l.material.dispose(); }
+  gLines = []; gLabels = [];
+}
+const hotOf = (kind) => new Set([...highlighted()].filter((id) => S.byId.get(id)?.plane === kind));
+// the edge segments of one graph plane: [from, to, class, seq, hot]
+function graphSegments(kind) {
+  const gd = S.g.data[kind], edges = gd.edges, hot = hotOf(kind);
+  const seeds = new Set([S.sel, ...(S.brush ?? []), ...S.core].filter((id) => S.byId.get(id)?.plane === kind));
+  const pick = kind === "ddg" && !S.g.all ? khopEdges(edges, seeds, S.g.hops) : null;
+  const out = [];
+  edges.forEach((e, i) => {
+    if (pick && !pick.has(i)) return;
+    if (!S.byId.has(e[0]) || !S.byId.has(e[1])) return;
+    out.push([e[0], e[1], edgeClass(e[2]), e[4] === 1, hot.has(e[0]) || hot.has(e[1])]);
+  });
+  return out;
+}
+function pushSeg(seg, kind, solid, dashed) {
+  const [a, b, cls, seq, hot] = seg;
+  const pa = worldPos(kind, a), pb = worldPos(kind, b);
+  const c = new THREE.Color(hot ? 0xffb454 : GCOL[cls]), dim = c.clone().lerp(BG, 0.55);
+  const into = seq ? dashed : solid;
+  const r = unitR(kind) * 1.4;
+  const add = (p, q, c0, c1) => { into.pts.push(p, q); into.cols.push(c0.r, c0.g, c0.b, c1.r, c1.g, c1.b); };
+  if (a === b) {  // self loop: a small octagon beside the node
+    for (let k = 0; k < 8; k++) {
+      const t0 = (k / 8) * 2 * Math.PI, t1 = ((k + 1) / 8) * 2 * Math.PI;
+      const q0 = pa.clone().add(new THREE.Vector3(r * (1 + Math.cos(t0)), 0, r * Math.sin(t0)));
+      const q1 = pa.clone().add(new THREE.Vector3(r * (1 + Math.cos(t1)), 0, r * Math.sin(t1)));
+      add(q0, q1, c, c);
+    }
+    return;
+  }
+  add(pa, pb, dim, c);
+  if (solid.arrows) {  // arrow head at the target
+    const d = pb.clone().sub(pa).setY(0);
+    if (d.length() < 1e-6) return;
+    d.normalize();
+    const base = pb.clone().addScaledVector(d, -r);
+    const side = new THREE.Vector3(-d.z, 0, d.x).multiplyScalar(r * 0.5);
+    solid.pts.push(pb, base.clone().add(side), pb, base.clone().sub(side));
+    solid.cols.push(c.r, c.g, c.b, c.r, c.g, c.b, c.r, c.g, c.b, c.r, c.g, c.b);
+  }
+}
+function lineObj(set, dashed, kind) {
+  const g = new THREE.BufferGeometry().setFromPoints(set.pts);
+  g.setAttribute("color", new THREE.Float32BufferAttribute(set.cols, 3));
+  const unit = unitR(kind);
+  const m = dashed ? new THREE.LineDashedMaterial({ vertexColors: true, dashSize: unit * 0.9, gapSize: unit * 0.6, transparent: true, opacity: 0.85 })
+    : new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9 });
+  const l = new THREE.LineSegments(g, m);
+  if (dashed) l.computeLineDistances();
+  return l;
+}
+function drawGraphs() {
+  if (!group) return;
+  clearGraphDraw();
+  let msg = "";
+  for (const kind of GRAPHS) {
+    const gd = S.g.data[kind];
+    if (!gd || S.vis[kind] === false || !(S.view === "stack" || S.view === kind)) continue;
+    const segs = graphSegments(kind);
+    const solid = { pts: [], cols: [], arrows: segs.length <= 600 }, dashed = { pts: [], cols: [] };
+    for (const s of segs) pushSeg(s, kind, solid, dashed);
+    if (solid.pts.length) { const l = lineObj(solid, false, kind); group.add(l); gLines.push(l); }
+    if (dashed.pts.length) { const l = lineObj(dashed, true, kind); group.add(l); gLines.push(l); }
+    const d = S.planes[kind];
+    if (S.g.labels && d.ids.length <= 80) {
+      d.ids.forEach((id, i) => {
+        const s = label(String(d.name[i]).replace(/^\\/, "").slice(0, 15), 26);
+        const sc = Math.max(0.5, Math.max(S.bounds[2] - S.bounds[0], S.bounds[3] - S.bounds[1]) / 100);
+        s.scale.set(4 * sc, sc, 1);
+        const p = worldPos(kind, id);
+        s.position.set(p.x + 2 * sc, p.y + 0.5 * sc, p.z);
+        group.add(s); gLabels.push(s);
+      });
+    }
+    if (S.g.labels && kind !== "ddg") edgeLabels(kind, gd);
+    if (kind === "ddg" && !S.g.all && !segs.length) msg = "ddg: select a signal (or an HDL line) to see its edges; tick all edges to draw the whole graph";
+  }
+  const el = document.getElementById("gmsg");
+  if (el) el.textContent = msg;
+}
+// edge labels (transition conditions, case patterns) at the middle of the edge, when there are not too many
+function edgeLabels(kind, gd) {
+  const rows = gd.edges.filter((e) => e[3] && S.byId.has(e[0]) && S.byId.has(e[1]));
+  if (rows.length > 80) return;
+  const sc = Math.max(0.5, Math.max(S.bounds[2] - S.bounds[0], S.bounds[3] - S.bounds[1]) / 120);
+  for (const e of rows) {
+    const a = worldPos(kind, e[0]), b = worldPos(kind, e[1]);
+    const mid = e[0] === e[1] ? a.clone().add(new THREE.Vector3(unitR(kind) * 3, 0, 0)) : a.clone().lerp(b, 0.5);
+    const s = label(String(e[3]).slice(0, 16), 24, e[2] === "transition" ? "#7fe3d6" : "#ffb454");
+    s.scale.set(4 * sc, sc, 1);
+    s.position.set(mid.x + 2 * sc, mid.y + 0.3 * sc, mid.z);
+    group.add(s); gLabels.push(s);
+  }
+}
+function graphPanel(id) {
+  const { plane, i } = S.byId.get(id), gd = S.g.data[plane], d = S.planes[plane];
+  const det = gd.detail[id] ?? {};
+  let h = `<h2>${plane.toUpperCase()} node</h2><div class="sub">${esc(d.name[i])}</div>`;
+  if (det.code !== undefined) h += `<div>state code <b>${esc(det.code)}</b> (MSB first), register ${esc(det.wire)}; reset state: ${d.metrics.is_reset?.[i] === 1 ? "yes" : "no"}</div>` +
+    `<div class="sub">Linked: the state register (declaration, flip-flops) and the next-state selection logic. The fsm pass does not attribute a state to one case item.</div>`;
+  if (det.compares?.length) h += `<div>patterns: ${esc(det.compares.join(", "))}</div>`;
+  if (det.signal) h += `<div>selector: ${esc(det.signal)}</div>`;
+  if (det.actions?.length) h += "<div class=\"sub\">actions: " + det.actions.map((a) => esc(`${a[0]} <= ${a[1]}`.slice(0, 60))).join("; ") + "</div>";
+  const es = nodeEdges(gd.edges, id), shown = es.slice(0, 40);
+  h += `<table>` + shown.map((e) => {
+    const r = gd.edges[e.idx];
+    return `<tr class="gedge" data-k="${plane}" data-i="${e.idx}" style="cursor:pointer"><td style="color:${GCSS[edgeClass(r[2])]}">${e.dir === "in" ? "&larr;" : "&rarr;"}</td><td>${esc(r[2])}${r[4] ? " (seq)" : ""}</td><td>${esc(e.other.split(":").slice(1).join(":"))}${r[3] ? " [" + esc(r[3]) + "]" : ""}</td></tr>`;
+  }).join("") + "</table>" + (es.length > 40 ? `<div class="sub">${es.length - 40} more edges not listed</div>` : "");
+  const bus = d.name[i];
+  if (plane === "stg" && det.wire && S.busIndex.has(det.wire.split(".").pop())) h += `<button data-bus="${esc(det.wire.split(".").pop())}">select the state register bus</button>`;
+  return h;
 }
 
 // ---- source pane: the whole HDL file, line numbers; click or drag lines to select what they produced ----
@@ -786,12 +921,28 @@ function selectLines(file, a, b) {
   S.lineSel = { file, a, b };
   S.mode = { type: "line", file, a: Math.min(a, b), b: Math.max(a, b), n: ids.length };
   setTier(ids);
-  if (!ids.length) { S.brush = null; S.core = new Set(); }
-  else {
-    const r = reachDown(ids, S.order, (id) => S.byId.get(id)?.plane, S.down);
-    S.brush = new Set(ids);
-    S.core = new Set(S.order.slice(1).flatMap((p) => [...r[p]]));
-  }
+  hdlSelection(ids);
+  afterSelection();
+}
+// the brush is a set of HDL constructs; everything linked below (cell, lut, clb, placed) and above (graph planes)
+function hdlSelection(ids) {
+  if (!ids.length) { S.brush = null; S.core = new Set(); return; }
+  const r = reachDown(ids, S.order, (id) => S.byId.get(id)?.plane, S.down);
+  S.brush = new Set(ids);
+  const up = ids.flatMap((id) => (S.up.get(id) ?? []).filter((u) => isGraph(S.byId.get(u)?.plane)));
+  S.core = new Set([...S.order.filter((p) => p !== "hdl" && !isGraph(p)).flatMap((p) => [...r[p]]), ...up]);
+}
+// click an edge row of the panel: its two ends and the HDL it comes from
+export function selectEdge(kind, idx) {
+  const e = S.g.data[kind]?.edges[idx];
+  if (!e) return;
+  const hdl = S.planes.hdl, ids = [];
+  const spans = new Set(e[5].map((x) => x[1]));
+  hdl.src.forEach((s, i) => { if (s[0] && spans.has(s[0][1])) ids.push(hdl.ids[i]); });
+  S.sel = null; S.path = null; S.lineSel = null; S.tier = null; S.tierInfo = null;
+  S.mode = { type: "gedge", text: `${kind} edge ${e[0].split(":").slice(1).join(":")} to ${e[1].split(":").slice(1).join(":")}${e[3] ? " [" + e[3] + "]" : ""}`, n: ids.length };
+  hdlSelection(ids);
+  S.brush = new Set([...(S.brush ?? []), e[0], e[1]]);
   afterSelection();
 }
 
@@ -962,6 +1113,7 @@ function applyVisibility() {
   }
   if (S.clbFF) S.clbFF.mesh.visible = S.vis.clb !== false && (S.view === "stack" || S.view === "clb");
   drawFFEdges();
+  drawGraphs();
 }
 function setView(v) {
   S.view = v;
@@ -1038,6 +1190,22 @@ function markFocus() {
   for (const p of S.order) if (quads[p]) quads[p].edge.material.color.set(p === S.focus ? 0xffb454 : 0x6d7f99);
 }
 
+const baseOrder = () => S.order.filter((p) => !isGraph(p));
+// keep the checkboxes of the Planes list and of the Graph planes section in step with S.vis
+function syncGraphBoxes() {
+  $("planes").querySelectorAll("input[data-p]").forEach((c) => { c.checked = S.vis[c.dataset.p] !== false; });
+  document.querySelectorAll("#gpanel input[data-g]").forEach((c) => { c.checked = S.vis[c.dataset.g] !== false; });
+}
+// switch a graph plane on or off (keys s, c, d); on: it joins the stack above the HDL plane and takes focus
+export function showGraph(p, on = S.vis[p] === false) {
+  if (!isGraph(p) || !S.order.includes(p)) return;
+  S.vis[p] = on; S.solo = null;
+  syncGraphBoxes();
+  layout();
+  applyVisibility();
+  refreshAll();
+  if (on) focusPlane(p); else if (S.focus === p) focusPlane(null); else resetCamera();
+}
 export function focusPlane(p) {
   if (!p) { S.focus = null; if (S.view === "stack") resetCamera(); markFocus(); return; }
   if (!S.order.includes(p)) return;
@@ -1056,9 +1224,10 @@ export function focusPlane(p) {
 
 export function soloPlane(p) {
   const off = S.solo === p;
-  for (const q of S.order) S.vis[q] = off ? true : q === p;
+  for (const q of S.order) S.vis[q] = off ? !isGraph(q) : q === p;
   S.solo = off ? null : p;
-  $("planes").querySelectorAll("input[data-p]").forEach((c) => { c.checked = S.vis[c.dataset.p] !== false; });
+  syncGraphBoxes();
+  layout();
   applyVisibility();
 }
 
@@ -1433,6 +1602,32 @@ function buildCircuitUi() {
   showCircuit();
 }
 
+// ---- graph planes: switches, k-hop, labels; SCOAP colour with joins ----
+function buildGraphUi() {
+  const kinds = S.order.filter(isGraph);
+  $("gsec").style.display = kinds.length ? "" : "none";
+  $("gpanel").innerHTML = kinds.map((p) => `<label class="row"><input type="checkbox" data-g="${p}" style="width:auto"> ${p} ` +
+    `(${S.planes[p].ids.length} nodes, ${S.g.data[p].edges.length} edges; key ${Object.keys(GKEYS).find((k) => GKEYS[k] === p)})</label>`).join("");
+  $("gpanel").querySelectorAll("input[data-g]").forEach((c) => c.addEventListener("change", () => showGraph(c.dataset.g, c.checked)));
+  $("gall").addEventListener("change", (e) => { S.g.all = e.target.checked; drawGraphs(); });
+  $("ghops").addEventListener("change", (e) => { S.g.hops = Number(e.target.value); drawGraphs(); });
+  $("glabels").addEventListener("change", (e) => { S.g.labels = e.target.checked; drawGraphs(); });
+  $("scoapgo").addEventListener("click", () => { setColour(scoapColour($("scoapm").value, $("scoapop").value)); });
+  syncGraphBoxes();
+}
+// metric `m` (cc0, cc1, co) on every plane: its own value where measured (lut, placed, ddg), else min, max or mean
+// over the linked objects that have one (direct links, repeated so the value reaches hdl, stg and cfg)
+export function scoapColour(m, op) {
+  if (!meta(m) || !["min", "max", "mean"].includes(op)) throw new Error("bad scoap join");
+  const name = `${m}_${op}_all`;
+  const cols = Object.fromEntries(S.order.map((p) => [p, S.planes[p].metrics[m] ?? S.planes[p].ids.map(() => null)]));
+  const ids = Object.fromEntries(S.order.map((p) => [p, S.planes[p].ids]));
+  const out = propagate(cols, ids, (id) => [...(S.up.get(id) ?? []), ...(S.down.get(id) ?? [])],
+    (id) => { const o = S.byId.get(id); return [o.plane, o.i]; }, op);
+  addMetric(name, meta(m).scale, `${m}: own value where Odin III's scoap pass measured it, else ${op} over the linked objects that have one`, out);
+  return name;
+}
+
 function buildUi() {
   fillMetricSelects();
   $("colour").addEventListener("change", (e) => { S.colour = e.target.value; refreshAll(); });
@@ -1476,13 +1671,16 @@ function buildUi() {
   $("gap").addEventListener("input", (e) => { S.gap = Number(e.target.value); layout(); resetCamera(); });
   $("reset").addEventListener("click", resetCamera);
   $("clear").addEventListener("click", clearSel);
-  $("planes").innerHTML = S.order.map((p, k) =>
-    `<div class="prow"><input type="checkbox" data-p="${p}" checked style="width:auto"><b style="color:var(--fg);flex:0 0 52px">${k + 1} ${p}</b>` +
+  const baseKey = (p) => (isGraph(p) ? Object.keys(GKEYS).find((k) => GKEYS[k] === p) : String(baseOrder().indexOf(p) + 1));
+  $("planes").innerHTML = S.order.map((p) =>
+    `<div class="prow"><input type="checkbox" data-p="${p}"${S.vis[p] === false ? "" : " checked"} style="width:auto"><b style="color:var(--fg);flex:0 0 52px">${baseKey(p)} ${p}</b>` +
     `<button data-f="${p}">focus</button><button data-s="${p}">solo</button></div>` +
     `<label class="row">opacity<input type="range" data-o="${p}" min="0" max="1" step="0.05" value="0.12"></label>`).join("");
   $("planes").querySelectorAll("input[data-p]").forEach((c) => c.addEventListener("change", () => {
     S.vis[c.dataset.p] = c.checked; S.solo = null;
+    if (isGraph(c.dataset.p)) { layout(); resetCamera(); }
     applyVisibility();
+    syncGraphBoxes();
   }));
   $("planes").querySelectorAll("button[data-f]").forEach((b) => b.addEventListener("click", () => focusPlane(b.dataset.f)));
   $("planes").querySelectorAll("button[data-s]").forEach((b) => b.addEventListener("click", () => soloPlane(b.dataset.s)));
@@ -1490,6 +1688,7 @@ function buildUi() {
     quads[c.dataset.o].q.material.opacity = Number(c.value);
   }));
   $("depthpreset").addEventListener("click", () => setColour("logic_level"));
+  buildGraphUi();
   buildPathsUi();
   buildCircuitUi();
   document.querySelectorAll("button[data-tgl]").forEach((b) => b.addEventListener("click", () => togglePanel(b.dataset.tgl)));
@@ -1499,7 +1698,8 @@ function buildUi() {
     const pk = pl.panelForKey(e.key);
     if (pk) { togglePanel(pk); return; }
     if (e.key === "0") focusPlane(null);
-    else if (/^[1-9]$/.test(e.key) && S.order[Number(e.key) - 1]) focusPlane(S.order[Number(e.key) - 1]);
+    else if (GKEYS[e.key]) showGraph(GKEYS[e.key]);
+    else if (/^[1-9]$/.test(e.key) && baseOrder()[Number(e.key) - 1]) focusPlane(baseOrder()[Number(e.key) - 1]);
   });
   $("view").addEventListener("wheel", wheelZoom, { passive: false });
   $("title").textContent = S.man.benchmark;
@@ -1547,11 +1747,12 @@ async function main() {
   new ResizeObserver(resize).observe($("stage"));
   resize();
   buildSource();
+  applyVisibility();
   refreshAll();
   const loop = () => { controls.update(); renderer.render(scene, camera); requestAnimationFrame(loop); };
   loop();
   document.body.dataset.ready = "1";
-  window.__o3viz = { S, changeAnchor, selectCell, showCircuit, characterize, setCluster: (k) => { $("csrc").value = k; $("csrc").dispatchEvent(new Event("change")); }, setCompare: (on, k) => { $("ccompare").checked = on; if (k) $("csrc2").value = k; showCircuit(); }, togglePanel, panelState: () => ({ ...panels }), select, selectBus, tierCounts, setFF: (m) => { S.ff = m; $("ffmode").value = m; refreshAll(); }, selectLines, planeCounts, coverage, focusPlane, soloPlane, showPath, updateCone, markLines, setCone: async (dir, depth) => { $("pathsrc").value = "cone"; showPathPanel(); S.coneOn = true; $("conedir").value = dir; $("conedepth").value = String(depth); await updateCone(); markLines(); }, marksOf: () => Object.fromEntries([...marks].map(([f, m]) => [f, Object.fromEntries(m)])), cam: () => ({ target: controls.target.toArray(), pos: camera.position.toArray() }), wheelAt: (x, y, dy) => wheelZoom({ preventDefault() {}, clientX: x, clientY: y, deltaY: dy, deltaMode: 0 }), discover, setView, setGroupMode, discoverMatrix, brushAll: (p) => { S.brush = new Set(S.planes[p].ids.slice(0, 30)); S.core = new Set(); refreshAll(); },
+  window.__o3viz = { S, selectEdge, showGraph, scoapColour, drawGraphs, khopEdges, changeAnchor, selectCell, showCircuit, characterize, setCluster: (k) => { $("csrc").value = k; $("csrc").dispatchEvent(new Event("change")); }, setCompare: (on, k) => { $("ccompare").checked = on; if (k) $("csrc2").value = k; showCircuit(); }, togglePanel, panelState: () => ({ ...panels }), select, selectBus, tierCounts, setFF: (m) => { S.ff = m; $("ffmode").value = m; refreshAll(); }, selectLines, planeCounts, coverage, focusPlane, soloPlane, showPath, updateCone, markLines, setCone: async (dir, depth) => { $("pathsrc").value = "cone"; showPathPanel(); S.coneOn = true; $("conedir").value = dir; $("conedepth").value = String(depth); await updateCone(); markLines(); }, marksOf: () => Object.fromEntries([...marks].map(([f, m]) => [f, Object.fromEntries(m)])), cam: () => ({ target: controls.target.toArray(), pos: camera.position.toArray() }), wheelAt: (x, y, dy) => wheelZoom({ preventDefault() {}, clientX: x, clientY: y, deltaY: dy, deltaMode: 0 }), discover, setView, setGroupMode, discoverMatrix, brushAll: (p) => { S.brush = new Set(S.planes[p].ids.slice(0, 30)); S.core = new Set(); refreshAll(); },
     setEdges: async (m, h) => { S.edgeMode = m; S.hops = h ?? 1; await ensureEdges(); drawEdges(); }, setMorph: (a, b, m) => { S.morph = { a, b, m }; refreshAll(); }, addExpr, addAgg, setHeight: (n) => { S.height = n; $("height").value = n; refreshAll(); },
     setAnchor: async (n) => { $("anchor").value = n; $("anchor").dispatchEvent(new Event("change")); }, setColour,
     setSize: (n) => { S.size = n; $("size").value = n; refreshAll(); }, stop: () => { controls.autoRotate = false; } };
