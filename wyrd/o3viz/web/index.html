@@ -32,6 +32,10 @@
   .ln .no { flex:0 0 52px; text-align:right; padding-right:10px; color:#5d6978; }
   .ln .tx { flex:1; padding-right:20px; }
   .ln.hitw { background:#ffb4541f; } .ln.hit { background:#ffb45440; box-shadow:inset 3px 0 0 var(--acc); }
+  .ln.tA { background:#ff9f1c3a; box-shadow:inset 3px 0 0 #ff9f1c; } .ln.tB { background:#2ec4b63a; box-shadow:inset 3px 0 0 #2ec4b6; }
+  .ln.tC { background:#9b8cff1c; }
+  #buslist { max-height:220px; overflow:auto; margin:4px 0; } #buslist .bus { padding:1px 2px; cursor:pointer; font-size:12px; }
+  #buslist .bus:hover { background:#ffb45433; }
   .ln.sel { background:#4f9dff55; box-shadow:inset 3px 0 0 #4f9dff; }
   #stage { position:relative; flex:1; min-width:0; min-height:0; } #view { position:absolute; inset:0; }
   .prow { display:flex; align-items:center; gap:6px; margin:2px 0; } .prow b { flex:0 0 60px; color:var(--acc); }
@@ -62,8 +66,13 @@
     <h2>Colour</h2><select id="colour"></select>
     <div id="legend"><div id="bar"></div><div class="ends"><span id="lo"></span><span id="mid"></span><span id="hi"></span></div>
     <div class="sub" id="unit"></div></div>
+    <div id="buspanel" style="display:none"><input id="busfilter" placeholder="filter buses">
+      <div id="buslist"></div><div class="sub" id="busnone"></div></div>
     <button id="depthpreset">colour = logic depth (all planes)</button>
     <div class="sub" id="cover"></div>
+    <h2>Flip-flops</h2>
+    <select id="ffmode"><option value="off">cubes only</option><option value="highlight">highlight FFs</option><option value="only">FFs only (others dimmed)</option></select>
+    <div class="sub">FFs are small pink cubes: beside the LUT that drives them on lut and placed, around their cluster on clb.</div>
     <h2>Size</h2><select id="size"></select>
     <h2>Height</h2><select id="height"></select>
     <h2>Fade</h2><select id="fade"></select>

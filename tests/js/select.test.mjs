@@ -67,3 +67,60 @@ test("cone: depth limit and both directions", () => {
   assert.equal(b.nodes.get("d"), "out");
   assert.ok(b.edges.some(([x, y]) => x === "b" && y === "c"));
 });
+
+import { chainFor, tiers, parseBus, busHue, bitLight, declLine } from "../../wyrd/o3viz/web/select.js";
+
+// module m > always a > case c > items i1 (with inner stmt s1), i2, i3
+const H = {
+  ids: ["m", "a", "c", "i1", "s1", "i2", "i3"],
+  type: ["block", "block", "stmt", "branch", "stmt", "branch", "branch"],
+  parent: [null, "m", "a", "c", "i1", "c", "c"],
+};
+
+test("chainFor finds the case and the item of an inner statement", () => {
+  const ch = chainFor(H, "s1");
+  assert.equal(ch.chain, "c");
+  assert.equal(ch.item, "i1");
+  assert.deepEqual(ch.items, ["i1", "i2", "i3"]);
+  assert.equal(chainFor(H, "a"), null);
+});
+
+test("three tiers on a three-item case: own, shared, context", () => {
+  const ch = chainFor(H, "i1");
+  const links = {
+    mux1: ["m", "a", "c", "i1"], // only item 1
+    sel: ["m", "a", "c", "i1", "i2", "i3"], // the case select
+    mux2: ["m", "a", "c", "i2"], // only item 2
+    ctl: ["m", "a", "c"], // case logic, no item
+    other: ["m"],
+  };
+  const t = tiers(ch, H.ids, (id) => links[id] ?? [], [["cell", Object.keys(links)]], () => []);
+  assert.equal(t.get("mux1"), "A");
+  assert.equal(t.get("sel"), "B");
+  assert.equal(t.get("ctl"), "B");
+  assert.equal(t.get("mux2"), "C");
+  assert.equal(t.has("other"), false);
+  assert.equal(t.get("i1"), "A");
+  assert.equal(t.get("s1"), "A");
+  assert.equal(t.get("c"), "B");
+  assert.equal(t.get("i3"), "C");
+});
+
+test("a plane without hdl links takes the best tier of what links above it", () => {
+  const ch = chainFor(H, "i1");
+  const up = { clb1: ["lutA", "lutC"], clb2: ["lutC"] };
+  const hl = { lutA: ["c", "i1"], lutC: ["c", "i2"] };
+  const t = tiers(ch, H.ids, (id) => hl[id] ?? [], [["lut", ["lutA", "lutC"]], ["clb", ["clb1", "clb2"]]], (id) => up[id] ?? []);
+  assert.equal(t.get("clb1"), "A");
+  assert.equal(t.get("clb2"), "C");
+});
+
+test("bus names, colours and declaration lines", () => {
+  assert.deepEqual(parseBus("return_val[24]"), { base: "return_val", bit: 24 });
+  assert.deepEqual(parseBus("clk"), { base: "clk", bit: null });
+  assert.notEqual(busHue(0), busHue(1));
+  assert.ok(bitLight(0, 32) < bitLight(31, 32));
+  assert.equal(bitLight(null, 32), 0.55);
+  assert.equal(declLine(["x", "reg [31:0] var0;", "wire a;"], "var0"), 2);
+  assert.equal(declLine(["x"], "var0"), 0);
+});

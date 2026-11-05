@@ -92,3 +92,77 @@ export function cone(edges, seeds, dir, depth, through) {
   }
   return { nodes, edges: used };
 }
+
+// ---- case / if-chain tiers ----
+// hdl: the hdl plane (ids, type = construct level, kind, parent). A chain is a construct with two or more
+// children of level "branch" (a case or an if/else chain); its items are those children.
+export function chainFor(hdl, id) {
+  const idx = new Map(hdl.ids.map((x, i) => [x, i]));
+  const parentOf = (x) => hdl.parent?.[idx.get(x)] ?? null;
+  const kids = new Map();
+  hdl.ids.forEach((x, i) => {
+    const p = hdl.parent?.[i];
+    if (p && hdl.type[i] === "branch") (kids.get(p) ?? kids.set(p, []).get(p)).push(x);
+  });
+  for (let x = id, guard = 0; x && guard < 10000; x = parentOf(x), guard++) {
+    const p = parentOf(x);
+    if (p && hdl.type[idx.get(x)] === "branch" && (kids.get(p)?.length ?? 0) >= 2) {
+      return { chain: p, item: x, items: kids.get(p), parentOf };
+    }
+  }
+  return null;
+}
+
+const itemOf = (x, items, parentOf) => {
+  for (let g = 0; x && g < 10000; x = parentOf(x), g++) if (items.has(x)) return x;
+  return null;
+};
+
+// Tier per object id. A: reaches the clicked item and no sibling item. B: reaches the clicked item and also a
+// sibling or the case selector, or is logic of the chain itself (select/mux). C: reaches only other items.
+// hdlOf(id) -> hdl ids the object links to; planeOrder: [[plane, ids]] after hdl in stack order; upOf(id) -> ids
+// linked above (used by planes without direct hdl links).
+export function tiers(ch, hdlIds, hdlOf, planeOrder, upOf) {
+  const items = new Set(ch.items), out = new Map();
+  const under = (x, it) => itemOf(x, new Set([it]), ch.parentOf) === it;
+  for (const x of hdlIds) {
+    if (x === ch.chain) out.set(x, "B");
+    else if (under(x, ch.item)) out.set(x, "A");
+    else if (itemOf(x, items, ch.parentOf)) out.set(x, "C");
+  }
+  const rank = { A: 3, B: 2, C: 1 };
+  for (const [, ids] of planeOrder) {
+    for (const id of ids) {
+      const hs = hdlOf(id);
+      if (hs.length) {
+        const touched = new Set(hs.map((h) => itemOf(h, items, ch.parentOf)).filter(Boolean));
+        if (touched.has(ch.item)) out.set(id, touched.size === 1 ? "A" : "B");
+        else if (touched.size) out.set(id, "C");
+        else if (hs.includes(ch.chain)) out.set(id, "B");
+      } else {
+        let best = null;
+        for (const u of upOf(id)) { const t = out.get(u); if (t && (!best || rank[t] > rank[best])) best = t; }
+        if (best) out.set(id, best);
+      }
+    }
+  }
+  return out;
+}
+
+// ---- buses ----
+// "return_val[24]" -> {base: "return_val", bit: 24}
+export function parseBus(name) {
+  const m = /^(.+)\[(\d+)\]$/.exec(name ?? "");
+  return m ? { base: m[1], bit: +m[2] } : { base: name, bit: null };
+}
+// hue (degrees) of bus number k: golden-angle steps keep neighbours apart
+export const busHue = (k) => (k * 137.508) % 360;
+// lightness of a bit: the low bit is dark, the high bit light; a whole word (bit null) sits in the middle
+export const bitLight = (bit, width) => (bit === null || bit === undefined || width <= 1 ? 0.55 : 0.32 + 0.4 * (bit / (width - 1)));
+
+// First line of `lines` (array of text) that declares `name` (reg, wire, input, output), or 0
+export function declLine(lines, name) {
+  const rx = new RegExp(String.raw`\b(reg|wire|input|output|inout)\b[^;]*\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\b`);
+  const i = lines.findIndex((l) => rx.test(l));
+  return i < 0 ? 0 : i + 1;
+}
