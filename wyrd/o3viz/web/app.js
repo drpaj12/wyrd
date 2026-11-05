@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { OrbitControls } from "./vendor/OrbitControls.js";
 import { parse, evaluate, varsOf } from "./expr.js";
 import { spearman, mutualInfo } from "./stats.js";
+import { parseSpan, innermost, hdlCovering, reachDown, cone as coneOf } from "./select.js";
 
 const BUNDLE = "./bundle/";
 const GREY = new THREE.Color("#5b6572");
@@ -14,7 +15,8 @@ const $ = (id) => document.getElementById(id);
 const S = { man: null, planes: {}, order: [], links: [], up: new Map(), down: new Map(), pos: {},
   bounds: [0, 0, 1, 1], colour: "", size: "", sel: null, core: new Set(), gap: 6, byId: new Map(), ranges: {},
   height: "", fade: "", slot: {}, anchor: "", brush: null, vis: {}, view: "stack",
-  morph: { a: "", b: "", m: 0 }, group: { mode: "", expanded: new Set(), keys: {}, blobs: {} }, edges: null, edgeOn: false };
+  lineSel: null, mode: { type: "none" }, focus: null, solo: null, cone: null, coneOn: false, path: null, paths: [], texts: {},
+  srcFile: "", morph: { a: "", b: "", m: 0 }, group: { mode: "", expanded: new Set(), keys: {}, blobs: {} }, edges: null, edgeOn: false };
 
 async function getJson(path) {
   const r = await fetch(BUNDLE + path);
@@ -34,6 +36,13 @@ export async function loadBundle() {
     (S.up.get(b) ?? S.up.set(b, []).get(b)).push(a);
   }
   for (const p of S.order) S.planes[p].ids.forEach((id, i) => S.byId.set(id, { plane: p, i }));
+  if (S.man.paths > 0) S.paths = (await getJson("paths.json")).paths;
+  const files = new Set(Object.keys(S.man.inputs ?? {}));
+  for (const p of S.order) for (const srcs of S.planes[p].src) for (const [f] of srcs) files.add(f);
+  for (const f of [...files].sort()) {
+    const r = await fetch(BUNDLE + "hdl/" + f);
+    S.texts[f] = r.ok ? (await r.text()).split("\n") : null;
+  }
   await loadAnchor(S.man.anchors.includes("placement") ? "placement" : S.man.anchors[0]);
 }
 
@@ -93,6 +102,7 @@ const SHAPES = [
   () => new THREE.OctahedronGeometry(1.2), () => new THREE.ConeGeometry(1, 2, 8),
   () => new THREE.TetrahedronGeometry(1.3), () => new THREE.DodecahedronGeometry(1.1),
 ];
+const CONE_COL = { seed: "#ffb454", in: "#5fe0ff", out: "#ff6fd8" };
 const RADIUS = { hdl: 0.22, lut: 0.17, clb: 0.2, placed: 0.11 };
 
 function label(text) {
@@ -110,10 +120,11 @@ function buildScene() {
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
   renderer.setClearColor(BG);
   scene = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera(40, 1, 0.1, 500);
+  camera = new THREE.PerspectiveCamera(40, 1, 0.1, 4000);
   controls = new OrbitControls(camera, canvas);
   controls.enableDamping = true;
   controls.autoRotateSpeed = 1.2;
+  controls.enableZoom = false; // the wheel is handled by wheelZoom (towards the cursor)
   group = new THREE.Group();
   scene.add(group);
   raycaster = new THREE.Raycaster();
@@ -165,8 +176,9 @@ function layout() {
 }
 
 function stateOf(id) {
+  if (S.cone?.nodes.has(id)) return 3;
   if (S.brush) return S.brush.has(id) ? 2 : S.core.has(id) ? 1 : -1;
-  if (!S.sel) return 0;
+  if (!S.sel) return S.cone ? -1 : 0;
   if (id === S.sel) return 2;
   return S.core.has(id) ? 1 : -1;
 }
@@ -214,14 +226,15 @@ function refreshPlane(p) {
     let s = r0;
     if (sz) s *= sz[i] === null ? 0.5 : 0.6 + 1.8 * norm(S.size, sz[i]);
     const st = stateOf(id);
-    if (st === 2) s *= 2.4; else if (st === 1) s *= 1.5; else if (st === -1) s *= 0.55;
+    if (st === 2) s *= S.brush ? 1.5 : 2.4; else if (st === 3) s *= 1.3; else if (st === 1) s *= S.brush ? 1.15 : 1.5; else if (st === -1) s *= 0.55;
     if (hiddenByGroup(p, i)) s = 1e-4;
     dummy.scale.setScalar(s);
     dummy.updateMatrix();
     m.setMatrixAt(j, dummy.matrix);
     let c = col ? colourOf(S.colour, col[i]) : new THREE.Color("#8fc1ff");
     if (fd) c.lerp(BG, 0.85 * (1 - (fd[i] === null ? 0 : norm(S.fade, fd[i]))));
-    if (st === 2) c = new THREE.Color("#ffb454");
+    if (st === 3) c = new THREE.Color(CONE_COL[S.cone.nodes.get(id)] ?? "#5fe0ff");
+    else if (st === 2) c = new THREE.Color("#ffb454");
     else if (st === -1) c.lerp(BG, 0.82);
     m.setColorAt(j, c);
   });
@@ -297,7 +310,7 @@ function refreshBlobs(p) {
   bl.mesh.computeBoundingSphere();
 }
 
-const refreshAll = () => { S.order.forEach(refreshPlane); drawLines(); drawEdges(); legend(); };
+const refreshAll = () => { S.order.forEach(refreshPlane); drawLines(); drawEdges(); drawPathLines(); legend(); };
 
 function worldPos(plane, id) {
   const k = S.order.indexOf(plane), i = S.byId.get(id).i, p = S.pos[plane][id];
@@ -329,6 +342,7 @@ function resize() {
   camera.updateProjectionMatrix();
 }
 function resetCamera() {
+  S.focus = null; markFocus();
   const W = Math.max(S.bounds[2] - S.bounds[0], S.bounds[3] - S.bounds[1]);
   const h = (S.order.length - 1) * S.gap;
   controls.target.set(0, h / 2, 0);
@@ -367,15 +381,28 @@ export function select(id) {
   if (!S.byId.has(id)) return;
   S.sel = id;
   S.brush = null;
+  S.lineSel = null; S.path = null;
+  S.mode = { type: "obj" };
   for (const p of Object.keys(S.group.keys)) {
     const k = S.group.keys[p][S.byId.get(id).plane === p ? S.byId.get(id).i : -1];
     if (k) S.group.expanded.add(k);
   }
   S.core = new Set([...closure(id, "up"), ...closure(id, "down")]);
-  refreshAll();
+  afterSelection();
+}
+function clearSel() {
+  S.sel = null; S.brush = null; S.core = new Set(); S.lineSel = null; S.path = null; S.cone = null;
+  S.mode = { type: "none" };
+  $("pathinfo").textContent = "no path drawn";
+  document.querySelectorAll("#pathlist div.on").forEach((e) => e.classList.remove("on"));
+  refreshAll(); markLines();
+  $("sel").textContent = "Click an HDL line or a node. Everything linked to it is highlighted."; $("sel").className = "sub";
+}
+async function afterSelection() {
+  if (S.coneOn) await updateCone(); else refreshAll();
+  markLines();
   showSelection();
 }
-function clearSel() { S.sel = null; S.brush = null; S.core = new Set(); refreshAll(); $("sel").textContent = "Click a node."; $("sel").className = "sub"; }
 
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 const fmt = (v) => (Number.isInteger(v) ? String(v) : v.toFixed(3));
@@ -390,47 +417,173 @@ function infoRows(id) {
   return rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("");
 }
 
-function spanLines(span) {
-  const m = /^(\d+)\.\d+-(\d+)\.\d+$/.exec(span);
-  return m ? [Number(m[1]), Number(m[2])] : null;
+// objects highlighted (selected, brushed, drawn path or linked) per plane
+function highlighted() {
+  return new Set([...(S.sel ? [S.sel] : []), ...(S.brush ?? []), ...S.core]);
 }
-const srcCache = {};
-async function snippet(file, span) {
-  const ls = spanLines(span);
-  if (!ls) return "";
-  srcCache[file] ??= await fetch(BUNDLE + "hdl/" + file).then((r) => (r.ok ? r.text() : "")).then((t) => t.split("\n"));
-  const lines = srcCache[file];
-  if (!lines.length || lines.length === 1 && !lines[0]) return `<div class="sub">${esc(file)} not in the bundle</div>`;
-  const a = Math.max(1, ls[0] - 1), b = Math.min(lines.length, Math.min(ls[1], ls[0] + 12) + 1);
-  let out = `<div class="sub">${esc(file)}:${esc(span)}</div><pre>`;
-  for (let n = a; n <= b; n++) {
-    const hit = n >= ls[0] && n <= ls[1];
-    out += `<span class="${hit ? "hit" : ""}">${String(n).padStart(4)}  ${esc(lines[n - 1] ?? "")}</span>\n`;
-  }
-  return out + "</pre>";
+export function planeCounts() {
+  const c = Object.fromEntries(S.order.map((p) => [p, 0]));
+  for (const id of highlighted()) c[S.byId.get(id).plane]++;
+  return c;
 }
 
-async function showSelection() {
-  const id = S.sel, { plane, i } = S.byId.get(id);
-  let html = `<table>${infoRows(id)}</table><h2>Column (${S.core.size} linked objects)</h2><div class="col">`;
-  for (const p of S.order) {
-    const ids = [...S.core].filter((x) => S.byId.get(x).plane === p).sort();
-    if (p === plane) html += `<div><b>${p}</b>: ${esc(id)}</div>`;
-    else if (ids.length) {
-      const shown = ids.slice(0, 24).map((x) => `<a data-id="${esc(x)}">${esc(S.planes[p].name[S.byId.get(x).i])}</a>`);
-      html += `<div><b>${p}</b> (${ids.length}): ${shown.join(", ")}${ids.length > 24 ? ", ..." : ""}</div>`;
+function showSelection() {
+  const m = S.mode;
+  let html = "";
+  if (m.type === "obj" && S.sel) html += `<table>${infoRows(S.sel)}</table>`;
+  else if (m.type === "line") {
+    html += `<div><b>HDL ${esc(m.file)} line${m.a === m.b ? " " + m.a : "s " + m.a + "-" + m.b}</b>: ` +
+      (m.n ? `${m.n} ${$("enclosing").checked ? "covering" : "innermost covering"} construct${m.n === 1 ? "" : "s"}` : "no construct covers it") + "</div>";
+  } else if (m.type === "path") html += `<div><b>Path</b>: ${esc(S.pathInfo ?? "")}</div>`;
+  else if (m.type === "brush") html += `<div><b>Brush</b>: ${m.n} objects of ${m.plane}</div>`;
+  const c = planeCounts();
+  html += '<h2>Linked objects per plane</h2><div class="col">' + S.order.map((p) =>
+    `<div class="prow${S.focus === p ? " on" : ""}"><b>${p}</b><span>${c[p]}</span><button data-focus="${p}">focus</button></div>`).join("") + "</div>";
+  $("sel").className = "";
+  $("sel").innerHTML = html;
+  $("sel").querySelectorAll("button[data-focus]").forEach((b) => b.addEventListener("click", () => focusPlane(b.dataset.focus)));
+}
+
+// ---- source pane: the whole HDL file, line numbers; click or drag lines to select what they produced ----
+const RANK = { hitw: 1, hit: 2, sel: 3 };
+let rows = [], marks = new Map(), dragging = false;
+
+function showFile(file) {
+  S.srcFile = file;
+  const text = S.texts[file];
+  const box = $("srclines");
+  box.innerHTML = "";
+  rows = [];
+  if (!text) { box.innerHTML = `<div class="sub" style="padding:8px">${esc(file)} is not in the bundle (export with --src)</div>`; }
+  else {
+    const frag = document.createDocumentFragment();
+    const n = text.length && text[text.length - 1] === "" ? text.length - 1 : text.length;
+    for (let i = 0; i < n; i++) {
+      const row = document.createElement("div");
+      row.className = "ln"; row.dataset.n = String(i + 1);
+      row.innerHTML = `<span class="no">${i + 1}</span><span class="tx">${esc(text[i])}</span>`;
+      rows[i + 1] = row;
+      frag.appendChild(row);
+    }
+    box.appendChild(frag);
+  }
+  document.querySelectorAll("#srctabs button").forEach((b) => b.classList.toggle("on", b.dataset.f === file));
+  paintLines();
+}
+
+function paintLines() {
+  const mk = marks.get(S.srcFile), ls = S.lineSel && S.lineSel.file === S.srcFile ? S.lineSel : null;
+  const lo = ls ? Math.min(ls.a, ls.b) : 0, hi = ls ? Math.max(ls.a, ls.b) : -1;
+  for (let n = 1; n < rows.length; n++) {
+    const cls = ls && n >= lo && n <= hi ? "sel" : mk?.get(n);
+    rows[n].className = "ln" + (cls ? " " + cls : "");
+  }
+}
+
+// lines behind the current selection: innermost HDL constructs among the linked ones, plus the own span of
+// the primary non-HDL objects; the user's own lines stay "sel"
+function markLines() {
+  marks = new Map();
+  const put = (file, line, cls) => {
+    const m = marks.get(file) ?? marks.set(file, new Map()).get(file);
+    if (!m.has(line) || RANK[cls] > RANK[m.get(line)]) m.set(line, cls);
+  };
+  const prim = (id) => id === S.sel || S.brush?.has(id);
+  const hdlItems = [], own = [];
+  for (const id of highlighted()) {
+    const o = S.byId.get(id), src = S.planes[o.plane].src[o.i];
+    if (o.plane === "hdl") {
+      const sp = src[0] && parseSpan(src[0][1]);
+      if (sp) hdlItems.push({ file: src[0][0], span: sp });
+    } else if (prim(id) && src.length) {
+      const last = src[src.length - 1], sp = parseSpan(last[1]);
+      if (sp) own.push({ file: last[0], span: sp });
     }
   }
-  html += "</div><h2>HDL</h2>";
-  let src = S.planes[plane].src[i][0];
-  if (!src) {
-    const hd = [...S.core].map((x) => S.byId.get(x)).filter((o) => o.plane === "hdl" || S.planes[o.plane].src[o.i].length);
-    hd.sort((a, b) => (S.planes[a.plane].metrics.span_lines?.[a.i] ?? 1e9) - (S.planes[b.plane].metrics.span_lines?.[b.i] ?? 1e9));
-    src = hd.length ? S.planes[hd[0].plane].src[hd[0].i][0] : null;
+  if (S.cone) for (const id of S.cone.nodes.keys()) {
+    const o = S.byId.get(id), src = o && S.planes[o.plane].src[o.i];
+    const last = src?.[src.length - 1], sp = last && parseSpan(last[1]);
+    if (sp) for (let l = sp.l0; l <= sp.l1; l++) put(last[0], l, "hitw");
   }
-  $("sel").className = "";
-  $("sel").innerHTML = html + (src ? await snippet(src[0], src[1]) : '<div class="sub">no HDL span in the chain</div>');
-  $("sel").querySelectorAll("a[data-id]").forEach((a) => a.addEventListener("click", () => select(a.dataset.id)));
+  const strong = S.mode.type === "line" ? "hitw" : "hit";
+  for (const file of new Set(hdlItems.map((x) => x.file))) {
+    for (const it of innermost(hdlItems.filter((x) => x.file === file))) for (let l = it.span.l0; l <= it.span.l1; l++) put(file, l, strong);
+  }
+  for (const it of own) for (let l = it.span.l0; l <= it.span.l1; l++) put(it.file, l, "hit");
+  // scroll to the first marked line, unless the user is working in the pane
+  if (S.mode.type !== "line" && marks.size) {
+    let best = null, bestN = -1;
+    for (const [f, m] of marks) if (m.size > bestN) { best = f; bestN = m.size; }
+    if (best !== S.srcFile) showFile(best);
+    const first = Math.min(...marks.get(best).keys());
+    const box = $("srclines");
+    if (rows[first]) box.scrollTop = Math.max(0, rows[first].offsetTop - box.clientHeight / 3);
+  }
+  paintLines();
+  const nl = [...marks.values()].reduce((t, m) => t + m.size, 0);
+  $("srcinfo").firstChild.textContent = S.mode.type === "none" || !marks.size && S.mode.type !== "line"
+    ? (S.mode.type === "none" ? "Click a line, drag or shift-click for a range. " : "No HDL lines behind this selection. ")
+    : `${nl} HDL line${nl === 1 ? "" : "s"} highlighted. `;
+}
+
+function selectLines(file, a, b) {
+  if (!S.planes.hdl) return;
+  const hdl = S.planes.hdl;
+  const idx = hdlCovering(hdl, file, a, b, $("enclosing").checked);
+  const ids = [...idx].map((i) => hdl.ids[i]);
+  S.sel = null; S.path = null;
+  S.lineSel = { file, a, b };
+  S.mode = { type: "line", file, a: Math.min(a, b), b: Math.max(a, b), n: ids.length };
+  if (!ids.length) { S.brush = null; S.core = new Set(); }
+  else {
+    const r = reachDown(ids, S.order, (id) => S.byId.get(id)?.plane, S.down);
+    S.brush = new Set(ids);
+    S.core = new Set(S.order.slice(1).flatMap((p) => [...r[p]]));
+  }
+  afterSelection();
+}
+
+function buildSource() {
+  const files = Object.keys(S.texts);
+  $("srctabs").innerHTML = files.map((f) => `<button data-f="${esc(f)}">${esc(f)}</button>`).join("");
+  $("srctabs").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => showFile(b.dataset.f)));
+  const first = (() => {
+    const d = S.planes.hdl;
+    return (d && d.src.find((s) => s.length)?.[0][0]) || files[0] || "";
+  })();
+  showFile(first);
+  const box = $("srclines");
+  const lineOf = (e) => { const r = e.target.closest?.(".ln"); return r ? Number(r.dataset.n) : null; };
+  box.addEventListener("mousedown", (e) => {
+    const n = lineOf(e);
+    if (n === null || e.button !== 0) return;
+    const keep = e.shiftKey && S.lineSel && S.lineSel.file === S.srcFile ? S.lineSel.a : n;
+    S.lineSel = { file: S.srcFile, a: keep, b: n };
+    dragging = true;
+    paintLines();
+    e.preventDefault();
+  });
+  box.addEventListener("mouseover", (e) => {
+    const n = lineOf(e);
+    if (!dragging || n === null || !S.lineSel) return;
+    S.lineSel.b = n;
+    paintLines();
+  });
+  document.addEventListener("mouseup", () => {
+    if (!dragging) return;
+    dragging = false;
+    if (S.lineSel) selectLines(S.lineSel.file, S.lineSel.a, S.lineSel.b);
+  });
+  $("enclosing").addEventListener("change", () => { if (S.lineSel) selectLines(S.lineSel.file, S.lineSel.a, S.lineSel.b); });
+  // resizable split between the source pane and the 3D view
+  const split = $("split");
+  split.addEventListener("pointerdown", (e) => {
+    split.setPointerCapture(e.pointerId); split.classList.add("drag");
+    const main = $("main").getBoundingClientRect();
+    const move = (ev) => { $("srcpane").style.flexBasis = Math.min(main.width - 200, Math.max(120, ev.clientX - main.left)) + "px"; };
+    const up = () => { split.classList.remove("drag"); split.removeEventListener("pointermove", move); split.removeEventListener("pointerup", up); };
+    split.addEventListener("pointermove", move); split.addEventListener("pointerup", up);
+  });
 }
 
 // ---- picking ----
@@ -553,11 +706,9 @@ function brushSelect(x0, y0, x1, y1) {
   const core = new Set();
   let n = 0;
   for (const id of hit) { if (n++ > 600) break; for (const t of [...closure(id, "up"), ...closure(id, "down")]) core.add(t); }
-  S.sel = null; S.brush = hit; S.core = core;
-  refreshAll();
-  const per = S.order.map((q) => `${q}: ${[...core].filter((x) => S.byId.get(x).plane === q).length}`).join(", ");
-  $("sel").className = "";
-  $("sel").innerHTML = `<div><b>Brush</b>: ${hit.size} objects of ${p}</div><div class="sub">linked objects on the other planes: ${per}</div>`;
+  S.sel = null; S.brush = hit; S.core = core; S.lineSel = null; S.path = null;
+  S.mode = { type: "brush", n: hit.size, plane: p };
+  afterSelection();
 }
 
 // ---- discovery: Spearman and mutual information between the metrics of one plane ----
@@ -592,6 +743,186 @@ export const discoverMatrix = (plane, kind) => {
   return { names, m: names.map((a) => names.map((b) => (a === b ? null : fn(d.metrics[a], d.metrics[b])))) };
 };
 
+// ---- plane control: focus (camera on a plane), zoom towards the cursor, solo ----
+function setColour(n) {
+  if (!meta(n)) return;
+  S.colour = n; $("colour").value = n; refreshAll();
+}
+
+function markFocus() {
+  document.querySelectorAll("#sel .prow").forEach((r) => r.classList.toggle("on", r.querySelector("button")?.dataset.focus === S.focus));
+  if (!quads) return;
+  for (const p of S.order) if (quads[p]) quads[p].edge.material.color.set(p === S.focus ? 0xffb454 : 0x6d7f99);
+}
+
+export function focusPlane(p) {
+  if (!p) { S.focus = null; if (S.view === "stack") resetCamera(); markFocus(); return; }
+  if (!S.order.includes(p)) return;
+  if (S.view !== "stack") { setView(p); S.focus = p; markFocus(); return; }
+  S.focus = p;
+  const y = planeY(S.order.indexOf(p)), W = Math.max(S.bounds[2] - S.bounds[0], S.bounds[3] - S.bounds[1]);
+  const off = camera.position.clone().sub(controls.target);
+  if (off.length() < 1e-6) off.set(0.3, 0.8, 0.5);
+  off.y = Math.max(off.y, off.length() * 0.6);
+  off.setLength(Math.max(W * 1.35, 8));
+  controls.target.set(0, y, 0);
+  camera.position.copy(controls.target).add(off);
+  controls.update();
+  markFocus();
+}
+
+export function soloPlane(p) {
+  const off = S.solo === p;
+  for (const q of S.order) S.vis[q] = off ? true : q === p;
+  S.solo = off ? null : p;
+  $("planes").querySelectorAll("input[data-p]").forEach((c) => { c.checked = S.vis[c.dataset.p] !== false; });
+  applyVisibility();
+}
+
+// the wheel zooms towards the point under the cursor on the focused plane (or on the nearest plane under the
+// cursor when none is focused): the camera and the orbit target both move towards that point
+function wheelZoom(ev) {
+  ev.preventDefault();
+  const r = $("view").getBoundingClientRect();
+  raycaster.setFromCamera(new THREE.Vector2(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1), camera);
+  const ray = raycaster.ray, W = S.bounds[2] - S.bounds[0], H = S.bounds[3] - S.bounds[1];
+  let best = null;
+  for (const p of S.focus ? [S.focus] : S.order) {
+    if (!S.focus && S.vis[p] === false) continue;
+    const y = planeY(S.order.indexOf(p));
+    if (Math.abs(ray.direction.y) < 1e-6) continue;
+    const t = (y - ray.origin.y) / ray.direction.y;
+    if (t <= 0) continue;
+    const hit = ray.origin.clone().addScaledVector(ray.direction, t);
+    if (!S.focus && (Math.abs(hit.x) > W / 2 || Math.abs(hit.z) > H / 2)) continue;
+    if (!best || t < best.t) best = { t, hit };
+  }
+  const P = best ? best.hit : controls.target.clone();
+  const dy = ev.deltaMode === 1 ? ev.deltaY * 16 : ev.deltaY;
+  let f = Math.exp(dy * 0.0013);
+  const dist = camera.position.distanceTo(P);
+  if (dist * f < 0.6) f = 0.6 / Math.max(dist, 1e-6);
+  if (dist * f > 1500) f = 1500 / dist;
+  const dc = camera.position.clone().sub(P), dt = controls.target.clone().sub(P);
+  camera.position.copy(P).addScaledVector(dc, f);
+  controls.target.copy(P).addScaledVector(dt, f);
+  controls.update();
+}
+
+// ---- paths: VPR's reported setup paths, and the combinational cone of the selection in the LUT netlist ----
+let pathLines = null;
+const PATH_COL = { vpr: [1, 0.42, 0.42], in: [0.37, 0.88, 1], out: [1, 0.44, 0.85] };
+
+function drawPathLines() {
+  if (pathLines) { group.remove(pathLines); pathLines.geometry.dispose(); pathLines = null; }
+  const pts = [], cols = [], seen = new Set();
+  const seg = (plane, a, b, c) => {
+    if (!S.pos[plane]?.[a] || !S.pos[plane]?.[b]) return;
+    const key = plane + a + "|" + b;
+    if (seen.has(key) || pts.length > 24000) return;
+    seen.add(key);
+    pts.push(worldPos(plane, a), worldPos(plane, b));
+    cols.push(...c, ...c);
+  };
+  if (S.path) {
+    for (const list of [S.path.lut, S.path.placed]) for (let i = 1; i < list.length; i++) seg(S.byId.get(list[i])?.plane, list[i - 1], list[i], PATH_COL.vpr);
+  }
+  if (S.cone) {
+    const placedOf = (id) => {
+      const o = S.byId.get(id);
+      const pid = o && S.planes.placed ? "placed:" + S.planes.lut.name[o.i] : null;
+      return pid && S.byId.has(pid) ? pid : null;
+    };
+    for (const [a, b, tag] of S.cone.edges) {
+      seg("lut", a, b, PATH_COL[tag]);
+      const pa = placedOf(a), pb = placedOf(b);
+      if (pa && pb) seg("placed", pa, pb, PATH_COL[tag]);
+    }
+  }
+  if (!pts.length) return;
+  const g = new THREE.BufferGeometry().setFromPoints(pts);
+  g.setAttribute("color", new THREE.Float32BufferAttribute(cols, 3));
+  pathLines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true, depthTest: false }));
+  pathLines.renderOrder = 5;
+  group.add(pathLines);
+}
+
+export function showPath(i) {
+  const P = S.paths[i];
+  if (!P) return;
+  S.sel = null; S.lineSel = null; S.cone = null; S.coneOn = false;
+  $("pathsrc").value = "vpr"; showPathPanel();
+  const ids = [...P.lut, ...P.placed].filter((x) => S.byId.has(x));
+  const core = new Set();
+  for (const l of P.lut) {
+    for (const u of S.up.get(l) ?? []) if (S.byId.get(u)?.plane === "hdl" && core.size < 3000) core.add(u);
+    for (const d of S.down.get(l) ?? []) if (S.byId.get(d)?.plane === "clb") core.add(d);
+  }
+  S.path = { lut: P.lut, placed: P.placed, i };
+  S.brush = new Set(ids); S.core = core;
+  S.pathInfo = `source: VPR report_timing.setup.rpt, path #${P.n}, slack ${fmt(P.slack)} ns, ${P.lut.length} LUT-plane and ${P.placed.length} placed objects`;
+  S.mode = { type: "path" };
+  $("pathinfo").innerHTML = `<span class="tag">source: VPR report_timing.setup.rpt</span>, path #${P.n}, slack ${fmt(P.slack)} ns, ${P.lut.length} LUT-plane and ${P.placed.length} placed objects. ${esc(P.start)} to ${esc(P.end)}`;
+  document.querySelectorAll("#pathlist div").forEach((e) => e.classList.toggle("on", Number(e.dataset.i) === i));
+  afterSelection();
+}
+
+function coneSeeds() {
+  const out = new Set();
+  const add = (id) => {
+    const o = S.byId.get(id);
+    if (!o || out.size >= 300) return;
+    if (o.plane === "lut") out.add(id);
+    else if (o.plane === "placed") { const l = `luts:${S.man.top}/${S.planes.placed.name[o.i]}`; if (S.byId.has(l)) out.add(l); }
+  };
+  if (S.sel) add(S.sel);
+  for (const id of S.brush ?? []) add(id);
+  for (const id of S.core) add(id);
+  return out;
+}
+
+export async function updateCone() {
+  await ensureEdges();
+  const seeds = [...coneSeeds()], dir = $("conedir").value, depth = Math.max(1, Number($("conedepth").value) || 6);
+  if (!seeds.length) {
+    S.cone = null;
+    $("pathinfo").textContent = "cone: select an HDL line or an object that has LUT-plane objects first";
+    refreshAll();
+    return;
+  }
+  const lut = S.planes.lut;
+  S.cone = coneOf(S.edges, seeds, dir, depth, (id) => lut.type[S.byId.get(id)?.i] === "names");
+  const nodes = S.cone.nodes.size, label = { in: "fan-in", out: "fan-out", both: "fan-in and fan-out" }[dir];
+  $("pathinfo").innerHTML = `<span class="tag">source: netlist cone (edges/lut.json)</span>, ${label}, depth limit ${depth}, from ${seeds.length} seed${seeds.length === 1 ? "" : "s"}: ${nodes} objects, ${S.cone.edges.length} edges. Stops at flip-flops, I/O and hard blocks.`;
+  refreshAll();
+}
+
+function showPathPanel() {
+  const cone = $("pathsrc").value === "cone";
+  $("pathvpr").style.display = cone ? "none" : "";
+  $("pathcone").style.display = cone ? "" : "none";
+}
+
+function buildPathsUi() {
+  const list = $("pathlist");
+  list.innerHTML = S.paths.length ? S.paths.map((P, i) =>
+    `<div data-i="${i}" title="${esc(P.start)} to ${esc(P.end)}">#${P.n}  ${P.slack.toFixed(3)} ns  ${esc(P.start.split(" ")[0])} &gt; ${esc(P.end.split(" ")[0])}  (${P.lut.length} LUT-plane)</div>`).join("")
+    : '<div class="sub">no setup-report paths in this bundle (re-export with a VPR run that kept report_timing.setup.rpt)</div>';
+  list.querySelectorAll("div[data-i]").forEach((d) => d.addEventListener("click", () => showPath(Number(d.dataset.i))));
+  const clearPath = () => {
+    S.path = null; S.cone = null; $("pathinfo").textContent = "no path drawn";
+    document.querySelectorAll("#pathlist div.on").forEach((e) => e.classList.remove("on"));
+    if (S.mode.type === "path") clearSel(); else { refreshAll(); markLines(); }
+  };
+  $("pathclear").addEventListener("click", clearPath);
+  $("pathsrc").addEventListener("change", async () => {
+    showPathPanel();
+    S.coneOn = $("pathsrc").value === "cone";
+    if (S.coneOn) { S.path = null; await updateCone(); markLines(); } else { S.cone = null; $("pathinfo").textContent = "no path drawn"; refreshAll(); markLines(); }
+  });
+  for (const id of ["conedir", "conedepth"]) $(id).addEventListener("change", async () => { await updateCone(); markLines(); });
+}
+
 // ---- UI ----
 function fillSelect(sel, names, withNone) {
   sel.innerHTML = (withNone ? '<option value="">(none)</option>' : "") +
@@ -600,7 +931,7 @@ function fillSelect(sel, names, withNone) {
 function legend() {
   const name = S.colour;
   $("legend").style.display = name ? "block" : "none";
-  if (!name) return;
+  if (!name) { coverLegend(); return; }
   const [lo, hi] = metricRange(name), div = meta(name).scale === "div";
   const stops = div ? DIV : SEQ;
   $("bar").style.background = `linear-gradient(90deg, ${stops.map((c) => "#" + c.getHexString()).join(",")})`;
@@ -608,7 +939,23 @@ function legend() {
   $("lo").textContent = div ? fmt(-m) : fmt(lo);
   $("hi").textContent = div ? fmt(m) : fmt(hi);
   $("mid").textContent = div ? "0" : "";
+  coverLegend();
   $("unit").textContent = `${meta(name).unit}; grey = not measured. ${meta(name).measurer}`;
+}
+// per plane: how many objects have a measured value for the colour metric (grey = none); never invented
+export function coverage(name) {
+  return S.order.map((p) => {
+    const col = S.planes[p].metrics[name], total = S.planes[p].ids.length;
+    const n = col ? col.filter((v) => v !== null).length : 0;
+    return { plane: p, measured: n, total, range: n ? [Math.min(...col.filter((v) => v !== null)), Math.max(...col.filter((v) => v !== null))] : null };
+  });
+}
+function coverLegend() {
+  const el = $("cover");
+  if (!S.colour) { el.innerHTML = ""; return; }
+  el.innerHTML = coverage(S.colour).map((c) => c.measured
+    ? `${c.plane}: ${c.measured}/${c.total} measured, ${fmt(c.range[0])} to ${fmt(c.range[1])}`
+    : `${c.plane}: <span class="err" style="color:#ffb454">no measured value (grey)</span>`).join("<br>");
 }
 
 // ---- derived metrics: expressions and cross-plane aggregation ----
@@ -708,15 +1055,27 @@ function buildUi() {
   $("gap").addEventListener("input", (e) => { S.gap = Number(e.target.value); layout(); resetCamera(); });
   $("reset").addEventListener("click", resetCamera);
   $("clear").addEventListener("click", clearSel);
-  $("planes").innerHTML = S.order.map((p) =>
-    `<label class="row"><input type="checkbox" data-p="${p}" checked> ${p}<input type="range" data-o="${p}" min="0" max="1" step="0.05" value="0.12"></label>`).join("");
+  $("planes").innerHTML = S.order.map((p, k) =>
+    `<div class="prow"><input type="checkbox" data-p="${p}" checked style="width:auto"><b style="color:var(--fg);flex:0 0 52px">${k + 1} ${p}</b>` +
+    `<button data-f="${p}">focus</button><button data-s="${p}">solo</button></div>` +
+    `<label class="row">opacity<input type="range" data-o="${p}" min="0" max="1" step="0.05" value="0.12"></label>`).join("");
   $("planes").querySelectorAll("input[data-p]").forEach((c) => c.addEventListener("change", () => {
-    S.vis[c.dataset.p] = c.checked;
+    S.vis[c.dataset.p] = c.checked; S.solo = null;
     applyVisibility();
   }));
+  $("planes").querySelectorAll("button[data-f]").forEach((b) => b.addEventListener("click", () => focusPlane(b.dataset.f)));
+  $("planes").querySelectorAll("button[data-s]").forEach((b) => b.addEventListener("click", () => soloPlane(b.dataset.s)));
   $("planes").querySelectorAll("input[data-o]").forEach((c) => c.addEventListener("input", () => {
     quads[c.dataset.o].q.material.opacity = Number(c.value);
   }));
+  $("depthpreset").addEventListener("click", () => setColour("logic_level"));
+  buildPathsUi();
+  document.addEventListener("keydown", (e) => {
+    if (/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName) || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === "0") focusPlane(null);
+    else if (/^[1-9]$/.test(e.key) && S.order[Number(e.key) - 1]) focusPlane(S.order[Number(e.key) - 1]);
+  });
+  $("view").addEventListener("wheel", wheelZoom, { passive: false });
   $("title").textContent = S.man.benchmark;
   $("subtitle").textContent = `${S.man.flow} flow, top ${S.man.top}; planes ${S.order.join(" > ")}`;
   const c = S.man.counts;
@@ -758,15 +1117,16 @@ async function main() {
   await loadBundle();
   buildScene();
   buildUi();
-  window.addEventListener("resize", resize);
+  new ResizeObserver(resize).observe($("stage"));
   resize();
+  buildSource();
   refreshAll();
   const loop = () => { controls.update(); renderer.render(scene, camera); requestAnimationFrame(loop); };
   loop();
   document.body.dataset.ready = "1";
-  window.__o3viz = { S, select, discover, setView, setGroupMode, discoverMatrix, brushAll: (p) => { S.brush = new Set(S.planes[p].ids.slice(0, 30)); S.core = new Set(); refreshAll(); },
+  window.__o3viz = { S, select, selectLines, planeCounts, coverage, focusPlane, soloPlane, showPath, updateCone, markLines, setCone: async (dir, depth) => { $("pathsrc").value = "cone"; showPathPanel(); S.coneOn = true; $("conedir").value = dir; $("conedepth").value = String(depth); await updateCone(); markLines(); }, marksOf: () => Object.fromEntries([...marks].map(([f, m]) => [f, Object.fromEntries(m)])), cam: () => ({ target: controls.target.toArray(), pos: camera.position.toArray() }), wheelAt: (x, y, dy) => wheelZoom({ preventDefault() {}, clientX: x, clientY: y, deltaY: dy, deltaMode: 0 }), discover, setView, setGroupMode, discoverMatrix, brushAll: (p) => { S.brush = new Set(S.planes[p].ids.slice(0, 30)); S.core = new Set(); refreshAll(); },
     setEdges: async (m, h) => { S.edgeMode = m; S.hops = h ?? 1; await ensureEdges(); drawEdges(); }, setMorph: (a, b, m) => { S.morph = { a, b, m }; refreshAll(); }, addExpr, addAgg, setHeight: (n) => { S.height = n; $("height").value = n; refreshAll(); },
-    setAnchor: async (n) => { $("anchor").value = n; $("anchor").dispatchEvent(new Event("change")); }, setColour: (n) => { S.colour = n; $("colour").value = n; refreshAll(); },
+    setAnchor: async (n) => { $("anchor").value = n; $("anchor").dispatchEvent(new Event("change")); }, setColour,
     setSize: (n) => { S.size = n; $("size").value = n; refreshAll(); }, stop: () => { controls.autoRotate = false; } };
 }
 window.addEventListener("error", (e) => { $("status").className = "err"; $("status").textContent = String(e.message); });

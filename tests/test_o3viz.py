@@ -54,6 +54,80 @@ class TestReaders(unittest.TestCase):
         self.assertEqual(tm.npaths["hl1"], 1)
 
 
+class TestPathsAndDepth(unittest.TestCase):
+    def test_setup_paths_in_order_without_clock_network(self) -> None:
+        ps = vprfiles.read_setup_paths(FLOW / "vpr" / "run" / "report_timing.setup.rpt")
+        self.assertEqual([p.n for p in ps], [1, 2])
+        self.assertEqual(ps[0].atoms, ["hq", "hl2", "out:y"])
+        self.assertEqual((ps[0].start, ps[0].end), ("hq.Q[0]", "out:y.outpad[0]"))
+        self.assertEqual(ps[0].slack, -0.5)
+        self.assertEqual(ps[1].atoms, ["hl1"])
+
+    def test_real_report_shape_skips_capture_clock(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            rpt = Path(d) / "r.rpt"
+            rpt.write_text(
+                "#Path 1\nStartpoint: a.Q[0] (.latch clocked by clk)\n"
+                "Endpoint  : b.D[0] (.latch clocked by clk)\n"
+                "clock clk (rise edge)   0 0\nclock source latency   0 0\n"
+                "clk.inpad[0] (.input)   0 0\na.clk[0] (.latch)   0 0\n"
+                "a.Q[0] (.latch) [clock-to-output]   0 0\nx.in[0] (.names)   0 0\n"
+                "x.out[0] (.names)   0 0\nb.D[0] (.latch)   0 0\n"
+                "data arrival time   1\n\nclock clk (rise edge)  0 0\n"
+                "clk.inpad[0] (.input)   0 0\nb.clk[0] (.latch)   0 0\n"
+                "slack (MET)    2.5\n"
+            )
+            (p,) = vprfiles.read_setup_paths(rpt)
+        self.assertEqual(p.atoms, ["a", "x", "b"])
+        self.assertEqual(p.slack, 2.5)
+
+    def test_bundle_paths_json(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "b.o3viz"
+            man = run_export(out)
+            self.assertEqual(man["paths"], 2)
+            pj = json.loads((out / "paths.json").read_text())
+            self.assertEqual(pj["source"], "vpr report_timing.setup.rpt")
+            first = pj["paths"][0]
+            self.assertEqual(first["slack"], -0.5)
+            self.assertEqual(first["lut"], ["luts:t/hq", "luts:t/hl2"])
+            self.assertEqual(first["placed"], ["placed:hq", "placed:hl2", "placed:out:y"])
+
+    def test_depth_on_every_plane(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "b.o3viz"
+            man = run_export(out)
+            m = next(x for x in man["metrics"] if x["name"] == "logic_level")
+            self.assertEqual(m["planes"], ["hdl", "lut", "clb", "placed"])
+            pl = {
+                p: json.loads((out / "planes" / f"{p}.json").read_text())
+                for p in ("hdl", "lut", "clb", "placed")
+            }
+
+            def lv(p: str, oid: str) -> float | None:
+                val: float | None = pl[p]["metrics"]["logic_level"][pl[p]["ids"].index(oid)]
+                return val
+
+            # cluster 1 holds hl1 (level 1) and hq (level 0): max is 1
+            self.assertEqual(
+                lv("clb", "clb:" + vprfiles.read_net(FLOW / "vpr/run/t.net")[0].name), 1.0
+            )
+            self.assertEqual(lv("placed", "placed:hl2"), 1.0)
+            lut_lv = dict(zip(pl["lut"]["ids"], pl["lut"]["metrics"]["logic_level"], strict=True))
+            rows = json.loads((out / "links.json").read_text())["rows"]
+            order = [i for p in ("hdl", "lut", "clb", "placed") for i in pl[p]["ids"]]
+            for h in pl["hdl"]["ids"]:
+                below = [
+                    lut_lv[order[b]]
+                    for a, b, _k, _c in rows
+                    if order[a] == h and lut_lv.get(order[b]) is not None
+                ]
+                self.assertEqual(lv("hdl", h), float(max(below)) if below else None, h)
+            # an I/O cluster has no measured depth: null, never a made-up zero
+            io = [c for c in vprfiles.read_net(FLOW / "vpr/run/t.net") if c.kind == "io"][0]
+            self.assertIsNone(lv("clb", "clb:" + io.name))
+
+
 class TestAnchors(unittest.TestCase):
     def test_spread_inside_tile(self) -> None:
         pos = anchors.tile_spread({(2, 3): ["b", "a", "c"]})
