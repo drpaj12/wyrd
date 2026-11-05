@@ -226,7 +226,7 @@ function refreshPlane(p) {
     let s = r0;
     if (sz) s *= sz[i] === null ? 0.5 : 0.6 + 1.8 * norm(S.size, sz[i]);
     const st = stateOf(id);
-    if (st === 2) s *= S.brush ? 1.7 : 2.4; else if (st === 3) s *= 1.9; else if (st === 1) s *= 1.5; else if (st === -1) s *= 0.55;
+    if (st === 2) s *= S.brush ? 1.5 : 2.4; else if (st === 3) s *= 1.3; else if (st === 1) s *= S.brush ? 1.15 : 1.5; else if (st === -1) s *= 0.55;
     if (hiddenByGroup(p, i)) s = 1e-4;
     dummy.scale.setScalar(s);
     dummy.updateMatrix();

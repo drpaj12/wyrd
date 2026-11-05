@@ -24,17 +24,47 @@ deterministic: exporting twice gives the same bytes. A value that was not measur
 
 ## View it
 
-    wyrd viz serve design.o3viz            # prints http://127.0.0.1:8765/ ; open it in a browser
+    wyrd viz serve design.o3viz            # prints http://127.0.0.1:8765/ (use --port N for another) ; open it in a browser
 
 Everything is served locally; three.js is vendored (`wyrd/o3viz/web/vendor`, MIT), nothing is fetched from a
 network.
 
-- Drag to rotate, wheel to zoom, right-drag to pan; "auto-rotate" and "plane gap" are in the left panel.
-- Colour: any metric. Slack uses a diverging scale (red is negative). Grey means not measured.
+- Source pane (left, 40% of the width; drag the divider to resize): the whole HDL file with line numbers, tabs
+  for several files. Click a line, or drag or shift-click a range. The constructs whose span covers the lines
+  (the innermost ones; tick "include enclosing constructs" for all) are selected, then every linked object on
+  the planes below (LUTs, clusters, placed atoms) through the links. They are highlighted in 3D, the rest is
+  dimmed, and the right panel shows one count per plane. Clicking an object in 3D does the reverse: its HDL lines
+  are highlighted in the pane and scrolled to.
+- Drag to rotate, right-drag to pan, "auto-rotate" and "plane gap" are in the left panel.
+- Plane control: keys 1 to N focus a plane (the orbit target moves to the plane centre), 0 is the whole stack;
+  the "focus" buttons in the Planes list and in the right panel do the same. The wheel zooms towards the point
+  under the cursor on the focused plane (or the nearest plane when none is focused). Each plane has show,
+  opacity and "solo".
+- Colour: any metric. Slack uses a diverging scale (red is negative). Grey means not measured. "colour = logic
+  depth" sets the colour to `logic_level` on all planes; the legend lists, per plane, how many objects have a
+  measured value and the range, and says "no measured value" when a plane has none.
 - Size: any metric.
-- Click an object: the right panel shows its fields and metrics, the objects of its column per plane (click one
-  to jump), and the HDL span with the source lines. Click empty space to clear.
-- Planes can be hidden and their opacity changed.
+- Click an object: the right panel shows its fields and metrics and one line per plane (count of linked objects
+  and a focus button). Click empty space to clear.
+
+![HDL line selected](images/o3viz-line.png)
+
+![colour = logic depth](images/o3viz-depth.png)
+
+### Paths
+
+The Paths section draws combinational paths as polylines through the objects they pass on the lut and placed
+planes, and highlights the HDL lines they come from. The source is always labelled.
+
+- VPR setup report: the reported setup paths (`report_timing.setup.rpt`, kept in `paths.json`) sorted by slack,
+  worst first. Click one to draw it. Only the data-arrival part is used; clock-network pins are left out.
+- Netlist cone: from the selected objects (an object, a line, a path), the fan-in, fan-out or both cones in the
+  LUT netlist (`edges/lut.json`), with a depth limit. The cone stops at flip-flops, I/O and hard blocks, which
+  are shown as its boundary. It follows the selection while this source is chosen.
+
+![VPR path](images/o3viz-paths.png)
+
+![netlist cone](images/o3viz-cone.png)
 
 ## What a plane is
 
@@ -98,7 +128,8 @@ is the one function `loadBundle` if a design of 100x this size needs it.
 ## Metrics
 
 Measured by Odin III's BLIF or VPR files, never invented: `fanin`, `fanout`, `logic_level` (LUT depth from
-inputs and register or block outputs), `stage`, `slack_worst` and `paths_through` (VPR's worst 100 setup paths: the
+inputs and register or block outputs; on `clb` the max over the atoms inside, on `hdl` the max over the LUTs
+linked below; a cluster or construct with no measured member stays grey), `stage`, `slack_worst` and `paths_through` (VPR's worst 100 setup paths: the
 worst slack of the paths through the object; objects on no reported path stay grey), `atoms`, `luts_inside`,
 `ffs_inside`, `x`, `y`, and from the step files `depth`, `children`, `span_lines`, `luts_below`, `hdl_links` and
 `weakest_confidence`.
@@ -106,5 +137,5 @@ worst slack of the paths through the object; objects on no reported path stay gr
 ## Test
 
     .venv/bin/python -m unittest tests.test_o3viz tests.test_o3viz_viewer -v
-    node --test tests/js/expr.test.mjs                                # the expression language
+    node --test tests/js/expr.test.mjs tests/js/select.test.mjs       # expression language, line and cone selection
     python tools/o3viz_shot.py BUNDLE out.png --colour slack_worst   # needs playwright + chromium
