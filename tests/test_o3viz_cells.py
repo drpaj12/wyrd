@@ -85,7 +85,7 @@ def dumps() -> nets.Dumps:
             "m/acc@m.v:2": {"bits": [40, 41, 42, 43], "attributes": {"src": "m.v:2.1-2.15"}},
         },
     }
-    return nets.Dumps("m", mod, {}, {}, {}, {}, {})
+    return nets.Dumps("m", mod, {}, {}, None, {}, {}, {})
 
 
 class TestCaseItems(unittest.TestCase):
@@ -158,7 +158,7 @@ class TestBusesAndFlops(unittest.TestCase):
             },
             "netnames": {"m/acc@m.v:2": {"bits": [10]}},
         }
-        d = nets.Dumps("m", {}, {}, gates, {}, {}, full)
+        d = nets.Dumps("m", {}, {}, gates, None, {}, {}, full)
         table, note = cells.lut_buses(d, nl)
         self.assertEqual(table["hq"], ("acc", 0, "own"))
         self.assertEqual(table["hl"][0], "acc")

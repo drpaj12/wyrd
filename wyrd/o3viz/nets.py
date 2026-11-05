@@ -29,6 +29,7 @@ class Dumps:
     proc: dict[str, Any]  # write_json, provenance names, after proc
     proc_names: dict[str, tuple[str, str]]  # provenance cell key -> (hash, record id)
     gates: dict[str, Any]  # write_json, provenance names, before write_blif
+    scoap: dict[int, tuple[int, int, int]] | None  # net id -> (cc0, cc1, co); None: no scoap pass
     records: dict[str, list[str]]  # final name map: record id -> parent records
     lut_rec: dict[str, str]  # final name map: hash net name -> record id
     net_full: dict[str, str]  # final name map: hash net name -> full net name
@@ -43,8 +44,12 @@ def command_of(log: Path) -> tuple[list[str], str]:
     raise NetsError(f"no odin3 command line in {log}")
 
 
-def extended_script(script: str, work: Path) -> str:
-    """The script with the two dumps added and the BLIF written under `work`."""
+def extended_script(script: str, work: Path, scoap: bool = True) -> str:
+    """The script with the two dumps added and the BLIF written under `work`.
+
+    With `scoap`, the scoap pass runs on the netlist the second dump shows (after mapping) and
+    writes `work`/scoap.json (net id, CC0, CC1, CO).
+    """
     if "; proc;" not in script and not script.startswith("proc;"):
         raise NetsError("the odin3 script has no proc step")
     dump1 = (
@@ -57,7 +62,8 @@ def extended_script(script: str, work: Path) -> str:
         raise NetsError("the odin3 script has no write_blif")
     at = m[-1].start()
     tail = re.sub(r'"[^"]*\.blif"', f'"{work}/rt.blif"', out[at:])
-    return out[:at] + f"write_json --odin3 --name-style provenance {work}/gates.json; " + tail
+    sc = f"scoap --out {work}/scoap.json; " if scoap else ""
+    return out[:at] + sc + f"write_json --odin3 --name-style provenance {work}/gates.json; " + tail
 
 
 def source_cwd(script: str, candidates: list[Path]) -> Path:
@@ -69,17 +75,32 @@ def source_cwd(script: str, candidates: list[Path]) -> Path:
 
 
 def run_dumps(flow: Path, work: Path, search: list[Path]) -> Path:
-    """Run the extended script; return `work`."""
+    """Run the extended script; return `work`. If the run fails and the script had the scoap pass,
+    it runs again without it (an Odin III build without that pass still gives the other dumps)."""
     argv, script = command_of(flow / "odin3" / "odin3.log")
     work.mkdir(parents=True, exist_ok=True)
-    new = extended_script(script, work)
     cwd = source_cwd(script, [*search, flow.parent])
-    r = subprocess.run(
-        [*argv, "-p", new], cwd=cwd, capture_output=True, text=True, check=False, timeout=600
-    )
-    if r.returncode != 0:
-        raise NetsError(f"odin3 dump run failed ({r.returncode}): {r.stderr[-400:]}")
-    return work
+    for with_scoap in (True, False):
+        new = extended_script(script, work, with_scoap)
+        r = subprocess.run(
+            [*argv, "-p", new], cwd=cwd, capture_output=True, text=True, check=False, timeout=600
+        )
+        if r.returncode == 0:
+            return work
+        if not with_scoap or "scoap" not in r.stderr:
+            break
+    raise NetsError(f"odin3 dump run failed ({r.returncode}): {r.stderr[-400:]}")
+
+
+def read_scoap(path: Path, top: str) -> dict[int, tuple[int, int, int]] | None:
+    """Net id -> (CC0, CC1, CO) of the top module from the scoap pass JSON (INF is 10^18)."""
+    if not path.is_file():
+        return None
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    for mod in doc.get("modules", []):
+        if mod.get("name") == top:
+            return {n["id"]: (n["cc0"], n["cc1"], n["co"]) for n in mod["nets"]}
+    return None
 
 
 def read_map(path: Path) -> tuple[dict[str, list[str]], dict[str, str], dict[str, str]]:
@@ -120,6 +141,7 @@ def load_dumps(work: Path, top: str) -> Dumps:
         module("proc.json"),
         read_proc_names(work / "proc_h.json.names"),
         module("gates.json"),
+        read_scoap(work / "scoap.json", top),
         recs,
         lut_rec,
         full,

@@ -70,6 +70,34 @@ METRICS: list[dict[str, Any]] = [
         "source": "odin3 BLIF; Kundarewich 2002 section 2.1.1",
     },
     {
+        "name": "cc0",
+        "unit": "SCOAP CC0",
+        "planes": ["lut", "placed"],
+        "scale": "seq",
+        "measurer": (
+            "Odin III scoap pass on the mapped netlist: combinational 0-controllability "
+            "(Goldstein 1979); unreachable nets have no value; word-level cells are opaque to "
+            "the pass, so the cell plane has none (use the cross-plane joins)"
+        ),
+        "source": "odin3 scoap, matched to the BLIF by net number",
+    },
+    {
+        "name": "cc1",
+        "unit": "SCOAP CC1",
+        "planes": ["lut", "placed"],
+        "scale": "seq",
+        "measurer": "Odin III scoap pass: combinational 1-controllability",
+        "source": "odin3 scoap, matched to the BLIF by net number",
+    },
+    {
+        "name": "co",
+        "unit": "SCOAP CO",
+        "planes": ["lut", "placed"],
+        "scale": "seq",
+        "measurer": "Odin III scoap pass: combinational observability (0 at a primary output)",
+        "source": "odin3 scoap, matched to the BLIF by net number",
+    },
+    {
         "name": "depth",
         "unit": "levels",
         "planes": ["hdl"],
@@ -640,6 +668,19 @@ def apply_lut_buses(
     return out
 
 
+def add_scoap(lut: Plane, placed: Plane, table: dict[str, tuple[int, int, int]]) -> None:
+    """cc0, cc1, co columns; an unreachable value (10^18) is left unmeasured."""
+    for plane, nets_ in ((lut, [lut_local(i) for i in lut.ids]), (placed, placed.name)):
+        for k, key in enumerate(("cc0", "cc1", "co")):
+            vals = {
+                i: float(table[n][k])
+                for i, n in zip(plane.ids, nets_, strict=True)
+                if n in table and table[n][k] < cells.SCOAP_INF
+            }
+            if vals:
+                plane.set_metric(key, vals)
+
+
 def ff_attach(lut: Plane, placed: Plane, nl: blif.Netlist, top: str) -> None:
     """Each flip-flop is drawn as a small piece of the object that drives its D input."""
     pid = dict(zip(placed.name, placed.ids, strict=True))
@@ -738,6 +779,10 @@ def build_planes(
         placed.set_metric(
             "is_ff", {i: 1.0 for i, t in zip(placed.ids, placed.type, strict=True) if t == "latch"}
         )
+    scoap_note = ""
+    if dumps:
+        sc, scoap_note = cells.lut_scoap(dumps, nl)
+        add_scoap(lut, placed, sc)
     ff_attach(lut, placed, nl, top)
     for plane, pnets in ((lut, [lut_local(i) for i in lut.ids]), (placed, placed.name)):
         plane.metrics.update(circuitviz.node_columns(nl, pnets))
@@ -762,7 +807,7 @@ def build_planes(
         "index": index,
         "top": top,
         "dropped_links": dropped,
-        "notes": [n for n in (note and f"cell plane off: {note}", bus_note) if n],
+        "notes": [n for n in (note and f"cell plane off: {note}", bus_note, scoap_note) if n],
         "signals": cd.signals if cd else [],
         "selects": cd.selects if cd else 0,
         "grid": vprfiles.read_place(ff.place).grid,
