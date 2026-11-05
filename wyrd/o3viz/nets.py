@@ -10,6 +10,7 @@ nets, flip-flop cells named after their register). Wyrd uses Odin III only as a 
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -83,7 +84,13 @@ def run_dumps(flow: Path, work: Path, search: list[Path]) -> Path:
     for with_scoap in (True, False):
         new = extended_script(script, work, with_scoap)
         r = subprocess.run(
-            [*argv, "-p", new], cwd=cwd, capture_output=True, text=True, check=False, timeout=600
+            [*argv, "-p", new],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=600,
+            env={**os.environ, "ODIN3_PROV_UID": "1"},
         )
         if r.returncode == 0:
             return work
@@ -103,27 +110,50 @@ def read_scoap(path: Path, top: str) -> dict[int, tuple[int, int, int]] | None:
     return None
 
 
+UID = re.compile(r"(?:^|,)uid=(\d+)")
+
+
+def uid_table(lines: list[list[str]]) -> dict[str, str]:
+    """Record id -> store ID, from the `uid=` flag of the R lines (Odin III with ODIN3_PROV_UID=1).
+
+    The r<n> ids count the records of one file, so the proc dump and the final dump number the
+    same record differently; the store ID is the same in both. A map without the flag (an older
+    Odin III) keeps its r<n> ids, which only agree between the files by luck.
+    """
+    out: dict[str, str] = {}
+    for p in lines:
+        if p[0] == "R" and len(p) > 1:
+            m = UID.search(p[9]) if len(p) > 9 else None
+            out[p[1]] = "u" + m.group(1) if m else p[1]
+    return out
+
+
 def read_map(path: Path) -> tuple[dict[str, list[str]], dict[str, str], dict[str, str]]:
-    """Version 2 name map: record parents, hash -> record, hash -> full name (O lines)."""
+    """Version 2 name map: record parents, hash -> record, hash -> full name (O lines).
+
+    Records are named by store ID (uid_table) so they can be joined with the proc dump's.
+    """
+    lines = [ln.split("\t") for ln in path.read_text(encoding="utf-8").splitlines()]
+    uid = uid_table(lines)
     recs: dict[str, list[str]] = {}
     lut_rec: dict[str, str] = {}
     full: dict[str, str] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        p = line.split("\t")
+    for p in lines:
         if p[0] == "R" and len(p) > 6:
-            recs[p[1]] = [q for q in p[6].split(",") if q]
+            recs[uid[p[1]]] = [uid.get(q, q) for q in p[6].split(",") if q]
         elif p[0] == "O" and len(p) > 8:
-            lut_rec[p[3]] = p[8]
+            lut_rec[p[3]] = uid.get(p[8], p[8])
             full[p[3]] = p[4]
     return recs, lut_rec, full
 
 
 def read_proc_names(path: Path) -> dict[str, tuple[str, str]]:
+    lines = [ln.split("\t") for ln in path.read_text(encoding="utf-8").splitlines()]
+    uid = uid_table(lines)
     out: dict[str, tuple[str, str]] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        p = line.split("\t")
+    for p in lines:
         if p[0] == "O" and len(p) > 8 and p[2] == "node":
-            out[p[4]] = (p[3], p[8])
+            out[p[4]] = (p[3], uid.get(p[8], p[8]))
     return out
 
 
