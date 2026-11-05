@@ -26,6 +26,12 @@ def add_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None
         metavar="K",
         help="clusters of the min-cut partition (default: from HDL)",
     )
+    ex.add_argument(
+        "--odin3",
+        metavar="PATH",
+        help="odin3 program for the extra dump run (default: the one in the flow's log); "
+        "needs write_graph for the graph planes",
+    )
     sv = vsub.add_parser("serve", help="serve the viewer and one bundle on 127.0.0.1")
     sv.add_argument("bundle", metavar="BUNDLE_DIR")
     sv.add_argument("--port", type=int, default=8765)
@@ -46,6 +52,7 @@ def _export(args: argparse.Namespace) -> int:
             args.benchmark or flow.name,
             [Path(s) for s in args.src],
             args.clusters,
+            Path(args.odin3) if args.odin3 else None,
         )
     except export.ExportError as e:
         print(f"wyrd viz export: {e}", file=sys.stderr)

@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,12 @@ class Dumps:
     records: dict[str, list[str]]  # final name map: record id -> parent records
     lut_rec: dict[str, str]  # final name map: hash net name -> record id
     net_full: dict[str, str]  # final name map: hash net name -> full net name
+    scoap_nets: list[dict[str, Any]] = field(
+        default_factory=list
+    )  # raw scoap rows (--prov: driver, wire, prov, src)
+    graphs: dict[str, dict[str, Any]] = field(
+        default_factory=dict
+    )  # write_graph kind -> parsed file
 
 
 def command_of(log: Path) -> tuple[list[str], str]:
@@ -44,11 +51,26 @@ def command_of(log: Path) -> tuple[list[str], str]:
     raise NetsError(f"no odin3 command line in {log}")
 
 
-def extended_script(script: str, work: Path, scoap: bool = True) -> str:
-    """The script with the two dumps added and the BLIF written under `work`.
+GRAPH_KINDS = ("cfg", "stg", "ddg")
+# what to ask of the Odin III build, richest first; a build without a pass fails, the next is tried
+ATTEMPTS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("cfg", "stg", "ddg"), "prov"),
+    (("cfg", "stg", "ddg"), "plain"),
+    (("cfg", "stg"), "plain"),
+    (("cfg", "stg"), "none"),
+    ((), "plain"),
+    ((), "none"),
+)
 
-    With `scoap`, the scoap pass runs on the netlist the second dump shows (after mapping) and
-    writes `work`/scoap.json (net id, CC0, CC1, CO).
+
+def extended_script(
+    script: str, work: Path, graphs: tuple[str, ...] = (), scoap: str = "plain"
+) -> str:
+    """The script with the dumps added and the BLIF written under `work`.
+
+    `graphs`: write_graph kinds (cfg runs just before proc, stg and ddg just after). `scoap`:
+    "none", "plain" (net id, CC0, CC1, CO) or "prov" (also driver, wire, prov, src per net); the
+    pass runs on the netlist the second dump shows (after mapping) and writes `work`/scoap.json.
     """
     if "; proc;" not in script and not script.startswith("proc;"):
         raise NetsError("the odin3 script has no proc step")
@@ -56,13 +78,16 @@ def extended_script(script: str, work: Path, scoap: bool = True) -> str:
         f"write_json --odin3 --name-style provenance {work}/proc.json; "
         f"write_json --odin3 --name-style hash --prov-map {work}/proc_h.json; "
     )
-    out = script.replace("proc; ", "proc; " + dump1, 1)
+    pre = f"write_graph cfg {work}/cfg.json; " if "cfg" in graphs else ""
+    post = "".join(f"write_graph {k} {work}/{k}.json; " for k in ("stg", "ddg") if k in graphs)
+    out = script.replace("proc; ", pre + "proc; " + dump1 + post, 1)
     m = list(re.finditer(r"write_blif ", out))
     if not m:
         raise NetsError("the odin3 script has no write_blif")
     at = m[-1].start()
     tail = re.sub(r'"[^"]*\.blif"', f'"{work}/rt.blif"', out[at:])
-    sc = f"scoap --out {work}/scoap.json; " if scoap else ""
+    flag = " --prov" if scoap == "prov" else ""
+    sc = f"scoap{flag} --out {work}/scoap.json; " if scoap != "none" else ""
     return out[:at] + sc + f"write_json --odin3 --name-style provenance {work}/gates.json; " + tail
 
 
@@ -74,21 +99,27 @@ def source_cwd(script: str, candidates: list[Path]) -> Path:
     raise NetsError(f"cannot find the HDL files {files} in {[str(c) for c in candidates]}")
 
 
-def run_dumps(flow: Path, work: Path, search: list[Path]) -> Path:
-    """Run the extended script; return `work`. If the run fails and the script had the scoap pass,
-    it runs again without it (an Odin III build without that pass still gives the other dumps)."""
+def run_dumps(flow: Path, work: Path, search: list[Path], odin3: Path | None = None) -> Path:
+    """Run the extended script; return `work`. `odin3` replaces the program of the flow's own
+    command line. If the run fails the next-poorer set of extras is tried (an Odin III build without
+    `write_graph ddg` or `scoap --prov` still gives the other dumps)."""
     argv, script = command_of(flow / "odin3" / "odin3.log")
-    work.mkdir(parents=True, exist_ok=True)
+    if odin3 is not None:
+        argv[0] = str(odin3)
     cwd = source_cwd(script, [*search, flow.parent])
-    for with_scoap in (True, False):
-        new = extended_script(script, work, with_scoap)
+    r: subprocess.CompletedProcess[str] | None = None
+    for graphs, scoap in ATTEMPTS:
+        shutil.rmtree(work, ignore_errors=True)
+        work.mkdir(parents=True, exist_ok=True)
+        new = extended_script(script, work, graphs, scoap)
         r = subprocess.run(
             [*argv, "-p", new], cwd=cwd, capture_output=True, text=True, check=False, timeout=600
         )
         if r.returncode == 0:
             return work
-        if not with_scoap or "scoap" not in r.stderr:
+        if not any(w in r.stderr for w in ("scoap", "write_graph", "usage", "unknown")):
             break
+    assert r is not None
     raise NetsError(f"odin3 dump run failed ({r.returncode}): {r.stderr[-400:]}")
 
 
@@ -101,6 +132,25 @@ def read_scoap(path: Path, top: str) -> dict[int, tuple[int, int, int]] | None:
         if mod.get("name") == top:
             return {n["id"]: (n["cc0"], n["cc1"], n["co"]) for n in mod["nets"]}
     return None
+
+
+def read_scoap_rows(path: Path, top: str) -> list[dict[str, Any]]:
+    """The raw net rows of the top module (with `--prov`: driver, wire, prov, src)."""
+    if not path.is_file():
+        return []
+    for mod in json.loads(path.read_text(encoding="utf-8")).get("modules", []):
+        if mod.get("name") == top:
+            return [dict(n) for n in mod["nets"]]
+    return []
+
+
+def read_graphs(work: Path) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    for kind in GRAPH_KINDS:
+        p = work / f"{kind}.json"
+        if p.is_file():
+            out[kind] = json.loads(p.read_text(encoding="utf-8"))
+    return out
 
 
 def read_map(path: Path) -> tuple[dict[str, list[str]], dict[str, str], dict[str, str]]:
@@ -145,6 +195,8 @@ def load_dumps(work: Path, top: str) -> Dumps:
         recs,
         lut_rec,
         full,
+        read_scoap_rows(work / "scoap.json", top),
+        read_graphs(work),
     )
 
 

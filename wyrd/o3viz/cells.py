@@ -45,6 +45,9 @@ class CellData:
     signals: list[Signal] = field(default_factory=list)
     sig_links: list[tuple[str, str, str, str]] = field(default_factory=list)
     selects: int = 0
+    consts: dict[str, int] = field(
+        default_factory=dict
+    )  # `$eq` cell -> the constant it compares with
 
 
 def parse_src(attr: str) -> list[list[str]]:
@@ -277,6 +280,14 @@ def build_cells(
         cd.src.append(spans)
         if FF_TYPE.match(c["type"]):
             cd.ff.add(oid)
+        if c["type"] == "$eq":
+            ca, cb = (
+                cell_value(c["connections"].get("A", [])),
+                cell_value(c["connections"].get("B", [])),
+            )
+            val = ca if ca is not None else cb
+            if (ca is None) != (cb is None) and val is not None:
+                cd.consts[oid] = val
         b = own_bus(out_bits(c), names)
         if b:
             own[oid] = b
@@ -521,21 +532,51 @@ def lut_scoap(d: nets.Dumps, nl: blif.Netlist) -> tuple[dict[str, tuple[int, int
         nid = net_id(full)
         if nid is not None and nid in d.scoap:
             table[net] = d.scoap[nid]
+    ok, bad = check_luts(table, nl)
+    if ok + bad == 0 or bad * 20 > ok + bad:
+        return {}, f"scoap numbering not verified ({ok} LUTs agree, {bad} differ); values dropped"
+    extra = join_by_name(d, nl, table)
+    note = f"scoap values: {ok} of {ok + bad} checkable LUTs recompute exactly"
+    return table, note + (
+        f"; {extra} port-named nets joined by name (scoap --prov)" if extra else ""
+    )
+
+
+def check_luts(
+    table: Mapping[str, tuple[int, int, int]], nl: blif.Netlist, only: Sequence[str] | None = None
+) -> tuple[int, int]:
+    """(agree, differ) over the LUTs of up to 6 inputs whose own and input values are known."""
     ok = bad = 0
     for net, rows in nl.covers.items():
         ins = nl.inputs.get(net, [])
-        if net not in table or not 0 < len(ins) <= 6:
+        if net not in table or not 0 < len(ins) <= 6 or (only is not None and net not in only):
             continue
         cc = [(table[i][0], table[i][1]) if i in table else (1, 1) for i in ins]
         if any(i not in table and i not in nl.primary_inputs for i in ins):
             continue
         got = (cube_cost(cc, rows, 0), cube_cost(cc, rows, 1))
         want = (table[net][0], table[net][1])
-        sat = SCOAP_INF in want or SCOAP_INF in [c for pair in cc for c in pair]
-        if sat:
+        if SCOAP_INF in want or SCOAP_INF in [c for pair in cc for c in pair]:
             continue
         agree = all(g == w for g, w in zip(got, want, strict=True))
         ok, bad = (ok + 1, bad) if agree else (ok, bad + 1)
-    if ok + bad == 0 or bad * 20 > ok + bad:
-        return {}, f"scoap numbering not verified ({ok} LUTs agree, {bad} differ); values dropped"
-    return table, f"scoap values: {ok} of {ok + bad} checkable LUTs recompute exactly"
+    return ok, bad
+
+
+def join_by_name(d: nets.Dumps, nl: blif.Netlist, table: dict[str, tuple[int, int, int]]) -> int:
+    """`scoap --prov` rows carry the wire name of a net: a BLIF net named after a port (no `$nN`
+    join) takes the row of the same name. Each such LUT is kept only if its values recompute from
+    its cover and its inputs (a LUT with an unknown input cannot be checked and is kept)."""
+    byname = {str(r["name"]): r for r in d.scoap_nets if r.get("wire") and "name" in r}
+    added: dict[str, tuple[int, int, int]] = {}
+    for net in nl.covers:
+        r = byname.get(net)
+        if net in table or r is None or any(k not in r for k in ("cc0", "cc1", "co")):
+            continue
+        added[net] = (r["cc0"], r["cc1"], r["co"])
+    trial = {**table, **added}
+    bad = {n for n in added if check_luts(trial, nl, [n])[1] > 0}
+    for n in added:
+        if n not in bad:
+            table[n] = added[n]
+    return len(added) - len(bad)
