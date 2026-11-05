@@ -57,11 +57,18 @@
   .col { font-size:12px; } .col b { color:var(--acc); } .col div { margin:2px 0; word-break:break-all; }
   .col a { color:#8fc1ff; cursor:pointer; text-decoration:none; } #status { color:var(--dim); font-size:12px; margin-top:8px; }
   .err { color:#ff7b72; }
+  .tglwrap { display:flex; justify-content:flex-end; margin:-4px 0 2px; } .tglwrap button { width:auto; padding:0 7px; line-height:18px; }
+  #left.collapsed, #right.collapsed { padding:6px 2px; overflow:hidden; } #left.collapsed > :not(.tglwrap), #right.collapsed > :not(.tglwrap) { display:none; }
+  .collapsed .tglwrap { justify-content:center; }
+  #srcpane.collapsed { flex:0 0 26px !important; min-width:26px; overflow:hidden; } #srcpane.collapsed > :not(.tglwrap) { display:none; }
+  #srcpane > .tglwrap { margin:0; padding:2px; background:var(--panel); border-bottom:1px solid var(--line); }
+  #split.hidden { display:none; }
 </style>
 </head>
 <body>
 <div id="app">
   <aside id="left">
+    <div class="tglwrap"><button data-tgl="left" title="hide / show this panel ([)">&laquo;</button></div>
     <h1 id="title">o3viz</h1><div class="sub" id="subtitle">loading</div>
     <h2>Colour</h2><select id="colour"></select>
     <div id="legend"><div id="bar"></div><div class="ends"><span id="lo"></span><span id="mid"></span><span id="hi"></span></div>
@@ -108,14 +115,14 @@
     <div id="status"></div>
   </aside>
   <div id="main">
-    <div id="srcpane"><div id="srctop"><div id="srctabs"></div>
+    <div id="srcpane"><div class="tglwrap"><button data-tgl="hdl" title="hide / show the HDL pane (h)">&laquo;</button></div><div id="srctop"><div id="srctabs"></div>
       <div id="srcinfo">Click a line, drag or shift-click for a range.
         <label><input type="checkbox" id="enclosing"> include enclosing constructs</label></div></div>
       <div id="srclines"></div></div>
     <div id="split" title="drag to resize"></div>
     <div id="stage"><canvas id="view"></canvas><div id="tip"></div><div id="brush" style="position:absolute;display:none;border:1px dashed #ffb454;background:#ffb45422;pointer-events:none"></div></div>
   </div>
-  <aside id="right"><h2 style="margin-top:0">Selection</h2>
+  <aside id="right"><div class="tglwrap"><button data-tgl="right" title="hide / show this panel (])">&raquo;</button></div><h2 style="margin-top:0">Selection</h2>
     <div id="sel" class="sub">Click an HDL line or a node. Everything linked to it is highlighted.</div>
     <h2>Paths</h2>
     <select id="pathsrc"><option value="vpr">VPR setup report (worst first)</option><option value="cone">netlist cone of the selection</option></select>

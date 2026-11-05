@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { OrbitControls } from "./vendor/OrbitControls.js";
 import { parse, evaluate, varsOf } from "./expr.js";
 import { spearman, mutualInfo } from "./stats.js";
+import * as pl from "./layout.js";
 import { parseSpan, innermost, hdlCovering, reachDown, cone as coneOf, chainFor, tiers as tiersOf, busHue, bitLight } from "./select.js";
 
 const BUNDLE = "./bundle/";
@@ -417,6 +418,25 @@ function drawLines() {
   lines = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts),
     new THREE.LineBasicMaterial({ color: 0xffb454, transparent: true, opacity: 0.55 }));
   group.add(lines);
+}
+
+// ---- collapsible panels: left controls, HDL pane, right selection ----
+let panels = pl.load(globalThis.localStorage);
+function applyPanels() {
+  $("app").style.gridTemplateColumns = pl.gridColumns(panels);
+  const ids = { left: "left", hdl: "srcpane", right: "right" };
+  for (const p of pl.PANELS) {
+    $(ids[p]).classList.toggle("collapsed", panels[p]);
+    const b = document.querySelector(`button[data-tgl="${p}"]`);
+    b.innerHTML = (p === "right") === panels[p] ? "&laquo;" : "&raquo;";
+  }
+  $("split").classList.toggle("hidden", panels.hdl);
+  if (renderer) resize();
+}
+function togglePanel(name) {
+  panels = pl.toggled(panels, name);
+  pl.save(globalThis.localStorage, panels);
+  applyPanels();
 }
 
 function resize() {
@@ -1234,8 +1254,12 @@ function buildUi() {
   }));
   $("depthpreset").addEventListener("click", () => setColour("logic_level"));
   buildPathsUi();
+  document.querySelectorAll("button[data-tgl]").forEach((b) => b.addEventListener("click", () => togglePanel(b.dataset.tgl)));
+  applyPanels();
   document.addEventListener("keydown", (e) => {
     if (/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName) || e.ctrlKey || e.metaKey || e.altKey) return;
+    const pk = pl.panelForKey(e.key);
+    if (pk) { togglePanel(pk); return; }
     if (e.key === "0") focusPlane(null);
     else if (/^[1-9]$/.test(e.key) && S.order[Number(e.key) - 1]) focusPlane(S.order[Number(e.key) - 1]);
   });
@@ -1288,7 +1312,7 @@ async function main() {
   const loop = () => { controls.update(); renderer.render(scene, camera); requestAnimationFrame(loop); };
   loop();
   document.body.dataset.ready = "1";
-  window.__o3viz = { S, select, selectBus, tierCounts, setFF: (m) => { S.ff = m; $("ffmode").value = m; refreshAll(); }, selectLines, planeCounts, coverage, focusPlane, soloPlane, showPath, updateCone, markLines, setCone: async (dir, depth) => { $("pathsrc").value = "cone"; showPathPanel(); S.coneOn = true; $("conedir").value = dir; $("conedepth").value = String(depth); await updateCone(); markLines(); }, marksOf: () => Object.fromEntries([...marks].map(([f, m]) => [f, Object.fromEntries(m)])), cam: () => ({ target: controls.target.toArray(), pos: camera.position.toArray() }), wheelAt: (x, y, dy) => wheelZoom({ preventDefault() {}, clientX: x, clientY: y, deltaY: dy, deltaMode: 0 }), discover, setView, setGroupMode, discoverMatrix, brushAll: (p) => { S.brush = new Set(S.planes[p].ids.slice(0, 30)); S.core = new Set(); refreshAll(); },
+  window.__o3viz = { S, togglePanel, panelState: () => ({ ...panels }), select, selectBus, tierCounts, setFF: (m) => { S.ff = m; $("ffmode").value = m; refreshAll(); }, selectLines, planeCounts, coverage, focusPlane, soloPlane, showPath, updateCone, markLines, setCone: async (dir, depth) => { $("pathsrc").value = "cone"; showPathPanel(); S.coneOn = true; $("conedir").value = dir; $("conedepth").value = String(depth); await updateCone(); markLines(); }, marksOf: () => Object.fromEntries([...marks].map(([f, m]) => [f, Object.fromEntries(m)])), cam: () => ({ target: controls.target.toArray(), pos: camera.position.toArray() }), wheelAt: (x, y, dy) => wheelZoom({ preventDefault() {}, clientX: x, clientY: y, deltaY: dy, deltaMode: 0 }), discover, setView, setGroupMode, discoverMatrix, brushAll: (p) => { S.brush = new Set(S.planes[p].ids.slice(0, 30)); S.core = new Set(); refreshAll(); },
     setEdges: async (m, h) => { S.edgeMode = m; S.hops = h ?? 1; await ensureEdges(); drawEdges(); }, setMorph: (a, b, m) => { S.morph = { a, b, m }; refreshAll(); }, addExpr, addAgg, setHeight: (n) => { S.height = n; $("height").value = n; refreshAll(); },
     setAnchor: async (n) => { $("anchor").value = n; $("anchor").dispatchEvent(new Event("change")); }, setColour,
     setSize: (n) => { S.size = n; $("size").value = n; refreshAll(); }, stop: () => { controls.autoRotate = false; } };
