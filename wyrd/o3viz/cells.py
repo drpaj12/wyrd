@@ -437,6 +437,19 @@ def port_bus(name: str) -> Bus | None:
     return (name, None, "own") if not name.startswith("h") or len(name) != 11 else None
 
 
+def net_bus(
+    net: str,
+    d: nets.Dumps,
+    good: set[str],
+    off: Callable[[int], int],
+    bn: Mapping[int, tuple[str, int]],
+) -> Bus | None:
+    nid = net_id(d.net_full.get(net, ""))
+    if nid is None:
+        return port_bus(net)
+    return own_bus([nid - off(nid)], bn) if net in good else None
+
+
 def lut_buses(d: nets.Dumps, nl: blif.Netlist) -> tuple[dict[str, Bus], str]:
     """Bus per BLIF net: its own wire name, else the one bus it feeds. Second value: a note."""
     off = offset_fn(d, nl)
@@ -448,11 +461,7 @@ def lut_buses(d: nets.Dumps, nl: blif.Netlist) -> tuple[dict[str, Bus], str]:
     bn = bit_names(d.gates, d.top)
     own: dict[str, Bus] = {}
     for net in nl.drivers:
-        nid = net_id(d.net_full.get(net, ""))
-        if nid is None:
-            b = port_bus(net)
-        else:
-            b = own_bus([nid - off(nid)], bn) if net in good else None
+        b = net_bus(net, d, good, off, bn)
         if b:
             own[net] = b
     succ: dict[str, list[str]] = defaultdict(list)
