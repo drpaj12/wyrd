@@ -15,6 +15,7 @@ class Netlist:
     drivers: dict[str, str] = field(default_factory=dict)  # net -> names | latch | subckt
     inputs: dict[str, list[str]] = field(default_factory=dict)  # net -> nets it reads
     primary_inputs: set[str] = field(default_factory=set)
+    primary_outputs: set[str] = field(default_factory=set)
 
     def edges(self) -> list[tuple[str, str, str]]:
         out: list[tuple[str, str, str]] = []
@@ -107,6 +108,8 @@ def read_blif(path: Path) -> Netlist:
         key = words[0]
         if key == ".inputs":
             nl.primary_inputs.update(words[1:])
+        elif key == ".outputs":
+            nl.primary_outputs.update(words[1:])
         elif key == ".names" and len(words) >= 2:
             nl.drivers[words[-1]] = "names"
             nl.inputs[words[-1]] = words[1:-1]
