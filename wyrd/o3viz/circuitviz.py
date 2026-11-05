@@ -25,6 +25,7 @@ def band_anchor(
     lut, placed = planes["lut"], planes["placed"]
     level = {i: int(v) for i, v in anchorset.column(lut, "logic_level").items() if i in band}
     pos, labels = circuit.grid_layout(level, band, anchorset.column(lut, "slack_worst"))
+    labels = [x for x in labels if kind or "band" not in x]
     seed = dict(pos)
     for pid, name in zip(placed.ids, placed.name, strict=True):
         if (lid := f"luts:{top}/{name}") in pos:
@@ -36,7 +37,7 @@ def band_anchor(
     out, un = anchors.placement_anchor(order, ids, ulinks, seed, centre, parent, edges)
     out = anchors.strip_unanchored(out, un)
     res = anchorset.packed(out, un, anchors.bounds_of(out, 2.0))
-    res.update({"ff_attached": False, "labels": labels, "band_kind": kind})
+    res.update({"ff_attached": False, "labels": labels, "band_kind": kind, "step": circuit.STEP})
     return res
 
 

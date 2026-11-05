@@ -19,6 +19,7 @@ from wyrd.o3viz import anchors, blif, hutton, partition
 Pos = anchors.Pos
 Link = tuple[str, str, str, str]
 HDL_LEVELS = ("module", "block", "item")
+STEP = 0.6  # distance between neighbouring objects in the Hutton layouts
 MAX_NAMED = 48  # a source with more clusters than this is not exported (unreadable matrix)
 
 
@@ -303,7 +304,7 @@ def grid_layout(
     level: Mapping[str, int],
     band: Mapping[str, int],
     key: Mapping[str, float],
-    step: float = 0.6,
+    step: float = STEP,
     gap: float = 1.6,
 ) -> tuple[dict[str, Pos], list[dict[str, Any]]]:
     """x = delay level; one strip (along z) per band; inside a strip the objects of a level are
