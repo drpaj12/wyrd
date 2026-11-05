@@ -171,3 +171,24 @@ class TestBusesAndFlops(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestScoap(unittest.TestCase):
+    def test_cube_cost_textbook_gates(self) -> None:
+        and2 = [("11", "1")]
+        or2 = [("1-", "1"), ("-1", "1")]
+        xor2 = [("10", "1"), ("01", "1")]
+        ins = [(1, 1), (1, 1)]
+        self.assertEqual((cells.cube_cost(ins, and2, 0), cells.cube_cost(ins, and2, 1)), (2, 3))
+        self.assertEqual((cells.cube_cost(ins, or2, 0), cells.cube_cost(ins, or2, 1)), (3, 2))
+        self.assertEqual((cells.cube_cost(ins, xor2, 0), cells.cube_cost(ins, xor2, 1)), (3, 3))
+
+    def test_cube_cost_uses_input_costs_and_off_set_covers(self) -> None:
+        nand = [("11", "0")]  # OFF-set cover: y = 0 only when both are 1
+        self.assertEqual(cells.cube_cost([(5, 2), (3, 4)], nand, 0), 7)  # 1 + CC1(a) + CC1(b)
+        self.assertEqual(cells.cube_cost([(5, 2), (3, 4)], nand, 1), 4)  # 1 + min(CC0)
+        self.assertIsNone(cells.cube_cost([(1, 1)], [], 1))  # constant 0 cannot be 1
+
+    def test_lut_scoap_without_pass(self) -> None:
+        d = nets.Dumps("m", {}, {}, {}, None, {}, {}, {})
+        self.assertEqual(cells.lut_scoap(d, blif.Netlist())[0], {})
