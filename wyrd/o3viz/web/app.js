@@ -17,7 +17,7 @@ const S = { man: null, planes: {}, order: [], links: [], up: new Map(), down: ne
   height: "", fade: "", slot: {}, anchor: "", brush: null, vis: {}, view: "stack",
   lineSel: null, mode: { type: "none" }, focus: null, solo: null, cone: null, coneOn: false, path: null, paths: [], texts: {},
   srcFile: "", morph: { a: "", b: "", m: 0 }, group: { mode: "", expanded: new Set(), keys: {}, blobs: {} }, edges: null, edgeOn: false,
-  tier: null, tierInfo: null, ff: "off", busIndex: new Map(), busWidth: new Map(), busFilter: "" };
+  tier: null, tierInfo: null, ff: "off", busIndex: new Map(), busWidth: new Map(), busFilter: "", ffSlot: {}, clbFF: null };
 
 async function getJson(path) {
   const r = await fetch(BUNDLE + path);
@@ -143,7 +143,7 @@ function buildScene() {
     const kinds = [...new Set(d.ids.map((_, i) => keyOf(i)))].sort();
     meshes[p] = kinds.map((kind, ki) => {
       const idx = d.ids.map((_, i) => i).filter((i) => keyOf(i) === kind);
-      const geo = kind === "\u2605ff" ? new THREE.TorusGeometry(1, 0.5, 8, 14) : SHAPES[ki % SHAPES.length]();
+      const geo = kind === "\u2605ff" ? new THREE.BoxGeometry(1.25, 1.25, 1.25) : SHAPES[ki % SHAPES.length]();
       const m = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial(), idx.length);
       m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(idx.length * 3), 3);
       m.userData = { plane: p, kind, idx };
@@ -160,6 +160,7 @@ function buildScene() {
     quads[p] = { q, edge, lab };
     group.add(q, edge, lab);
   });
+  buildClbFF();
   layout();
   resetCamera();
 }
@@ -224,7 +225,7 @@ function refreshPlane(p) {
   const r0 = unitR(p);
   d.ids.forEach((id, i) => {
     const [m, j] = S.slot[p][i];
-    const pos = S.pos[p][id];
+    const pos = posOf(p, i);
     let x = pos[0] - cx(), z = pos[1] - cz(), y = planeY(k) + heightOf(d, i);
     const mt = morphTarget(p, i);
     if (mt) {
@@ -238,9 +239,10 @@ function refreshPlane(p) {
     const st = stateOf(id), tr = S.tier?.get(id), ff = isFF(p, i);
     if (S.tier) s *= tr === "A" ? 2 : tr === "B" ? 1.5 : tr === "C" ? 1.1 : 0.45;
     else if (st === 2) s *= S.brush ? 1.5 : 2.4; else if (st === 3) s *= 1.3; else if (st === 1) s *= S.brush ? 1.15 : 1.5; else if (st === -1) s *= 0.55;
-    if (S.ff !== "off" && p === "clb") s *= 0.5 + 0.5 * Math.min(ffCount(p, i), 8);
+    if (S.ff !== "off" && p === "clb") s *= 0.45;
     const dim = S.ff === "only" && !ff && !(p === "clb" && ffCount(p, i) > 0);
     if (dim) s *= 0.4;
+    if (ff && d.attach?.[i]) s *= 0.7;
     if (hiddenByGroup(p, i)) s = 1e-4;
     dummy.scale.setScalar(s);
     dummy.updateMatrix();
@@ -334,11 +336,69 @@ function refreshBlobs(p) {
   bl.mesh.computeBoundingSphere();
 }
 
-const refreshAll = () => { S.order.forEach(refreshPlane); drawLines(); drawEdges(); drawPathLines(); legend(); };
+const refreshAll = () => { S.order.forEach(refreshPlane); refreshClbFF(); drawFFEdges(); drawLines(); drawEdges(); drawPathLines(); legend(); };
 
+// position on the plane: a flip-flop with a driver (d.attach) sits beside it as a small piece of it
+function posOf(plane, i) {
+  const d = S.planes[plane], id = d.ids[i], att = d.attach?.[i], q = att && S.pos[plane][att];
+  if (!q) return S.pos[plane][id];
+  const k = (S.ffSlot[plane] ??= {})[att] ??= new Map();
+  if (!k.has(id)) k.set(id, k.size);
+  const r = unitR(plane) * 2.1, a = 0.9 + k.get(id) * 2.2;
+  return [q[0] + r * Math.cos(a), q[1] + r * Math.sin(a)];
+}
 function worldPos(plane, id) {
-  const k = S.order.indexOf(plane), i = S.byId.get(id).i, p = S.pos[plane][id];
+  const k = S.order.indexOf(plane), i = S.byId.get(id).i, p = posOf(plane, i);
   return new THREE.Vector3(p[0] - cx(), planeY(k) + heightOf(S.planes[plane], i), p[1] - cz());
+}
+
+// short edges from each flip-flop to the object that drives it
+let ffEdges = null;
+function drawFFEdges() {
+  if (ffEdges) { group.remove(ffEdges); ffEdges.geometry.dispose(); ffEdges = null; }
+  const pts = [];
+  for (const p of S.order) {
+    const d = S.planes[p];
+    if (!d.attach || S.vis[p] === false || (S.view !== "stack" && S.view !== p)) continue;
+    d.attach.forEach((att, i) => { if (att && S.pos[p][att]) pts.push(worldPos(p, att), worldPos(p, d.ids[i])); });
+  }
+  if (!pts.length) return;
+  ffEdges = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts),
+    new THREE.LineBasicMaterial({ color: new THREE.Color(FF_COL), transparent: true, opacity: 0.7 }));
+  group.add(ffEdges);
+}
+
+// clusters: each flip-flop inside is a small cube in the cluster; the cubes of a selected cluster grow
+function buildClbFF() {
+  const d = S.planes.clb, col = d?.metrics.ffs_inside;
+  if (!col) return;
+  const owner = [];
+  col.forEach((n, i) => { for (let k = 0; k < Math.min(n ?? 0, 16); k++) owner.push([i, k, Math.min(n, 16)]); });
+  if (!owner.length) return;
+  const m = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial(), owner.length);
+  m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(owner.length * 3), 3);
+  S.clbFF = { mesh: m, owner };
+  group.add(m);
+}
+function refreshClbFF() {
+  const f = S.clbFF;
+  if (!f) return;
+  const d = S.planes.clb, k = S.order.indexOf("clb"), r0 = unitR("clb");
+  f.owner.forEach(([i, j, n], q) => {
+    const id = d.ids[i], st = stateOf(id), tr = S.tier?.get(id);
+    const hot = st >= 1 || S.ff !== "off" || tr;
+    const pos = S.pos.clb[id], a = (j / n) * Math.PI * 2, rr = r0 * 0.62;
+    dummy.position.set(pos[0] - cx() + rr * Math.cos(a), planeY(k) + heightOf(d, i) + r0 * 0.3, pos[1] - cz() + rr * Math.sin(a));
+    dummy.scale.setScalar(hiddenByGroup("clb", i) || S.vis.clb === false ? 1e-4 : r0 * (hot ? 0.5 : 0.32));
+    dummy.updateMatrix();
+    f.mesh.setMatrixAt(q, dummy.matrix);
+    const c = new THREE.Color(FF_COL);
+    if ((S.sel || S.brush || S.tier) && st < 1 && !tr) c.lerp(BG, 0.8);
+    f.mesh.setColorAt(q, c);
+  });
+  f.mesh.instanceMatrix.needsUpdate = true;
+  f.mesh.instanceColor.needsUpdate = true;
+  f.mesh.computeBoundingSphere();
 }
 
 function drawLines() {
@@ -747,6 +807,8 @@ function applyVisibility() {
     quads[p].q.visible = quads[p].edge.visible = quads[p].lab.visible = v;
     if (S.group.blobs[p]) S.group.blobs[p].mesh.visible = v;
   }
+  if (S.clbFF) S.clbFF.mesh.visible = S.vis.clb !== false && (S.view === "stack" || S.view === "clb");
+  drawFFEdges();
 }
 function setView(v) {
   S.view = v;

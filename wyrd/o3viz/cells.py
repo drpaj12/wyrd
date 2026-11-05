@@ -5,9 +5,10 @@ Inputs are the parsed dumps of `nets.py`. Nothing here runs a tool.
 
 from __future__ import annotations
 
+import bisect
 import re
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -362,34 +363,69 @@ def net_id(full: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def lut_offset(d: nets.Dumps, nl: blif.Netlist) -> int | None:
-    """BLIF net `$nN` is JSON bit N - offset; the pairs are the flip-flops in order."""
-    latches = [n for n, k in nl.drivers.items() if k == "latch"]
-    ffs = json_ffs(d.gates)
-    if len(latches) != len(ffs) or not ffs:
+def port_bits(mod: Mapping[str, Any]) -> set[int]:
+    return {
+        b
+        for k, v in mod.get("netnames", {}).items()
+        if "@" not in k
+        for b in v.get("bits", [])
+        if isinstance(b, int)
+    }
+
+
+def offset_fn(d: nets.Dumps, nl: blif.Netlist) -> Callable[[int], int] | None:
+    """BLIF net `$nN` is JSON bit N - off(N). The offset is constant between the points where
+    nets exist in one numbering and not in the other (adders, black boxes), so it is read off the
+    flip-flops sorted by number (the ones with a hash name) and held until the next one."""
+    pb = port_bits(d.gates)
+    lat = sorted(
+        nid
+        for n, k in nl.drivers.items()
+        if k == "latch" and n in d.net_full and (nid := net_id(d.net_full[n])) is not None
+    )
+    ffq = sorted(
+        c["connections"]["Q"][0]
+        for c in json_ffs(d.gates)
+        if isinstance(c["connections"]["Q"][0], int) and c["connections"]["Q"][0] not in pb
+    )
+    if not lat or len(lat) != len(ffq):
         return None
-    diffs = set()
-    for n, c in zip(latches, ffs, strict=True):
-        nid = net_id(d.net_full.get(n, ""))
-        q = c["connections"].get("Q", [None])[0]
-        if nid is not None and isinstance(q, int):
-            diffs.add(nid - q)
-    return next(iter(diffs)) if len(diffs) == 1 else None
+    offs = [a - q for a, q in zip(lat, ffq, strict=True)]
+
+    def off(nid: int) -> int:
+        return offs[max(0, bisect.bisect_right(lat, nid) - 1)]
+
+    return off
 
 
-def lut_check(d: nets.Dumps, nl: blif.Netlist, off: int) -> tuple[int, int]:
-    """(matching, total) of the post-ABC LUT cells against the BLIF .names under the offset."""
-    by_nid = {net_id(f): h for h, f in d.net_full.items() if net_id(f) is not None}
-    ok = total = 0
+def verified_nets(
+    d: nets.Dumps, nl: blif.Netlist, off: Callable[[int], int]
+) -> tuple[set[str], int, int]:
+    """BLIF nets whose JSON cell matches: a flip-flop output, or a LUT with as many inputs."""
+    pb = port_bits(d.gates)
+    by_nid = {nid: h for h, f in d.net_full.items() if (nid := net_id(f)) is not None}
+    hash_of_bit: dict[int, str] = {}
+    for nid, h in by_nid.items():
+        hash_of_bit[nid - off(nid)] = h
+    good: set[str] = set()
+    total = 0
     for c in d.gates["cells"].values():
-        if c["type"] != "$lut" or not any(isinstance(b, int) for b in c["connections"]["A"]):
-            continue
-        total += 1
-        y = c["connections"]["Y"][0]
-        h = by_nid.get(y + off) if isinstance(y, int) else None
-        if h and nl.drivers.get(h) == "names":
-            ok += 1
-    return ok, total
+        t = c["type"]
+        conn = c["connections"]
+        if t.startswith("$_DFF"):
+            qh = hash_of_bit.get(conn["Q"][0]) if isinstance(conn["Q"][0], int) else None
+            if qh and nl.drivers.get(qh) == "latch":
+                good.add(qh)
+        elif t == "$lut" and any(isinstance(b, int) for b in conn["A"]):
+            total += 1
+            y = conn["Y"][0]
+            lh = hash_of_bit.get(y) if isinstance(y, int) else None
+            ins = {b for b in conn["A"] if isinstance(b, int) and b not in pb}
+            hin = [x for x in nl.inputs.get(lh or "", []) if x in d.net_full]
+            if lh and nl.drivers.get(lh) == "names" and len(ins) == len(set(hin)):
+                good.add(lh)
+    luts = sum(1 for h in good if nl.drivers.get(h) == "names")
+    return good, luts, total
 
 
 def port_bus(name: str) -> Bus | None:
@@ -403,21 +439,25 @@ def port_bus(name: str) -> Bus | None:
 
 def lut_buses(d: nets.Dumps, nl: blif.Netlist) -> tuple[dict[str, Bus], str]:
     """Bus per BLIF net: its own wire name, else the one bus it feeds. Second value: a note."""
-    off = lut_offset(d, nl)
+    off = offset_fn(d, nl)
     if off is None:
-        return {}, "no consistent net-number offset between the BLIF and the netlist dump"
-    ok, total = lut_check(d, nl, off)
-    if total == 0 or ok < total:
-        return {}, f"only {ok} of {total} LUT cells match the BLIF; bus names dropped"
+        return {}, "flip-flops of the BLIF and of the netlist dump do not pair up; no bus names"
+    good, luts, total = verified_nets(d, nl, off)
+    if total == 0 or luts * 100 < total * 95:
+        return {}, f"only {luts} of {total} LUT cells match the BLIF; bus names dropped"
     bn = bit_names(d.gates, d.top)
     own: dict[str, Bus] = {}
     for net in nl.drivers:
         nid = net_id(d.net_full.get(net, ""))
-        b = own_bus([nid - off], bn) if nid is not None else port_bus(net)
+        if nid is None:
+            b = port_bus(net)
+        else:
+            b = own_bus([nid - off(nid)], bn) if net in good else None
         if b:
             own[net] = b
     succ: dict[str, list[str]] = defaultdict(list)
     for net, srcs in nl.inputs.items():
         for s in set(srcs):
             succ[s].append(net)
-    return infer(own, succ, list(nl.drivers)), f"offset {off}, {ok} LUT cells verified"
+    note = f"net numbers paired on the flip-flops; {luts} of {total} LUT cells verified"
+    return infer(own, succ, list(nl.drivers)), note

@@ -192,6 +192,7 @@ class Plane:
     bit: list[int | None] = field(default_factory=list)
     busk: list[str | None] = field(default_factory=list)
     parent: list[str | None] = field(default_factory=list)
+    attach: list[str | None] = field(default_factory=list)  # a flip-flop: the object driving its D
 
     def set_bus(self, table: dict[str, cells.Bus]) -> None:
         """Bus columns from a table keyed by object id."""
@@ -528,6 +529,8 @@ def plane_json(p: Plane) -> dict[str, Any]:
         out.update({"bus": p.bus, "bit": p.bit, "busk": p.busk})
     if any(b is not None for b in p.parent):
         out["parent"] = p.parent
+    if any(b is not None for b in p.attach):
+        out["attach"] = p.attach
     return out
 
 
@@ -595,6 +598,27 @@ def apply_lut_buses(
         if b is not None and k == "own":
             out.append((f"hdl:sig.{b}", i, "name", "exact"))
     return out
+
+
+def ff_attach(lut: Plane, placed: Plane, nl: blif.Netlist, top: str) -> None:
+    """Each flip-flop is drawn as a small piece of the object that drives its D input."""
+    pid = dict(zip(placed.name, placed.ids, strict=True))
+    lids = set(lut.ids)
+
+    def drv(net: str) -> str | None:
+        d = nl.inputs.get(net, [None])[0]
+        return d if d is not None and nl.drivers.get(d) == "names" else None
+
+    lut.attach = [
+        f"luts:{top}/{d}"
+        if t == "latch" and (d := drv(lut_local(i))) and f"luts:{top}/{d}" in lids
+        else None
+        for i, t in zip(lut.ids, lut.type, strict=True)
+    ]
+    placed.attach = [
+        pid.get(d) if t == "latch" and (d := drv(n)) else None
+        for n, t in zip(placed.name, placed.type, strict=True)
+    ]
 
 
 def ff_links(cell: Plane, lut: Plane) -> list[tuple[str, str, str, str]]:
@@ -674,6 +698,7 @@ def build_planes(
         placed.set_metric(
             "is_ff", {i: 1.0 for i, t in zip(placed.ids, placed.type, strict=True) if t == "latch"}
         )
+    ff_attach(lut, placed, nl, top)
     links.extend(sigl)
     all_ids = set(hdl.ids) | set(lut.ids) | set(clb.ids) | set(placed.ids)
     if cplane:
@@ -752,6 +777,14 @@ def write_json(path: Path, obj: Any) -> None:
     path.write_text(dumps(obj), encoding="utf-8", newline="\n")
 
 
+def spread_cells(aset: dict[str, Any]) -> None:
+    """Cells linked to the same LUTs get the same mean position: spread them on a small grid."""
+    cp = aset["pos"].get("cell")
+    if cp:
+        moved = anchors.spread_same({i: (xy[0], xy[1]) for i, xy in cp.items()}, 1.4)
+        aset["pos"]["cell"] = {i: list(xy) for i, xy in moved.items()}
+
+
 def bus_table(planes: dict[str, Plane], sigs: list[cells.Signal]) -> list[dict[str, Any]]:
     """Every bus with its width, declaration line and object counts per plane."""
     info: dict[str, dict[str, Any]] = {}
@@ -786,6 +819,8 @@ def export_bundle(flow: Path, out: Path, benchmark: str, src_dirs: list[Path]) -
     anchor_sets = anchorset.compute_all(
         order, planes, links, edges, parent, bottom, fallback, tuple(grid)
     )
+    for aset in anchor_sets.values():
+        spread_cells(aset)
     sources = find_sources(meta["index"], planes, [*src_dirs, flow.parent])
     for p in order:
         write_json(out / "planes" / f"{p}.json", plane_json(planes[p]))

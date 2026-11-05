@@ -125,6 +125,54 @@ placed 2568; 344806 links). Bundle sizes: ch_intrinsics 448 kB (65 kB gzipped), 
 links table being 4.7 MB of that. At this size JSON loads without trouble, so Arrow is not needed yet; the reader
 is the one function `loadBundle` if a design of 100x this size needs it.
 
+## M5: case items, the cell plane, buses, flip-flops
+
+Peter's questions on the M4 viewer: where are the muxes of a case, how does one line of a case sit in the rest of
+it, how to tell a bus apart, and where are the flip-flops.
+
+**Cell plane (between hdl and lut).** `wyrd viz export` re-runs the flow's Odin III script (read from
+`odin3/odin3.log`) with two extra `write_json` dumps: the netlist right after `proc` (word cells: `$mux`, `$pmux`,
+`$eq`, `$dff`, with their HDL spans and provenance records) and the netlist right before the BLIF write (the wire
+names of the nets that survive). Odin III is used as a program only; no Odin III change was needed. Links: a cell
+links to the HDL constructs with its exact spans and their ancestors; a cell to the LUTs whose provenance record
+chain derives from the cell's record (`cone`, `high`); an `$eq` against a constant that is the label of exactly one
+item of a case links to that item only (`structural_match`, `medium`; the select cell of the item). A flip-flop
+cell links to the latches of the same bus (`name`, `medium`). If the dump run fails the bundle has no cell plane and
+says why in `manifest.notes`.
+
+**Case tiers.** Click a line inside a case or an if/else chain (a construct with two or more `branch` children).
+The clicked item is tier A (orange, own), the case itself and logic serving the item together with others is tier B
+(teal, shared: select and mux), the other items are tier C (violet, context); everything else fades. The source pane
+shows the clicked item with an orange bar, the case header teal and the other items in a light tint. The right panel
+counts A, B and C per plane. A plane without HDL links (clb, placed) takes the best tier of the objects linked above.
+
+![case tiers on the cell plane](images/o3viz-m5-tiers.png)
+
+On `ch_intrinsics` the result is honest, not flattering: Odin III extracts the 15-state FSM, so after mapping every
+LUT carries the spans of all 15 items and the lut, clb and placed planes show only tier B for any item. Items are
+told apart on the cell plane (before FSM and ABC merge them): the select `$eq` of an item and the `$mux` of an inner
+`if` are tier A, the `$pmux` is tier B.
+
+**Buses.** Colour = "bus (hue per bus, shade per bit)". The legend lists the buses with a filter box and the count
+of objects per bus; a click selects the bus on every plane and marks its declaration line. A bus name comes from the
+object's own net (a port, a register, a flip-flop cell named after its register) or, for logic with no name, from
+the one bus it feeds (`busk` = `cone`; nothing is shown when it feeds more than one). Everything else stays grey and
+is counted ("no bus"). The post-ABC nets are matched to the BLIF by net number with an offset that is verified on
+every LUT cell; if it does not hold the lut and placed planes get no bus names and the manifest says so. On
+`ch_intrinsics` `var0` exists on the cell plane only (its logic is removed before mapping); `cur_state` is 4 bits in
+the source and 15 after one-hot recoding, and the bus keeps the 15.
+
+![colour = bus, return_val selected](images/o3viz-m5-bus.png)
+
+**Declared signals.** Every declared reg, wire and port is an object on the hdl plane (kind `signal`), at its
+declaration line. Clicking the line selects the flip-flops (reg) or driving logic (wire) on every plane it reaches.
+
+**Flip-flops.** FFs are small pink cubes on every plane: beside the LUT that drives their D input on lut and placed
+(joined by a short edge), around their cluster on clb (a cluster shows `ffs_inside` cubes). Select "FFs only" to dim
+everything else. Metric `is_ff` marks them in the data.
+
+![flip-flops highlighted, exitcond declaration selected](images/o3viz-m5-ff.png)
+
 ## Metrics
 
 Measured by Odin III's BLIF or VPR files, never invented: `fanin`, `fanout`, `logic_level` (LUT depth from
@@ -136,6 +184,6 @@ worst slack of the paths through the object; objects on no reported path stay gr
 
 ## Test
 
-    .venv/bin/python -m unittest tests.test_o3viz tests.test_o3viz_viewer -v
+    .venv/bin/python -m unittest tests.test_o3viz tests.test_o3viz_viewer tests.test_o3viz_cells -v
     node --test tests/js/expr.test.mjs tests/js/select.test.mjs       # expression language, line and cone selection
     python tools/o3viz_shot.py BUNDLE out.png --colour slack_worst   # needs playwright + chromium
