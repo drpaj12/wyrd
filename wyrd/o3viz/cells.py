@@ -563,17 +563,43 @@ def check_luts(
     return ok, bad
 
 
-def join_by_name(d: nets.Dumps, nl: blif.Netlist, table: dict[str, tuple[int, int, int]]) -> int:
-    """`scoap --prov` rows carry the wire name of a net: a BLIF net named after a port (no `$nN`
-    join) takes the row of the same name. Each such LUT is kept only if its values recompute from
-    its cover and its inputs (a LUT with an unknown input cannot be checked and is kept)."""
-    byname = {str(r["name"]): r for r in d.scoap_nets if r.get("wire") and "name" in r}
-    added: dict[str, tuple[int, int, int]] = {}
-    for net in nl.covers:
-        r = byname.get(net)
-        if net in table or r is None or any(k not in r for k in ("cc0", "cc1", "co")):
+def wire_widths(d: nets.Dumps) -> dict[int, tuple[str, int]]:
+    """Wire ID -> (name, width) from the DDG of the mapped netlist (`write_graph ddg`)."""
+    out: dict[int, tuple[str, int]] = {}
+    for mod in d.graphs.get("ddgm", {}).get("modules", []):
+        if mod.get("name") != d.top:
             continue
-        added[net] = (r["cc0"], r["cc1"], r["co"])
+        for gr in mod.get("graphs", []):
+            for n in gr.get("nodes", []):
+                if n.get("wire"):
+                    out[int(n["wire"])] = (
+                        str(n["label"]).rsplit(".", 1)[-1],
+                        int(n.get("width", 1)),
+                    )
+    return out
+
+
+def join_by_name(d: nets.Dumps, nl: blif.Netlist, table: dict[str, tuple[int, int, int]]) -> int:
+    """`scoap --prov` rows carry the wire of a net: the rows of one wire, in net order, are its
+    bits LSB first, and the wire's name (from the mapped DDG) names the BLIF net `name[k]` (or
+    `name` for one bit). That joins the nets named after a port or a register, which have no `$nN`.
+    A LUT is kept only if its values recompute from its cover and its inputs; a latch output or a
+    primary input cannot be checked that way and is kept when the row count equals the wire width.
+    In the build this was tried on, only input ports carry a wire ID in the rows."""
+    names = wire_widths(d)
+    by_wire: dict[int, list[dict[str, Any]]] = {}
+    for r in sorted(d.scoap_nets, key=lambda r: int(r["id"])):
+        if r.get("wire") and int(r["wire"]) in names and all(k in r for k in ("cc0", "cc1", "co")):
+            by_wire.setdefault(int(r["wire"]), []).append(r)
+    added: dict[str, tuple[int, int, int]] = {}
+    for w, rows in by_wire.items():
+        name, width = names[w]
+        if len(rows) != width:
+            continue
+        for k, r in enumerate(rows):
+            net = f"{name}[{k}]" if width > 1 else name
+            if (net in nl.drivers or net in nl.primary_inputs) and net not in table:
+                added[net] = (r["cc0"], r["cc1"], r["co"])
     trial = {**table, **added}
     bad = {n for n in added if check_luts(trial, nl, [n])[1] > 0}
     for n in added:

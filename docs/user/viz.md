@@ -322,22 +322,40 @@ numbers in the name map (`r1` for the same block with the same span), so the exp
 by HDL span (and for a case item by the compared constant). Nodes with no HDL span (a CFG `join`, an STG state, the DDG
 temporaries) have no span links of their own. Counts of nodes and links are in `manifest.graphs`.
 
-**SCOAP.** With `scoap --prov` each net has `driver`, `wire`, `prov` and `src`. The exporter (a) joins DDG signals by
-`wire` (`w<ID>`; a net in no wire joins `n<ID>`), a signal taking the worst (largest) CC0, CC1 and CO over the bits of its
-wire, unreachable = no value; (b) lets a LUT net named after a port (which M6 had to skip) take the row of the same name,
-keeping it only if its CC0 and CC1 recompute from its cover and its inputs; the manifest note counts them. Left panel:
-"colour = SCOAP with joins" takes CC0, CC1 or CO and min, max or mean, and colours every plane: its own value where
-measured (lut, placed, ddg), else the min, max or mean over the linked objects that have one (direct links, three
-rounds, so the value reaches the hdl, stg and cfg planes). The result is a derived metric (`cc0_max_all`), and the
-M3 "Join: across planes" gives the one-hop versions. Clicking a DDG signal shows its CC0, CC1 and CO in the panel.
+**SCOAP (checked on real data, Odin III main e5efb64e).** `scoap --prov` gives each net `driver`, `wire`, `prov` and
+`src`, but the pass runs on the mapped netlist, where most word-level wires are gone: on `ch_intrinsics` 107 of 319 rows
+carry a wire ID, covering 7 wires, and those wire IDs belong to the DDG of the mapped netlist (so the exporter also
+writes `write_graph ddg` just before `scoap`, and reads the wire's name from it). The post-`proc` DDG in the plane has
+other nodes, so the join goes by name:
 
-**Limits (stated, not fixed).** The `ddg` plane and the `scoap --prov` join are written against the schema of
-`graph-views.md` and tested on hand-written fixtures; the Odin III build available when this was written
-(`rel-main3` at 19f5c918) has `write_graph stg` and `cfg` but not `ddg` or `scoap --prov`, so the DDG plane and the
-port-net SCOAP join have not been seen on a real design (a synthetic DDG built from the real post-`proc` cells exercised
-the viewer only). The bundles show STG and CFG on `ch_intrinsics` (15 states, 45 CFG nodes of 2 processes) and CFG on
-`sha` (154 nodes, no FSM, so no STG plane). Edges between graph planes (an STG state is not linked to the CFG case that
-computes its transitions) are not drawn.
+- a DDG signal takes the worst (largest) CC0, CC1 and CO over the rows of the mapped wire of the same name;
+- a register or other named bus takes the worst over its mapped nets (the M5 bus names);
+- a primary-input net of the BLIF (`m[k]`, `c[k]`, `n[k]`) takes the rows of its wire in net order (checked: the number
+  of rows equals the wire width); this adds the 99 input nets M6 left grey (`ch_intrinsics`: LUT values 153 of 319
+  before, 252 after; `sha`: 38 added). LUTs named after an output port or a register still have no value, because the
+  rows for them carry no wire ID; this build gives no safe join for them.
+
+Unreachable (10^18) is no value. Result: `ch_intrinsics` 13 of its 23 named DDG signals have SCOAP (the other 10, and all
+643 temporaries, have none: they are not nets of the mapped netlist); `sha` 39 of 5046 nodes. Left panel: "colour =
+SCOAP with joins" takes CC0, CC1 or CO and min, max or mean, and colours every plane: its own value where measured
+(lut, placed, ddg), else the min, max or mean over the linked objects that have one (direct links, three rounds, so the
+value reaches hdl, stg and cfg). The result is a derived metric (`cc0_max_all`); the M3 "Join: across planes" gives the
+one-hop versions. Clicking a DDG signal shows its CC0, CC1 and CO.
+
+![colour = max CC0 on every plane, ddg signal return_val selected](images/o3viz-m7-scoap.png)
+
+**The DDG on real data.** `ch_intrinsics` after `proc`: 666 nodes (23 named signals, 643 temporaries) and 12189 edges;
+`sha`: 5046 nodes, 124406 edges. A layer wider than 40 nodes is wrapped into rows. Click a signal: its k-hop edges are
+drawn from it (data blue, control pink, dashed across a flip-flop; orange at the selection); "DDG: all edges" draws all
+of them (readable for `ch_intrinsics`, a dense block for `sha`; use the k-hop view there).
+
+![DDG of ch_intrinsics, cur_state selected, k = 1](images/o3viz-m7-ddg.png)
+
+![DDG of sha, signal H3 selected](images/o3viz-m7-ddg-sha.png)
+
+**Limits.** The STG does not attribute a transition to one case item (Odin III). Edges between graph planes (an STG
+state to the CFG case that computes its transitions) are not drawn. Nodes with no HDL span (a CFG `join`, an STG state,
+a DDG temporary) have no span links of their own. Output-port and register LUTs have no SCOAP value (above).
 
 ## Metrics
 
