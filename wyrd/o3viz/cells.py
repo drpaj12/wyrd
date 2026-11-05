@@ -283,7 +283,7 @@ def build_cells(
         for h, kind in hdl_links_of(spans, sel.get(key), by_span, parent, chain_of):
             cd.links.append((h, oid, kind, "medium" if kind == "structural_match" else "high"))
         rec = d.proc_names.get(key)
-        if rec:
+        if rec and oid not in cd.ff:
             rec_cells[rec[1]].append(oid)
     for key, c in cells.items():
         oid = "cell:" + nets.bare_name(key, d.top)

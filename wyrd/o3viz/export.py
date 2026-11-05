@@ -558,13 +558,14 @@ def pad_metrics(p: Plane) -> None:
         vals.extend([None] * (len(p.ids) - len(vals)))
 
 
-def add_signals(hdl: Plane, sigs: list[cells.Signal]) -> None:
+def add_signals(hdl: Plane, sigs: list[cells.Signal], parent: dict[str, str]) -> None:
     for s in sigs:
         src = [s.decl] if s.decl else []
         hdl.add(f"hdl:sig.{s.name}", "signal", s.kind, "hdl", s.name, src)
     pad_metrics(hdl)
     hdl.set_metric("is_ff", {f"hdl:sig.{s.name}": 1.0 for s in sigs if s.kind == "reg"})
-    hdl.parent = [None] * len(hdl.ids)
+    hdl.parent = [parent.get(i) for i in hdl.ids]
+    hdl.set_bus({f"hdl:sig.{s.name}": (s.name, None, "own") for s in sigs})
 
 
 def cell_plane(cd: cells.CellData) -> Plane:
@@ -594,6 +595,21 @@ def apply_lut_buses(
         if b is not None and k == "own":
             out.append((f"hdl:sig.{b}", i, "name", "exact"))
     return out
+
+
+def ff_links(cell: Plane, lut: Plane) -> list[tuple[str, str, str, str]]:
+    """A flip-flop cell links to the latches of the same bus (word cell to bit latches)."""
+    latches: dict[str, list[str]] = {}
+    for i, b, t in zip(lut.ids, lut.bus, lut.type, strict=True):
+        if b is not None and t == "latch":
+            latches.setdefault(b, []).append(i)
+    isff = cell.metrics.get("is_ff", [])
+    return [
+        (c, lid, "name", "medium")
+        for c, b, f in zip(cell.ids, cell.bus, isff, strict=True)
+        if f == 1.0 and b is not None
+        for lid in latches.get(b, [])
+    ]
 
 
 def build_planes(
@@ -634,7 +650,7 @@ def build_planes(
         else None
     )
     if cd:
-        add_signals(hdl, cd.signals)
+        add_signals(hdl, cd.signals, parent)
     clb, placed, plinks, bottom, cxy = build_clb_and_placed(
         vprfiles.read_net(ff.net),
         vprfiles.read_place(ff.place),
@@ -649,7 +665,7 @@ def build_planes(
     bus_note = ""
     if dumps and cd:
         table, bus_note = cells.lut_buses(dumps, nl)
-        sigl = apply_lut_buses(lut, placed, table, top) + cd.sig_links
+        sigl = apply_lut_buses(lut, placed, table, top) + cd.sig_links + ff_links(cplane, lut)
         links.extend(cd.links)
     else:
         lut.set_metric(
