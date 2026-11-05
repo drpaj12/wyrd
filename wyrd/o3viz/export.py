@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from wyrd.o3viz import anchors, anchorset, blif, cells, nets, vprfiles
+from wyrd.o3viz import anchors, anchorset, blif, cells, circuitviz, nets, vprfiles
 
 BUNDLE_VERSION = 1
 CONF_RANK = {"exact": 4, "high": 3, "medium": 2, "low": 1, "ambiguous": 0}
@@ -30,6 +30,44 @@ METRICS: list[dict[str, Any]] = [
             "flip-flop drives"
         ),
         "source": "odin3 netlist dumps and BLIF",
+    },
+    {
+        "name": "seq_level",
+        "unit": "sequential level",
+        "planes": ["lut", "placed"],
+        "scale": "seq",
+        "measurer": (
+            "wyrd.o3viz.hutton: Hutton's sequential level, the fewest flip-flops on any path "
+            "from a primary input (0 at a primary input, +1 through a flip-flop, MIN over inputs)"
+        ),
+        "source": "odin3 BLIF; Kundarewich 2002 section 2.1.3",
+    },
+    {
+        "name": "is_latched",
+        "unit": "1 = latched node",
+        "planes": ["lut", "placed"],
+        "scale": "seq",
+        "measurer": "wyrd.o3viz.hutton: a LUT whose output drives the D input of a flip-flop",
+        "source": "odin3 BLIF; Kundarewich 2002 section 3.1",
+    },
+    {
+        "name": "is_po",
+        "unit": "1 = drives a primary output",
+        "planes": ["lut", "placed"],
+        "scale": "seq",
+        "measurer": "wyrd.o3viz.hutton: the net is listed in the BLIF .outputs",
+        "source": "odin3 BLIF",
+    },
+    {
+        "name": "fanout_comb",
+        "unit": "LUTs",
+        "planes": ["lut", "placed"],
+        "scale": "seq",
+        "measurer": (
+            "wyrd.o3viz.hutton: Hutton's fanout, the LUTs the net drives (flip-flop D inputs "
+            "and block pins not counted)"
+        ),
+        "source": "odin3 BLIF; Kundarewich 2002 section 2.1.1",
     },
     {
         "name": "depth",
@@ -373,6 +411,8 @@ def build_lut(
         if net in nl.drivers:
             fanin[o["id"]] = float(len(set(nl.inputs[net])))
             lvl[o["id"]] = float(levels.get(net, 0))
+        elif net in nl.primary_inputs and fanout.get(net, 0) > 0:
+            lvl[o["id"]] = 0.0
         if net in fanout:
             fo[o["id"]] = float(fanout[net])
     plane.set_metric("fanin", fanin)
@@ -699,6 +739,8 @@ def build_planes(
             "is_ff", {i: 1.0 for i, t in zip(placed.ids, placed.type, strict=True) if t == "latch"}
         )
     ff_attach(lut, placed, nl, top)
+    for plane, pnets in ((lut, [lut_local(i) for i in lut.ids]), (placed, placed.name)):
+        plane.metrics.update(circuitviz.node_columns(nl, pnets))
     links.extend(sigl)
     all_ids = set(hdl.ids) | set(lut.ids) | set(clb.ids) | set(placed.ids)
     if cplane:
@@ -724,6 +766,7 @@ def build_planes(
         "signals": cd.signals if cd else [],
         "selects": cd.selects if cd else 0,
         "grid": vprfiles.read_place(ff.place).grid,
+        "netlist": nl,
         "paths": path_rows(vprfiles.read_setup_paths(ff.timing), top, lut_ids, set(placed.ids))
         if ff.timing
         else [],
@@ -808,7 +851,9 @@ def bus_table(planes: dict[str, Plane], sigs: list[cells.Signal]) -> list[dict[s
     return sorted(info.values(), key=lambda e: e["name"])
 
 
-def export_bundle(flow: Path, out: Path, benchmark: str, src_dirs: list[Path]) -> dict[str, Any]:
+def export_bundle(
+    flow: Path, out: Path, benchmark: str, src_dirs: list[Path], clusters_k: int | None = None
+) -> dict[str, Any]:
     """Write the bundle directory `out` and return its manifest."""
     ff = find_files(flow)
     meta, planes, links, edges, parent, bottom, fallback = build_planes(
@@ -819,6 +864,10 @@ def export_bundle(flow: Path, out: Path, benchmark: str, src_dirs: list[Path]) -
     anchor_sets = anchorset.compute_all(
         order, planes, links, edges, parent, bottom, fallback, tuple(grid)
     )
+    clusters, extra = circuitviz.build(
+        order, planes, links, edges, parent, meta["netlist"], meta["top"], clusters_k
+    )
+    anchor_sets.update(extra)
     for aset in anchor_sets.values():
         spread_cells(aset)
     sources = find_sources(meta["index"], planes, [*src_dirs, flow.parent])
@@ -826,6 +875,7 @@ def export_bundle(flow: Path, out: Path, benchmark: str, src_dirs: list[Path]) -
         write_json(out / "planes" / f"{p}.json", plane_json(planes[p]))
     write_json(out / "links.json", compact_links(order, planes, links))
     write_json(out / "edges" / "lut.json", [list(e) for e in edges])
+    write_json(out / "clusters.json", clusters)
     if meta["paths"]:
         write_json(
             out / "paths.json",
@@ -872,6 +922,12 @@ def export_bundle(flow: Path, out: Path, benchmark: str, src_dirs: list[Path]) -
         "notes": meta["notes"],
         "select_cells": meta["selects"],
         "grid": list(grid),
+        "circuit": {
+            "sources": clusters["order"],
+            "dmax": clusters["dmax"],
+            "pis": clusters["pis"],
+            "min_cut_k": clusters["sources"].get("mincut", {}).get("k"),
+        },
     }
     write_json(out / "manifest.json", manifest)
     return manifest

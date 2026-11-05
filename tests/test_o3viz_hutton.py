@@ -44,22 +44,22 @@ class TestHutton(unittest.TestCase):
 
     def test_whole_circuit_shapes(self) -> None:
         c = hutton.characterize(micro())
-        self.assertEqual(c["nodes"], 7)
+        self.assertEqual(c["nodes"], 10)
         self.assertEqual(c["dmax"], 2)
         self.assertEqual(c["pis"], 3)
-        self.assertEqual(c["node_shape"], [2, 3, 2])
+        self.assertEqual(c["node_shape"], [5, 3, 2])
         self.assertEqual(c["input_shape"], [0, 6, 4])
-        self.assertEqual(c["output_shape"], [2, 2, 2])
+        self.assertEqual(c["output_shape"], [5, 2, 2])
         self.assertEqual(c["po_shape"], [0, 1, 0])
-        self.assertEqual(c["fanout"], [3, 2, 1, 1])
-        self.assertEqual(c["edge_length"], [0, 6, 1])
-        self.assertEqual((c["dff_edges"], c["block_edges"], c["pi_edges"]), (2, 0, 3))
+        self.assertEqual(c["fanout"], [3, 5, 1, 1])
+        self.assertEqual(c["edge_length"], [0, 8, 2])
+        self.assertEqual((c["dff_edges"], c["block_edges"]), (2, 0))
 
     def test_selection_shapes(self) -> None:
         c = hutton.characterize(micro(), {"n1", "n2", "q2"})
         self.assertEqual(c["node_shape"], [1, 1, 1])
         self.assertEqual(c["edge_length"], [0, 2])
-        self.assertEqual((c["dff_edges"], c["pi_edges"]), (0, 3))
+        self.assertEqual(c["dff_edges"], 0)
 
 
 def two_blobs(n: int = 8) -> tuple[list[str], list[list[str]]]:

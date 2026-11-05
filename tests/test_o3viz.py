@@ -189,7 +189,8 @@ class TestExport(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             out = Path(d) / "b.o3viz"
             man = run_export(out)
-            self.assertEqual(man["anchors"], ["ast", "level", "pipeline", "placement"])
+            for name in ("ast", "level", "pipeline", "placement", "hutton", "hutton_seq"):
+                self.assertIn(name, man["anchors"])
             for a in list(man["anchors"]):
                 anc = json.loads((out / "anchors" / f"{a}.json").read_text())
                 self.assertEqual(len(anc["bounds"]), 4)

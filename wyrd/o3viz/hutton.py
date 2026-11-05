@@ -4,8 +4,8 @@ Definitions follow P. D. Kundarewich, "Synthetic Circuit Generation Using Cluste
 Iteration", MASc thesis, University of Toronto, 2002, section 2.1 (Hutton's combinational and
 sequential model) and 3.1 (flip-flops at delay level 0, latched nodes, DFF edges of length 0).
 
-Objects are the nets some LUT, flip-flop or hard block drives. Primary inputs are not objects of the
-bundle; they are counted apart (`pis`, `pi_edges`).
+Objects are the nets some LUT, flip-flop or hard block drives, and the primary inputs that some
+object reads (delay level 0, like the flip-flops).
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ def latched_nodes(nl: blif.Netlist) -> set[str]:
 
 def comb_fanout(nl: blif.Netlist) -> dict[str, int]:
     """Hutton's fanout: how many LUTs a net drives (flip-flop D inputs and block pins left out)."""
-    count = {net: 0 for net in nl.drivers}
+    count = {net: 0 for net in objects(nl)}
     for net, srcs in nl.inputs.items():
         if nl.drivers[net] != "names":
             continue
@@ -63,6 +63,12 @@ def comb_fanout(nl: blif.Netlist) -> dict[str, int]:
             if s in count:
                 count[s] += 1
     return count
+
+
+def objects(nl: blif.Netlist) -> set[str]:
+    """Driven nets and the primary inputs something reads."""
+    read = {s for srcs in nl.inputs.values() for s in srcs}
+    return set(nl.drivers) | (read & nl.primary_inputs)
 
 
 def _bump(hist: list[int], at: int, by: int = 1) -> None:
@@ -76,37 +82,36 @@ def characterize(nl: blif.Netlist, members: Collection[str] | None = None) -> di
 
     node/input/output/PO shape: per delay level, the objects, the LUT input pins, the objects that
     drive something, the objects that drive a primary output. fanout: how many objects have each
-    combinational fanout. edge_length: edges into LUTs inside the set, by delay_level(sink) -
-    delay_level(source); dff_edges (into a flip-flop, length 0) and block_edges (into a hard block)
-    are counted apart, as are pi_edges (from a primary input).
+    combinational fanout. edge_length: edges into LUTs with both ends inside the set, by
+    delay_level(sink) - delay_level(source); dff_edges (into a flip-flop, length 0) and
+    block_edges (into a hard block) are counted apart.
     """
     level = nl.levels()
     fan, cfan = nl.fanout(), comb_fanout(nl)
-    nodes = sorted(n for n in nl.drivers if members is None or n in members)
+    nodes = sorted(n for n in objects(nl) if members is None or n in members)
     inside = set(nodes)
     shape: dict[str, list[int]] = {k: [0] for k in ("node", "input", "output", "po")}
     fanout_dist: list[int] = [0]
     edge_len: list[int] = [0]
     dff = block = pis = 0
-    read = {s for srcs in nl.inputs.values() for s in srcs}
     for n in nodes:
         lv = level.get(n, 0)
+        kind = nl.drivers.get(n, "pi")
+        pis += kind == "pi"
         _bump(shape["node"], lv)
         _bump(fanout_dist, cfan[n])
-        if fan.get(n, 0) > 0:
+        if fan.get(n, 0) > 0 or kind == "pi":
             _bump(shape["output"], lv)
         if n in nl.primary_outputs:
             _bump(shape["po"], lv)
-        if nl.drivers[n] == "names":
+        if kind == "names":
             _bump(shape["input"], lv, len(set(nl.inputs[n])))
-        for s in sorted(set(nl.inputs[n])):
-            if s in nl.primary_inputs and s not in nl.drivers:
-                pis += 1
-            elif s not in inside:
+        for s in sorted(set(nl.inputs.get(n, ()))) if kind != "pi" else ():
+            if s not in inside:
                 continue
-            elif nl.drivers[n] == "latch":
+            if kind == "latch":
                 dff += 1
-            elif nl.drivers[n] == "subckt":
+            elif kind == "subckt":
                 block += 1
             else:
                 _bump(edge_len, level.get(n, 0) - level.get(s, 0))
@@ -117,7 +122,7 @@ def characterize(nl: blif.Netlist, members: Collection[str] | None = None) -> di
     return {
         "nodes": len(nodes),
         "dmax": dmax,
-        "pis": len(read & (nl.primary_inputs - set(nl.drivers))),
+        "pis": pis,
         "node_shape": shape["node"],
         "input_shape": shape["input"],
         "output_shape": shape["output"],
@@ -126,5 +131,4 @@ def characterize(nl: blif.Netlist, members: Collection[str] | None = None) -> di
         "edge_length": edge_len,
         "dff_edges": dff,
         "block_edges": block,
-        "pi_edges": pis,
     }
