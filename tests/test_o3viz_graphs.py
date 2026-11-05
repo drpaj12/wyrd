@@ -312,3 +312,50 @@ class ScriptTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReaderTests(unittest.TestCase):
+    def test_graph_files_and_scoap_rows_are_read(self) -> None:
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as t:
+            w = Path(t)
+            (w / "cfg.json").write_text(json.dumps(cfg_doc()))
+            (w / "ddg.json").write_text(json.dumps(ddg_doc()))
+            (w / "scoap.json").write_text(
+                json.dumps({"modules": [{"name": "m", "nets": SCOAP}, {"name": "o", "nets": []}]})
+            )
+            g = nets.read_graphs(w)
+            rows = nets.read_scoap_rows(w / "scoap.json", "m")
+        self.assertEqual(sorted(g), ["cfg", "ddg"])
+        self.assertEqual(len(rows), 5)
+        self.assertEqual(rows[1]["wire"], 2)
+        self.assertEqual(nets.read_scoap_rows(Path("/nonexistent/x.json"), "m"), [])
+
+
+class PortNetTests(unittest.TestCase):
+    def test_port_named_net_joins_by_name_when_it_recomputes(self) -> None:
+        from wyrd.o3viz import blif
+
+        nl = blif.Netlist()
+        nl.primary_inputs = {"a", "b"}
+        nl.inputs = {"y": ["a", "b"]}
+        nl.covers = {"y": [("11", "1")]}  # y = a & b
+        table = {"a": (1, 1, 5), "b": (1, 1, 5)}
+        good = nets.Dumps("m", {}, {}, {}, None, {}, {}, {})
+        good.scoap_nets = [{"name": "y", "wire": 4, "cc0": 2, "cc1": 3, "co": 0}]
+        self.assertEqual(cells.join_by_name(good, nl, table), 1)
+        self.assertEqual(table["y"], (2, 3, 0))
+        bad = nets.Dumps("m", {}, {}, {}, None, {}, {}, {})
+        bad.scoap_nets = [{"name": "y", "wire": 4, "cc0": 9, "cc1": 9, "co": 0}]
+        t2 = {"a": (1, 1, 5), "b": (1, 1, 5)}
+        self.assertEqual(cells.join_by_name(bad, nl, t2), 0)
+        self.assertNotIn("y", t2)
+
+    def test_no_prov_rows_no_name_join(self) -> None:
+        from wyrd.o3viz import blif
+
+        d = nets.Dumps("m", {}, {}, {}, None, {}, {}, {})
+        d.scoap_nets = [{"name": "y", "cc0": 1, "cc1": 1, "co": 1}]
+        self.assertEqual(cells.join_by_name(d, blif.Netlist(), {}), 0)

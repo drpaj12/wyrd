@@ -17,7 +17,7 @@ records and the step files (the Odin III tools are `odin3-flow`, `odin3-prov-pos
     odin3-flow design.v --prov --keep-results --out RUN
     odin3-prov-post RUN
     odin3-prov-steps RUN
-    wyrd viz export RUN --out design.o3viz --benchmark vtr-verilog:design --src DIR_WITH_design.v
+    wyrd viz export RUN --out design.o3viz --benchmark vtr-verilog:design --src DIR_WITH_design.v [--odin3 PATH]
 
 The bundle is a directory of JSON files (`manifest.json`, `planes/`, `links.json`, `edges/`, `anchors/`, `hdl/`),
 deterministic: exporting twice gives the same bytes. A value that was not measured is `null` and shows grey.
@@ -268,13 +268,84 @@ state is kept in `localStorage`. The draggable HDL divider is kept.
 
 ![panels collapsed](images/o3viz-m6-collapsed.png)
 
+## M7: graph planes above the HDL (STG, CFG, signal DDG) and the SCOAP join
+
+Peter 2026-11-05: show Odin III's graph exports as planes above the HDL view. Odin III writes them with
+`write_graph stg|cfg|ddg FILE` (schema `odin3-graph` v1, `odin3/docs/user/graph-views.md`). `wyrd viz export` now runs the
+three commands inside the same extra Odin III run as the M5 dumps (`cfg` just before `proc`, `stg` and `ddg` just after)
+and `scoap --prov`. Use `--odin3 PATH` to run a different Odin III program than the one in the flow's log (the flow may
+have used an older build). If the build lacks a command the exporter retries without it and the manifest `notes` say
+which planes are missing (`no ddg plane: not in this Odin III build`). Graphs are stored in `graphs/<kind>.json` (edges
+with kind, label, `seq` flag and HDL spans; node facts), the nodes are objects of the planes `stg`, `cfg`, `ddg`.
+
+**Show them.** Left panel, "Graph planes above the HDL" (collapsible): one checkbox per plane, or the keys `s` (STG), `c`
+(CFG), `d` (DDG). They are off at first, so the stack is the M6 stack; switching one on adds it above `hdl` (top to bottom:
+stg, cfg, ddg, hdl, ...) and focuses it. Keys `1` to `9` still number the old planes; the "View" menu has a 2D view of each.
+
+| Plane | Nodes | Edges | Layout |
+|---|---|---|---|
+| `stg` | one per FSM state (label = state code as the HDL gave it, reset state at the top) | transitions, labelled with the condition (`!reset & start`) | circle (up to 30 states, reset at the top, by distance from reset), else layered by distance from reset |
+| `cfg` | per process: entry, switch, case, join, exit | `control` (switch to case, labelled with the compare patterns or `default`, pink), `seq` (grey) | top-down tree: layer = longest path from entry |
+| `ddg` | signals (a bus is one node; `port` in/out/inout) and `temp` nets | `data` (blue), `control` (pink), dashed = `seq`, across a flip-flop | layered by logic order (edges across flip-flops ignored), input ports on the first layer, output ports on the last |
+
+![STG of ch_intrinsics: 15 states on a circle, transitions labelled](images/o3viz-m7-stg.png)
+
+![CFG of the two processes of ch_intrinsics, 2D view](images/o3viz-m7-cfg.png)
+
+The DDG of a big design is huge (ch_intrinsics `memset` has 666 nodes and 12189 edges), so by default only the edges within
+k hops of the selection are drawn (k = 1 to 4 in the panel); "DDG: all edges" draws them all. Edge labels and node labels
+are drawn when there are at most 80 of them.
+
+**Links down.** A graph node has HDL spans (`src`) and links to the objects below:
+
+- CFG node to the HDL constructs with exactly its span; switch and entry to the cells that carry the same span; a `case` to
+  the select `$eq` cells of its switch that compare with one of its patterns (`structural_match`).
+- STG state to the state register (its HDL span, the declared signal, its flip-flop cells) and to the next-state selection
+  logic (the spans and cells of the graph's `select_nodes`). Odin III's fsm pass does not attribute a state or a transition
+  to one case item, so every state links to the same logic; this is stated by the limit, not hidden.
+- DDG signal to the declared signal on the hdl plane (by name), to the cells that output that bus and to the HDL constructs
+  with its span.
+
+Through these the existing links reach the lut, clb and placed planes. Click a node: HDL lines, linked objects on every plane
+and the lines behind them light up, and the right panel lists the node's edges (click an edge row: the HDL it comes from
+and its two ends are selected). A CFG `case` node gets the same three case tiers as the HDL item it stands for (A own, B
+shared, C context), on every plane including the graph planes; selecting an HDL line lights the graph nodes that link to
+it. Clicking an STG state offers "select the state register bus" (the M5 bus selection).
+
+![CFG case 4'0001 selected: the three tiers on every plane and the lines of the item](images/o3viz-m7-tiers.png)
+
+![CFG of sha: 154 nodes in the processes, the 100-way case is the wide row](images/o3viz-m7-cfg-sha.png)
+
+**The join key.** The graph files carry `prov`, a provenance record ID, which the Odin III spec calls the exact join key into
+the name map. In this build the IDs in the graph files (for example 32 for the process of `ch_intrinsics`) are not the `rN`
+numbers in the name map (`r1` for the same block with the same span), so the exporter keeps `prov` in the bundle but joins
+by HDL span (and for a case item by the compared constant). Nodes with no HDL span (a CFG `join`, an STG state, the DDG
+temporaries) have no span links of their own. Counts of nodes and links are in `manifest.graphs`.
+
+**SCOAP.** With `scoap --prov` each net has `driver`, `wire`, `prov` and `src`. The exporter (a) joins DDG signals by
+`wire` (`w<ID>`; a net in no wire joins `n<ID>`), a signal taking the worst (largest) CC0, CC1 and CO over the bits of its
+wire, unreachable = no value; (b) lets a LUT net named after a port (which M6 had to skip) take the row of the same name,
+keeping it only if its CC0 and CC1 recompute from its cover and its inputs; the manifest note counts them. Left panel:
+"colour = SCOAP with joins" takes CC0, CC1 or CO and min, max or mean, and colours every plane: its own value where
+measured (lut, placed, ddg), else the min, max or mean over the linked objects that have one (direct links, three
+rounds, so the value reaches the hdl, stg and cfg planes). The result is a derived metric (`cc0_max_all`), and the
+M3 "Join: across planes" gives the one-hop versions. Clicking a DDG signal shows its CC0, CC1 and CO in the panel.
+
+**Limits (stated, not fixed).** The `ddg` plane and the `scoap --prov` join are written against the schema of
+`graph-views.md` and tested on hand-written fixtures; the Odin III build available when this was written
+(`rel-main3` at 19f5c918) has `write_graph stg` and `cfg` but not `ddg` or `scoap --prov`, so the DDG plane and the
+port-net SCOAP join have not been seen on a real design (a synthetic DDG built from the real post-`proc` cells exercised
+the viewer only). The bundles show STG and CFG on `ch_intrinsics` (15 states, 45 CFG nodes of 2 processes) and CFG on
+`sha` (154 nodes, no FSM, so no STG plane). Edges between graph planes (an STG state is not linked to the CFG case that
+computes its transitions) are not drawn.
+
 ## Metrics
 
 Measured by Odin III's BLIF or VPR files, never invented: `fanin`, `fanout`, `logic_level` (LUT depth from
 inputs and register or block outputs; on `clb` the max over the atoms inside, on `hdl` the max over the LUTs
 linked below; a cluster or construct with no measured member stays grey), `stage`, `slack_worst` and `paths_through` (VPR's worst 100 setup paths: the
 worst slack of the paths through the object; objects on no reported path stay grey), `atoms`, `luts_inside`,
-`ffs_inside`, `x`, `y`, `seq_level`, `is_latched`, `is_po`, `fanout_comb`, `cc0`, `cc1`, `co` (see M6), and from the step files `depth`, `children`, `span_lines`, `luts_below`, `hdl_links` and
+`ffs_inside`, `x`, `y`, `seq_level`, `is_latched`, `is_po`, `fanout_comb`, `cc0`, `cc1`, `co` (see M6 and M7), `graph_in`, `graph_out`, `is_reset`, `n_actions`, `width` (graph planes, M7), and from the step files `depth`, `children`, `span_lines`, `luts_below`, `hdl_links` and
 `weakest_confidence`.
 
 ## Test
