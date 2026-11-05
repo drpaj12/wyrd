@@ -12,18 +12,58 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from wyrd.o3viz import anchors, anchorset, blif, cells, circuitviz, nets, vprfiles
+from wyrd.o3viz import anchors, anchorset, blif, cells, circuitviz, graphs, nets, vprfiles
 
 BUNDLE_VERSION = 1
 CONF_RANK = {"exact": 4, "high": 3, "medium": 2, "low": 1, "ambiguous": 0}
 PLANE_STAGES = {"hdl": "hdl", "luts": "lut", "placed": "placed"}
-PLANE_ORDER = ["hdl", "cell", "lut", "clb", "placed"]
+PLANE_ORDER = [*graphs.PLANES, "hdl", "cell", "lut", "clb", "placed"]
 
 METRICS: list[dict[str, Any]] = [
     {
+        "name": "graph_in",
+        "unit": "edges in",
+        "planes": ["stg", "cfg", "ddg"],
+        "scale": "seq",
+        "measurer": "wyrd.o3viz.graphs: edges into the node of the write_graph file",
+        "source": "odin3 write_graph",
+    },
+    {
+        "name": "graph_out",
+        "unit": "edges out",
+        "planes": ["stg", "cfg", "ddg"],
+        "scale": "seq",
+        "measurer": "wyrd.o3viz.graphs: edges out of the node of the write_graph file",
+        "source": "odin3 write_graph",
+    },
+    {
+        "name": "is_reset",
+        "unit": "1 = reset state",
+        "planes": ["stg"],
+        "scale": "seq",
+        "measurer": "the fsm pass's reset state (node field reset)",
+        "source": "odin3 write_graph stg",
+    },
+    {
+        "name": "n_actions",
+        "unit": "assignments",
+        "planes": ["cfg"],
+        "scale": "seq",
+        "measurer": "assignments executed in the entry or case node (its actions list)",
+        "source": "odin3 write_graph cfg",
+    },
+    {
+        "name": "width",
+        "unit": "bits",
+        "planes": ["ddg"],
+        "scale": "seq",
+        "measurer": "width of the wire a signal node stands for (a bus is one node)",
+        "source": "odin3 write_graph ddg",
+    },
+    {
         "name": "is_ff",
         "unit": "1 = flip-flop",
-        "planes": ["hdl", "cell", "lut", "placed"],
+        "planes": ["hdl", "cell", "lut", "placed", "ddg"],
         "scale": "seq",
         "measurer": (
             "wyrd.o3viz.export: a $dff-type cell, a BLIF .latch, or a declared reg that a "
@@ -72,7 +112,7 @@ METRICS: list[dict[str, Any]] = [
     {
         "name": "cc0",
         "unit": "SCOAP CC0",
-        "planes": ["lut", "placed"],
+        "planes": ["lut", "placed", "ddg"],
         "scale": "seq",
         "measurer": (
             "Odin III scoap pass on the mapped netlist: combinational 0-controllability "
@@ -84,7 +124,7 @@ METRICS: list[dict[str, Any]] = [
     {
         "name": "cc1",
         "unit": "SCOAP CC1",
-        "planes": ["lut", "placed"],
+        "planes": ["lut", "placed", "ddg"],
         "scale": "seq",
         "measurer": "Odin III scoap pass: combinational 1-controllability",
         "source": "odin3 scoap, matched to the BLIF by net number",
@@ -92,7 +132,7 @@ METRICS: list[dict[str, Any]] = [
     {
         "name": "co",
         "unit": "SCOAP CO",
-        "planes": ["lut", "placed"],
+        "planes": ["lut", "placed", "ddg"],
         "scale": "seq",
         "measurer": "Odin III scoap pass: combinational observability (0 at a primary output)",
         "source": "odin3 scoap, matched to the BLIF by net number",
@@ -612,12 +652,14 @@ def read_texts(names: set[str], search: list[Path]) -> dict[str, list[str]]:
     return out
 
 
-def try_dumps(flow: Path, top: str, search: list[Path]) -> tuple[nets.Dumps | None, str]:
+def try_dumps(
+    flow: Path, top: str, search: list[Path], odin3: Path | None = None
+) -> tuple[nets.Dumps | None, str]:
     """The extra Odin III run; (None, reason) when it cannot be done (the bundle then has no cell
     plane and no bus names)."""
     with tempfile.TemporaryDirectory() as t:
         try:
-            nets.run_dumps(flow, Path(t), search)
+            nets.run_dumps(flow, Path(t), search, odin3)
             return nets.load_dumps(Path(t), top), ""
         except (nets.NetsError, OSError, KeyError, ValueError, subprocess.SubprocessError) as e:
             msg = re.sub(r"/[^\s'\"]+", lambda m: m.group(0).rsplit("/", 1)[-1], str(e))
@@ -637,6 +679,46 @@ def add_signals(hdl: Plane, sigs: list[cells.Signal], parent: dict[str, str]) ->
     hdl.set_metric("is_ff", {f"hdl:sig.{s.name}": 1.0 for s in sigs if s.kind == "reg"})
     hdl.parent = [parent.get(i) for i in hdl.ids]
     hdl.set_bus({f"hdl:sig.{s.name}": (s.name, None, "own") for s in sigs})
+
+
+def graph_plane(g: graphs.GraphData) -> Plane:
+    plane = Plane(g.kind)
+    for oid, k, t, n, src in zip(g.ids, g.nkind, g.ntype, g.name, g.src, strict=True):
+        plane.add(oid, k, t, "odin3", n, src)
+    for key, vals in g.metrics.items():
+        plane.set_metric(key, vals)
+    return plane
+
+
+def add_graph_planes(
+    dumps: nets.Dumps | None,
+    top: str,
+    hdl: Plane,
+    cd: cells.CellData | None,
+    planes: dict[str, Plane],
+    links: list[tuple[str, str, str, str]],
+) -> tuple[dict[str, graphs.GraphData], list[str]]:
+    """Graph planes (stg, cfg, ddg) from `write_graph`, their links, and notes."""
+    if not dumps or not dumps.graphs:
+        return {}, [
+            "graph planes off: this Odin III build gave no write_graph output"
+        ] if dumps else []
+    gd = graphs.build_all(dumps.graphs, top, hdl.ids, hdl.src, cd, dumps.scoap_nets)
+    notes = [n for g in gd.values() for n in g.notes]
+    for kind in nets.GRAPH_KINDS:
+        if kind not in gd:
+            notes.append(
+                f"no {kind} plane: "
+                + (
+                    "not in this Odin III build"
+                    if kind not in dumps.graphs
+                    else "no graph for the top module"
+                )
+            )
+    for kind, g in gd.items():
+        planes[kind] = graph_plane(g)
+        links.extend(g.links)
+    return gd, notes
 
 
 def cell_plane(cd: cells.CellData) -> Plane:
@@ -721,6 +803,7 @@ def build_planes(
     ff: FlowFiles,
     flow: Path,
     search: list[Path],
+    odin3: Path | None = None,
 ) -> tuple[
     dict[str, Any],
     dict[str, Plane],
@@ -732,6 +815,7 @@ def build_planes(
 ]:
     index, objs = read_steps(ff.prov)
     top = index["top"]
+    gplanes: dict[str, Plane] = {}
     nl = blif.read_blif(ff.blif)
     timing = vprfiles.read_setup_report(ff.timing) if ff.timing else None
     lut_objs = objs.get("luts", [])
@@ -748,7 +832,7 @@ def build_planes(
     lut = build_lut(lut_objs, nl, timing)
     join_depth_up(hdl, lut, links)
     texts = read_texts({s[0] for srcs in hdl.src for s in srcs}, search)
-    dumps, note = try_dumps(flow, top, search)
+    dumps, note = try_dumps(flow, top, search, odin3)
     cd = (
         cells.build_cells(dumps, {o["id"]: o for o in objs.get("hdl", [])}, parent, texts, lut.ids)
         if dumps
@@ -766,6 +850,7 @@ def build_planes(
         top,
     )
     cplane = cell_plane(cd) if cd else None
+    gdata, gnotes = add_graph_planes(dumps, top, hdl, cd, gplanes, links)
     sigl: list[tuple[str, str, str, str]] = []
     bus_note = ""
     if dumps and cd and cplane:
@@ -788,6 +873,8 @@ def build_planes(
         plane.metrics.update(circuitviz.node_columns(nl, pnets))
     links.extend(sigl)
     all_ids = set(hdl.ids) | set(lut.ids) | set(clb.ids) | set(placed.ids)
+    for gp in gplanes.values():
+        all_ids |= set(gp.ids)
     if cplane:
         all_ids |= set(cplane.ids)
     dropped = 0
@@ -796,7 +883,7 @@ def build_planes(
             links.append(lk)
         else:
             dropped += 1
-    planes = {"hdl": hdl, "lut": lut, "clb": clb, "placed": placed}
+    planes = {"hdl": hdl, "lut": lut, "clb": clb, "placed": placed, **gplanes}
     planes["cell"] = cplane or Plane("cell")
     edges = [
         (f"luts:{top}/{a}", f"luts:{top}/{b}", k)
@@ -807,7 +894,10 @@ def build_planes(
         "index": index,
         "top": top,
         "dropped_links": dropped,
-        "notes": [n for n in (note and f"cell plane off: {note}", bus_note, scoap_note) if n],
+        "notes": [
+            n for n in (note and f"cell plane off: {note}", bus_note, scoap_note, *gnotes) if n
+        ],
+        "graphs": gdata,
         "signals": cd.signals if cd else [],
         "selects": cd.selects if cd else 0,
         "grid": vprfiles.read_place(ff.place).grid,
@@ -865,6 +955,12 @@ def write_json(path: Path, obj: Any) -> None:
     path.write_text(dumps(obj), encoding="utf-8", newline="\n")
 
 
+def place_graphs(aset: dict[str, Any], gdata: dict[str, graphs.GraphData]) -> None:
+    """The graph planes use the same layout in every anchor, fitted to the anchor's box."""
+    for kind, g in gdata.items():
+        aset["pos"][kind] = graphs.place_in(g.layout, aset["bounds"])
+
+
 def spread_cells(aset: dict[str, Any]) -> None:
     """Cells linked to the same LUTs get the same mean position: spread them on a small grid."""
     cp = aset["pos"].get("cell")
@@ -897,24 +993,39 @@ def bus_table(planes: dict[str, Plane], sigs: list[cells.Signal]) -> list[dict[s
 
 
 def export_bundle(
-    flow: Path, out: Path, benchmark: str, src_dirs: list[Path], clusters_k: int | None = None
+    flow: Path,
+    out: Path,
+    benchmark: str,
+    src_dirs: list[Path],
+    clusters_k: int | None = None,
+    odin3: Path | None = None,
 ) -> dict[str, Any]:
-    """Write the bundle directory `out` and return its manifest."""
+    """Write the bundle directory `out` and return its manifest. `odin3` replaces the program of
+    the flow's own Odin III command line in the extra dump run (for a build with `write_graph`)."""
     ff = find_files(flow)
     meta, planes, links, edges, parent, bottom, fallback = build_planes(
-        ff, flow, [*src_dirs, flow.parent]
+        ff, flow, [*src_dirs, flow.parent], odin3
     )
-    order = [p for p in PLANE_ORDER if planes[p].ids]
+    order = [p for p in PLANE_ORDER if p in planes and planes[p].ids]
+    base = [p for p in order if p not in graphs.PLANES]
+    base_ids = {i for p in base for i in planes[p].ids}
+    base_links = [lk for lk in links if lk[0] in base_ids and lk[1] in base_ids]
     grid = meta["grid"]
     anchor_sets = anchorset.compute_all(
-        order, planes, links, edges, parent, bottom, fallback, tuple(grid)
+        base, planes, base_links, edges, parent, bottom, fallback, tuple(grid)
     )
     clusters, extra = circuitviz.build(
-        order, planes, links, edges, parent, meta["netlist"], meta["top"], clusters_k
+        base, planes, base_links, edges, parent, meta["netlist"], meta["top"], clusters_k
     )
     anchor_sets.update(extra)
     for aset in anchor_sets.values():
         spread_cells(aset)
+        place_graphs(aset, meta["graphs"])
+    for kind, g in meta["graphs"].items():
+        write_json(
+            out / "graphs" / f"{kind}.json",
+            {"kind": kind, "edges": g.edges, "detail": g.detail},
+        )
     sources = find_sources(meta["index"], planes, [*src_dirs, flow.parent])
     for p in order:
         write_json(out / "planes" / f"{p}.json", plane_json(planes[p]))
@@ -967,6 +1078,10 @@ def export_bundle(
         "notes": meta["notes"],
         "select_cells": meta["selects"],
         "grid": list(grid),
+        "graphs": {
+            k: {"nodes": len(g.ids), "edges": len(g.edges), "links": len(g.links)}
+            for k, g in meta["graphs"].items()
+        },
         "circuit": {
             "sources": clusters["order"],
             "dmax": clusters["dmax"],
