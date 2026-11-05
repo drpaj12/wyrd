@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import random
 import unittest
+from typing import Any
 from pathlib import Path
 
 from wyrd.o3viz import blif, circuit, hutton, partition
@@ -122,7 +123,7 @@ class TestClusters(unittest.TestCase):
         self.assertEqual(e["shape"], [[3, 1, 1], [2, 2, 1]])
 
     def test_unassigned_objects_get_a_last_cluster(self) -> None:
-        src = {"names": ["x"], "construct": [None], "of": [0, None]}
+        src: dict[str, Any] = {"names": ["x"], "construct": [None], "of": [0, None]}
         self.assertEqual(circuit.complete(src), 2)
         self.assertEqual((src["names"][1], src["of"], src["unassigned"]), ("(none)", [0, 1], 1))
 
