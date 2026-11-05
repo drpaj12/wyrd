@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>o3viz help</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: dark; --bg:#14171c; --panel:#1d2229; --line:#323a45; --fg:#d8dee6; --dim:#8b96a3; --acc:#ffb454; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.55 system-ui, "Segoe UI", sans-serif; }
+  main { max-width: 52rem; margin: 0 auto; padding: 1.5rem 1.2rem 4rem; }
+  h1 { font-size: 1.6rem; margin: 0 0 .2rem; } h2 { font-size: 1.2rem; margin: 2.2rem 0 .4rem; border-bottom: 1px solid var(--line); padding-bottom: .2rem; }
+  h3 { font-size: 1rem; margin: 1.2rem 0 .2rem; color: var(--acc); }
+  a { color: #8fc1ff; } code, kbd { background:#10131a; border:1px solid var(--line); border-radius:3px; padding:0 .3em; font: .88em ui-monospace, Consolas, monospace; }
+  kbd { border-bottom-width: 2px; }
+  nav { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: .5rem 1rem; }
+  nav ol { margin: .2rem 0; padding-left: 1.4rem; columns: 2; }
+  table { border-collapse: collapse; width: 100%; margin: .5rem 0; font-size: .92em; }
+  th, td { border: 1px solid var(--line); padding: .25rem .5rem; text-align: left; vertical-align: top; } th { background: var(--panel); }
+  figure { margin: .8rem 0; } figure img { max-width: 100%; border: 1px solid var(--line); border-radius: 4px; } figcaption { color: var(--dim); font-size: .85em; }
+  .try { background: #ffb4541a; border-left: 3px solid var(--acc); padding: .3rem .8rem; margin: .6rem 0; }
+  .try b { color: var(--acc); }
+  .dim { color: var(--dim); }
+</style>
+</head>
+<body>
+<main>
+<h1>o3viz help</h1>
+<p class="dim">What you are looking at in the 3D provenance viewer, and what each control does. This page is a single static file;
+its pictures are in <code>images/</code> next to it. Press <kbd>?</kbd> in the viewer to open it.</p>
+
+<nav id="toc"><b>Contents</b>
+<ol>
+  <li><a href="#planes">What you are looking at: the planes</a></li>
+  <li><a href="#links">Provenance links and columns</a></li>
+  <li><a href="#hdl">The HDL pane and selecting lines</a></li>
+  <li><a href="#tiers">Case tiers A, B, C and the graded mix</a></li>
+  <li><a href="#buses">Buses and flip-flops</a></li>
+  <li><a href="#channels">Colour, size, height, fade; metrics; joins</a></li>
+  <li><a href="#anchors">Anchors and layouts; the Hutton and Kundarewich panel</a></li>
+  <li><a href="#paths">Paths and SCOAP</a></li>
+  <li><a href="#discovery">Discovery, 2D view, morph, brush, grouping</a></li>
+  <li><a href="#camera">Planes and camera</a></li>
+  <li><a href="#panels">Collapsible panels</a></li>
+  <li><a href="#keys">Keyboard shortcuts</a></li>
+  <li><a href="#limits">Known limits per plane</a></li>
+</ol></nav>
+
+<h2 id="planes">1. What you are looking at: the planes</h2>
+<p>One benchmark is drawn as a stack of horizontal planes. Top to bottom: <code>stg</code>, <code>cfg</code>, <code>ddg</code>,
+<code>hdl</code>, <code>cell</code>, <code>lut</code>, <code>clb</code>, <code>placed</code>. The bottom plane is the real FPGA grid. A
+plane that the bundle does not contain is not shown; the status line at the bottom of the left panel lists the missing ones.
+The three graph planes are off at first (keys <kbd>s</kbd>, <kbd>c</kbd>, <kbd>d</kbd>, or the checkboxes under "Graph planes").</p>
+<table>
+<tr><th>Plane</th><th>Objects</th><th>Made by</th></tr>
+<tr><td><code>stg</code></td><td>one node per FSM state (label = state code), edges are transitions labelled with their condition</td><td>Odin III <code>write_graph stg</code>, just after <code>proc</code></td></tr>
+<tr><td><code>cfg</code></td><td>per process: entry, switch, case, join, exit nodes</td><td>Odin III <code>write_graph cfg</code>, just before <code>proc</code></td></tr>
+<tr><td><code>ddg</code></td><td>signals (a bus is one node) and temporary nets; edges are data, control, or across a flip-flop (dashed)</td><td>Odin III <code>write_graph ddg</code>, just after <code>proc</code></td></tr>
+<tr><td><code>hdl</code></td><td>HDL constructs (module, block, statement) and every declared reg, wire and port (kind <code>signal</code>)</td><td>Odin III step file <code>read</code> (the parse, with provenance)</td></tr>
+<tr><td><code>cell</code></td><td>word-level cells: <code>$mux</code>, <code>$pmux</code>, <code>$eq</code>, <code>$dff</code>, with their HDL spans</td><td>Odin III netlist dump right after <code>proc</code></td></tr>
+<tr><td><code>lut</code></td><td>nets, LUTs, flip-flops, hard blocks of the mapped netlist</td><td>Odin III step file <code>map</code> (the BLIF Odin III writes)</td></tr>
+<tr><td><code>clb</code></td><td>VPR top-level blocks: logic clusters, IO pads, memories</td><td>VPR packing (the <code>.net</code> file)</td></tr>
+<tr><td><code>placed</code></td><td>one object per atom, on the real grid tile of its cluster</td><td>VPR placement (the <code>.place</code> file) with Odin III step file <code>place</code></td></tr>
+</table>
+<figure><img src="images/o3viz-ch_intrinsics.png" alt="o3viz on VTR ch_intrinsics"><figcaption>The stack for the VTR benchmark ch_intrinsics.</figcaption></figure>
+<p>Planes that Odin III does not write yet (<code>ir</code>, <code>gates</code>, <code>ble</code>, <code>routed</code>) are not shown.</p>
+<div class="try"><b>Try this.</b> Press <kbd>0</kbd> to see the whole stack, then <kbd>1</kbd> to <kbd>5</kbd> to move the view to each plane in turn.</div>
+
+<h2 id="links">2. Provenance links between planes, and what a column is</h2>
+<p>Each object records where it came from. The bundle has a table of links between objects of different planes (for example an HDL
+construct to the cells made from it, a cell to the LUTs derived from it, a LUT to its cluster and its placed atom). Each link says
+how it was found (for example <code>cone</code>, <code>name</code>, <code>structural_match</code>) and how sure that is.</p>
+<p>A <b>column</b> is everything connected to one object, through all the planes: the object, the objects it links to above
+and below, and their HDL lines. Clicking an object (or an HDL line) highlights its column in 3D and dims the rest. The right
+panel gives one line per plane with the count of linked objects and a focus button. Click empty space to clear.</p>
+<div class="try"><b>Try this.</b> Click a LUT. Its HDL lines light up in the left pane and the right panel lists, per plane, how many objects
+belong to its column. Press the focus button of <code>placed</code> to see where it sits on the grid.</div>
+
+<h2 id="hdl">3. The HDL pane and selecting lines</h2>
+<p>The pane at the left shows the whole source file with line numbers; several files get tabs. Drag the divider to resize it.</p>
+<ul>
+<li>Click a line, or drag over lines, or shift-click to extend a range.</li>
+<li>The selected constructs are the innermost ones whose span covers the lines. Tick "include enclosing constructs" to take all of
+them.</li>
+<li>From those constructs the selection follows the links to every object below (cell, LUT, cluster, placed atom). These are
+highlighted; the rest is dimmed. The right panel counts the objects per plane.</li>
+<li>The reverse also works: clicking an object in 3D highlights its HDL lines in the pane and scrolls to them.</li>
+<li>Clicking the declaration line of a reg selects its flip-flops on every plane; of a wire, its driving logic.</li>
+</ul>
+<figure><img src="images/o3viz-line.png" alt="an HDL line selected"><figcaption>One HDL line selected: its column is lit on every plane.</figcaption></figure>
+<div class="try"><b>Try this.</b> Click a line inside an <code>always</code> block, then tick "include enclosing constructs" and watch the counts grow.</div>
+
+<h2 id="tiers">4. Case tiers A, B, C and the graded mix</h2>
+<p>Click a line inside a <code>case</code> or an if/else chain (a construct with two or more branches) and the viewer sorts the
+objects into three tiers:</p>
+<table>
+<tr><td><b>A</b> orange</td><td>own: the clicked item</td></tr>
+<tr><td><b>B</b> teal</td><td>shared: the case itself, and logic that serves the item together with others (select, mux)</td></tr>
+<tr><td><b>C</b> violet</td><td>context: the other items</td></tr>
+</table>
+<p>Everything else fades. The source pane shows the clicked item with an orange bar, the case header teal, the other items in a light
+tint. The right panel counts A, B and C per plane.</p>
+<p>On the cell plane the tiers are exact. Below it (lut, clb, placed) a LUT is coloured by the <b>graded mix</b>: its share of A, B
+and C among the cell-plane objects it was mapped from (orange intensity = A share). A LUT with no cell link keeps its whole tier,
+and a cluster or placed atom takes the mean over its LUTs. Hover shows the shares.</p>
+<figure><img src="images/o3viz-m5-tiers.png" alt="case tiers on the cell plane"><figcaption>Tiers A, B, C on the cell plane.</figcaption></figure>
+<figure><img src="images/o3viz-m6-graded-fsm.png" alt="graded tiers"><figcaption>The graded mix on the lower planes.</figcaption></figure>
+<div class="try"><b>Try this.</b> Load a design with a <code>case</code>, click one item, press <kbd>2</kbd> (the cell plane, second from the top of the non-graph planes) to see tiers A, B, C.</div>
+
+<h2 id="buses">5. Buses and flip-flops</h2>
+<p><b>Buses.</b> Set Colour to "bus (hue per bus, shade per bit)". Each bus gets a hue and each bit a shade. The legend lists the buses
+with a filter box and a count; click one to select it on every plane and mark its declaration line. A bus name comes from the
+object's own net, or, for unnamed logic, from the one bus it feeds. Anything else is grey and counted as "no bus". The option appears
+only when the bundle has bus names.</p>
+<figure><img src="images/o3viz-m5-bus.png" alt="colour = bus"><figcaption>Colour = bus, with <code>return_val</code> selected.</figcaption></figure>
+<p><b>Flip-flops</b> are small pink cubes on every plane: beside the LUT that drives their D input on lut and placed, around their
+cluster on clb (a cluster shows one cube per flip-flop inside). The Flip-flops menu has three modes: "cubes only", "highlight FFs",
+and "FFs only (others dimmed)". The metric <code>is_ff</code> marks them in the data.</p>
+<figure><img src="images/o3viz-m5-ff.png" alt="flip-flops highlighted"><figcaption>FFs highlighted.</figcaption></figure>
+<div class="try"><b>Try this.</b> Choose "FFs only", then click a pink cube: its column and the HDL lines of the register are highlighted.</div>
+
+<h2 id="channels">6. Colour, size, height, fade; metrics; joins</h2>
+<p>Four channels in the left panel each take any metric: <b>Colour</b>, <b>Size</b>, <b>Height</b> (above the plane) and <b>Fade</b>
+(blend to the background). The shape follows the object kind. Grey means not measured, and a value is never guessed. The colour
+legend gives the range and, per plane, how many objects have a value. Slack uses a diverging scale (red is negative). The button
+"colour = logic depth (all planes)" sets colour to <code>logic_level</code> on every plane.</p>
+<figure><img src="images/o3viz-depth.png" alt="colour = logic depth"><figcaption>Colour = logic depth.</figcaption></figure>
+<h3>Metrics: where each is measured</h3>
+<table>
+<tr><th>Metric</th><th>Source</th></tr>
+<tr><td><code>fanin</code>, <code>fanout</code>, <code>logic_level</code></td><td>the BLIF from Odin III. <code>logic_level</code> is LUT depth from inputs and register or block outputs; on clb it is the max over the atoms inside, on hdl the max over the LUTs linked below</td></tr>
+<tr><td><code>stage</code>, <code>seq_level</code>, <code>is_latched</code>, <code>is_po</code>, <code>fanout_comb</code></td><td>computed from the BLIF netlist (see section 7)</td></tr>
+<tr><td><code>slack_worst</code>, <code>paths_through</code></td><td>VPR's worst 100 setup paths (the report); objects on no reported path stay grey</td></tr>
+<tr><td><code>atoms</code>, <code>luts_inside</code>, <code>ffs_inside</code>, <code>x</code>, <code>y</code></td><td>VPR's <code>.net</code> and <code>.place</code></td></tr>
+<tr><td><code>cc0</code>, <code>cc1</code>, <code>co</code></td><td>Odin III's <code>scoap</code> pass (section 8)</td></tr>
+<tr><td><code>graph_in</code>, <code>graph_out</code>, <code>is_reset</code>, <code>n_actions</code>, <code>width</code></td><td>the graph planes (stg, cfg, ddg)</td></tr>
+<tr><td><code>depth</code>, <code>children</code>, <code>span_lines</code>, <code>luts_below</code>, <code>hdl_links</code>, <code>weakest_confidence</code></td><td>Odin III step files and the links table</td></tr>
+</table>
+<h3>Joins: build new metrics</h3>
+<ul>
+<li><b>Expression.</b> Give a name and a formula over metric names, for example <code>fanout * (1 - slack_worst)</code>. Operators
+<code>+ - * / % ^</code>, comparisons, and <code>abs sqrt log log2 exp floor ceil round min max pow clamp if</code>. It has its own parser
+(no <code>eval</code>). A missing value gives a missing result. Choose the sequential or the diverging scale.</li>
+<li><b>Across planes.</b> <code>min</code>, <code>max</code>, <code>mean</code>, <code>sum</code> or <code>count</code> of a metric over the
+objects linked below or above. Direct links only, one hop.</li>
+</ul>
+<p>New metrics show up in every dropdown.</p>
+<div class="try"><b>Try this.</b> In "Join: across planes" pick <code>slack_worst</code>, "from objects linked below", <code>min</code>, then colour the
+<code>hdl</code> plane by the new metric: the constructs with the worst LUT light up.</div>
+
+<h2 id="anchors">7. Anchors, layouts, and the Hutton and Kundarewich panel</h2>
+<p>The <b>Anchor</b> menu decides where objects sit on each plane. Switching does not reload the bundle.</p>
+<table>
+<tr><th>Anchor</th><th>Layout</th></tr>
+<tr><td><code>placement</code></td><td>the real grid at the bottom; upper planes at the centroid of what they link to</td></tr>
+<tr><td><code>ast</code></td><td>the HDL construct tree (root on top, one leaf per column); a LUT at its deepest construct, a cluster at the mean of its LUTs</td></tr>
+<tr><td><code>pipeline</code></td><td>x = register stage, one block per stage, atoms ordered by logic level</td></tr>
+<tr><td><code>level</code></td><td>x = logic level, one block per level, atoms ordered by worst slack (worst first)</td></tr>
+<tr><td><code>hutton</code></td><td>x = delay level, objects stacked per level; flip-flops at level 0 beside the primary inputs, joined to their latched node by the DFF edge</td></tr>
+<tr><td><code>hutton_seq</code></td><td>as <code>hutton</code>, one strip per sequential level</td></tr>
+<tr><td><code>kundarewich-&lt;source&gt;</code></td><td>one strip per cluster of the chosen cluster source</td></tr>
+</table>
+<p>The anchors <code>hutton</code>, <code>hutton_seq</code> and <code>kundarewich-*</code> appear only when the bundle has them. An object that has
+no position of its own is moved to a strip below the plane and counted in the manifest; a guess is never drawn as a measurement.</p>
+<figure><img src="images/o3viz-anchors.png" alt="anchors"><figcaption>An anchor other than placement.</figcaption></figure>
+<h3>The Hutton and Kundarewich panel</h3>
+<p>The right panel section "Circuit: Hutton and Kundarewich" describes the lut-plane circuit. Definitions follow P. D. Kundarewich,
+"Synthetic Circuit Generation Using Clustering and Iteration", MASc thesis, University of Toronto, 2002, which describes M. Hutton,
+J. Rose, J. Grossman and D. Corneil, "Characterization and parameterized generation of synthetic combinational circuits", IEEE TCAD
+17(10):985-996, 1998, and M. Hutton, J. Rose and D. Corneil, "Generation of synthetic sequential benchmark circuits", FPGA 1997. The
+viewer is descriptive only; it tests no hypothesis.</p>
+<ul>
+<li><b>Shapes</b> per delay level: node shape (objects), input shape (LUT input pins), output shape (objects that drive something),
+PO shape (objects that drive a primary output). Choose "whole circuit" or "selection" (an HDL line's logic gets its own shape).</li>
+<li><b>Fanout distribution</b>: objects per number of LUTs driven.</li>
+<li><b>Edge length</b> of an edge into a LUT: level(sink) minus level(source). An edge into a flip-flop has length 0 by definition. The
+Edges menu "circuit edges by length" colours the lut-plane edges by length (pink = 0).</li>
+<li><b>Cluster source</b> menu: <code>hdl-module</code>, <code>hdl-block</code>, <code>hdl-item</code>, <code>vpr</code>, <code>mincut</code>
+(a seeded Fiduccia-Mattheyses bipartition; Kundarewich used hMETIS, this is not hMETIS).</li>
+<li><b>Comb and Latched matrices</b> (Kundarewich 3.3.2): Comb[i][j] counts edges from cluster i that drive combinational nodes in cluster j;
+Latched[i][j] those that drive flip-flops in cluster j. Heat maps use a log scale; the diagonal is dim. Click a cell: its edges are drawn
+in yellow and their endpoints and HDL lines are selected. The panel also gives the share of edges that cross clusters.</li>
+<li><b>Compare with</b>: tick it and pick a second source to see both side by side with their normalised mutual information (NMI),
+which says how close the HDL hierarchy is to the connectivity hierarchy.</li>
+<li>Colour menu entries "cluster" and "role" (flip-flop, latched node, primary output) appear with this data.</li>
+</ul>
+<figure><img src="images/o3viz-m6-hutton.png" alt="Hutton layout"><figcaption>The <code>hutton</code> anchor, colour = role.</figcaption></figure>
+<figure><img src="images/o3viz-m6-kundarewich.png" alt="Kundarewich view"><figcaption>HDL blocks as clusters, Comb and Latched matrices, compared with min-cut.</figcaption></figure>
+<div class="try"><b>Try this.</b> Choose cluster source <code>hdl-block</code>; the anchor switches to Kundarewich. Click a hot cell in the Comb matrix and read
+the HDL lines of the edges between those two clusters. Then tick "compare with" and choose <code>mincut</code>.</div>
+
+<h2 id="paths">8. Paths and SCOAP</h2>
+<p>The Paths section (right panel) draws a combinational path as a polyline through the objects it passes on the lut and placed planes,
+and highlights the HDL lines it comes from. The source is always labelled.</p>
+<ul>
+<li><b>VPR setup report</b>: the reported setup paths, worst slack first. Click one to draw it. Only the data-arrival part is used.</li>
+<li><b>Netlist cone</b>: from the selected objects, the fan-in, fan-out or both cones in the LUT netlist, with a depth limit. The cone
+stops at flip-flops, I/O and hard blocks. It follows the selection.</li>
+</ul>
+<figure><img src="images/o3viz-paths.png" alt="VPR path"><figcaption>A reported VPR path.</figcaption></figure>
+<figure><img src="images/o3viz-cone.png" alt="netlist cone"><figcaption>A fan-in cone.</figcaption></figure>
+<p><b>SCOAP</b> testability numbers come from Odin III's <code>scoap</code> pass: <code>cc0</code> and <code>cc1</code> (controllability to 0 and to 1)
+and <code>co</code> (observability). They exist on lut, placed and ddg where the pass named the net; unreachable means no value. The left
+panel "colour = SCOAP with joins" takes CC0, CC1 or CO and min, max or mean, and colours every plane: its own value where measured, else
+the min, max or mean over linked objects that have one. Nets named after a port or a register often have no value; the grey is honest.</p>
+<figure><img src="images/o3viz-m7-scoap.png" alt="colour = SCOAP"><figcaption>Colour = max CC0 on every plane.</figcaption></figure>
+<div class="try"><b>Try this.</b> Select a LUT, set Paths to "netlist cone of the selection", choose fan-in, depth 6. Then set "colour = SCOAP" with CO and max.</div>
+
+<h2 id="discovery">9. Discovery, 2D view, morph, brush, grouping</h2>
+<ul>
+<li><b>Discovery</b> (right panel): pick a plane and Spearman correlation or mutual information (8 equal-width bins, in bits). It shows the
+matrix of the metrics with 10 or more values. Click a cell: colour = row metric, size = column metric. Pairs with a missing value on either
+side are left out.</li>
+<li><b>2D view</b> (View menu): one plane seen from above, rotation off. The entries are "3D stack" and "2D: &lt;plane&gt;".</li>
+<li><b>Morph</b>: choose two adjacent planes and drag the slider; the lower plane rises to the upper one and its objects slide to the centroid of
+the upper objects they link to.</li>
+<li><b>Brush</b>: hold <kbd>Shift</kbd> and drag a rectangle on the 3D view. The objects of the plane chosen in "Shift + drag brushes objects of"
+are selected and their column is highlighted.</li>
+<li><b>Grouping</b>: by HDL module or by VPR cluster, one blob per group on lut and placed (colour = mean of the colour metric). Click a blob to
+expand it; selecting an object expands its group.</li>
+<li><b>Edges</b>: "k-hop of selection" draws netlist edges within k hops of the selected lut objects; "between groups" draws one line per pair of
+groups (needs grouping), brighter for more edges.</li>
+</ul>
+<figure><img src="images/o3viz-discovery.png" alt="discovery matrix"><figcaption>A Discovery matrix.</figcaption></figure>
+<div class="try"><b>Try this.</b> Compute a Spearman matrix on <code>lut</code>, click the cell of <code>fanout</code> against <code>slack_worst</code>, then
+look for fat, red objects. Or Shift-drag a box on the 3D view and read the counts in the right panel.</div>
+
+<h2 id="camera">10. Planes and camera</h2>
+<ul>
+<li>Drag to rotate, right-drag to pan. "auto-rotate", "plane gap" and "reset camera" are in the left panel.</li>
+<li><b>Focus</b>: keys <kbd>1</kbd> to <kbd>9</kbd> move the orbit target to a plane centre (numbered over the planes that are not graph
+planes, top first); <kbd>0</kbd> shows the whole stack. The "focus" buttons in the Planes list do the same.</li>
+<li><b>Zoom to cursor</b>: the wheel zooms towards the point under the cursor on the focused plane, or on the nearest plane under the cursor
+when none is focused.</li>
+<li><b>Show / solo / opacity</b>: each plane in the Planes list has a show checkbox, an opacity slider and a "solo" button that hides every
+other plane (a second click restores them).</li>
+<li>Hover an object for a tooltip; click it for its fields and metrics in the right panel. "clear selection" in the left panel clears.</li>
+</ul>
+<div class="try"><b>Try this.</b> Press <kbd>3</kbd> to focus the LUT plane (the order is hdl, cell, lut, clb, placed), then scroll over one corner to zoom into it.</div>
+
+<h2 id="panels">11. Collapsible panels</h2>
+<p>Each side panel has a small button at its top (<code>&laquo;</code> or <code>&raquo;</code>) that turns it into a thin strip; the 3D view takes the
+space. Keys: <kbd>[</kbd> left panel, <kbd>h</kbd> HDL pane, <kbd>]</kbd> right panel. The state is kept in the browser (<code>localStorage</code>).</p>
+<figure><img src="images/o3viz-m6-collapsed.png" alt="panels collapsed"><figcaption>All panels collapsed.</figcaption></figure>
+<div class="try"><b>Try this.</b> Press <kbd>h</kbd>, <kbd>[</kbd> and <kbd>]</kbd> for a full-window 3D view; press them again to bring the panels back.</div>
+
+<h2 id="keys">12. Keyboard shortcuts</h2>
+<p>Keys work when the focus is not in a text box or a menu, and without Ctrl, Alt or Meta.</p>
+<table id="keytable">
+<tr><th>Key</th><th>Action</th></tr>
+<tr data-key="0"><td><kbd>0</kbd></td><td>whole stack (no focused plane)</td></tr>
+<tr data-key="1-9"><td><kbd>1</kbd> to <kbd>9</kbd></td><td>focus the Nth plane, counted over the non-graph planes, top first</td></tr>
+<tr data-key="s"><td><kbd>s</kbd></td><td>show or hide the STG plane (focuses it when shown)</td></tr>
+<tr data-key="c"><td><kbd>c</kbd></td><td>show or hide the CFG plane (focuses it when shown)</td></tr>
+<tr data-key="d"><td><kbd>d</kbd></td><td>show or hide the DDG plane (focuses it when shown)</td></tr>
+<tr data-key="["><td><kbd>[</kbd></td><td>collapse or restore the left panel</td></tr>
+<tr data-key="h"><td><kbd>h</kbd></td><td>collapse or restore the HDL pane</td></tr>
+<tr data-key="]"><td><kbd>]</kbd></td><td>collapse or restore the right panel</td></tr>
+<tr data-key="?"><td><kbd>?</kbd></td><td>open this help in a new tab</td></tr>
+</table>
+<p>Mouse: click selects; drag rotates; right-drag pans; wheel zooms to the cursor; <kbd>Shift</kbd> + drag brushes; on the HDL pane, drag or
+shift-click selects a range.</p>
+
+<h2 id="limits">13. Known limits per plane</h2>
+<ul>
+<li><b>stg</b>: Odin III does not attribute a state or a transition to one case item, so every state links to the same next-state logic.
+Edges between graph planes (an STG state to the CFG case that computes its transitions) are not drawn. A state has no HDL span of its own.</li>
+<li><b>cfg</b>: a <code>join</code> node has no HDL span. Links go by HDL span, not by the provenance record number in the graph file.</li>
+<li><b>ddg</b>: big. A real DDG can have thousands of nodes (666 nodes and 12189 edges for the <code>memset</code> process of ch_intrinsics;
+5046 nodes and 124406 edges for sha), so only the edges within k hops of the selection are drawn unless you tick "DDG: all edges". Layers wider
+than 40 nodes wrap into rows, and temporaries have no HDL span or SCOAP value.</li>
+<li><b>hdl, cell</b>: when Odin III's fsm pass recodes a state variable (ch_intrinsics: <code>cur_state</code> to one-hot), the case items are merged
+after mapping. On the cell plane tiers A, B, C are exact, but on lut, clb and placed every LUT carries the spans of all items and any item shows
+mostly tier B.</li>
+<li><b>lut, placed</b>: Odin III's abc pass records the cut cone of each LUT only when the run's parent edges fit a budget. On a big design (VTR sha)
+the budget is exceeded, all LUTs share one record, and per-LUT cell lineage (and so the graded mix) is coarse. SCOAP has no value for LUTs named after
+an output port or a register.</li>
+<li><b>clb, placed</b>: objects that mapping removed (nets) have no placed atom; they are put at the mean of their placed neighbours or the grid
+centre and counted as "unanchored" in the manifest.</li>
+<li><b>Buses</b>: if the net-number offset cannot be verified, the lut and placed planes get no bus names and the manifest says so.</li>
+<li>A value that was not measured is grey, never a default.</li>
+</ul>
+</main>
+</body>
+</html>

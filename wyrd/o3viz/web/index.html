@@ -62,7 +62,7 @@
   #cpanel .src { margin:6px 0; }
   .tglwrap { display:flex; justify-content:flex-end; margin:-4px 0 2px; } .tglwrap button { width:auto; padding:0 7px; line-height:18px; }
   #left.collapsed, #right.collapsed { padding:6px 2px; overflow:hidden; } #left.collapsed > :not(.tglwrap), #right.collapsed > :not(.tglwrap) { display:none; }
-  .collapsed .tglwrap { justify-content:center; }
+  .collapsed .tglwrap { justify-content:center; } .collapsed #helplink { display:none; }
   #srcpane.collapsed { flex:0 0 26px !important; min-width:26px; overflow:hidden; } #srcpane.collapsed > :not(.tglwrap) { display:none; }
   #srcpane > .tglwrap { margin:0; padding:2px; background:var(--panel); border-bottom:1px solid var(--line); }
   #split.hidden { display:none; }
@@ -71,7 +71,7 @@
 <body>
 <div id="app">
   <aside id="left">
-    <div class="tglwrap"><button data-tgl="left" title="hide / show this panel ([)">&laquo;</button></div>
+    <div class="tglwrap"><a href="help.html" target="_blank" rel="noopener" id="helplink" title="what you are looking at (key ?)" style="color:#8fc1ff;margin-right:auto;font-weight:600;text-decoration:none">? Help</a><button data-tgl="left" title="hide / show this panel ([)">&laquo;</button></div>
     <h1 id="title">o3viz</h1><div class="sub" id="subtitle">loading</div>
     <h2>Colour</h2><select id="colour"></select>
     <div id="legend"><div id="bar"></div><div class="ends"><span id="lo"></span><span id="mid"></span><span id="hi"></span></div>

@@ -29,6 +29,8 @@ deterministic: exporting twice gives the same bytes. A value that was not measur
 Everything is served locally; three.js is vendored (`wyrd/o3viz/web/vendor`, MIT), nothing is fetched from a
 network.
 
+- Help: the "? Help" link at the top of the left panel, or the key `?`, opens `wyrd/o3viz/web/help.html` (what the planes are, every control,
+  the shortcut table, known limits) in a new tab. It is one static file with its own `images/`, so it moves with `web/`.
 - Source pane (left, 40% of the width; drag the divider to resize): the whole HDL file with line numbers, tabs
   for several files. Click a line, or drag or shift-click a range. The constructs whose span covers the lines
   (the innermost ones; tick "include enclosing constructs" for all) are selected, then every linked object on
@@ -369,5 +371,6 @@ worst slack of the paths through the object; objects on no reported path stay gr
 ## Test
 
     .venv/bin/python -m unittest tests.test_o3viz tests.test_o3viz_viewer tests.test_o3viz_cells -v
+    .venv/bin/python -m unittest tests.test_o3viz_help   # help page: keys vs app.js, images present
     node --test tests/js/*.test.mjs       # expression language, line and cone selection
     python tools/o3viz_shot.py BUNDLE out.png --colour slack_worst   # needs playwright + chromium
