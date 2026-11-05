@@ -68,9 +68,13 @@ METRICS: list[dict[str, Any]] = [
     {
         "name": "logic_level",
         "unit": "levels",
-        "planes": ["lut", "placed"],
+        "planes": ["hdl", "lut", "clb", "placed"],
         "scale": "seq",
-        "measurer": "wyrd.o3viz.export, .names depth from inputs and register/block outputs",
+        "measurer": (
+            "wyrd.o3viz.export, .names depth from inputs and register/block outputs; "
+            "lut and placed: the object itself; clb: max over the atoms inside; "
+            "hdl: max over the LUTs linked below"
+        ),
         "source": "odin3 BLIF",
     },
     {
@@ -289,6 +293,36 @@ def build_hdl(
     return plane, parent
 
 
+def join_depth_up(hdl: Plane, lut: Plane, links: list[tuple[str, str, str, str]]) -> None:
+    """Logic depth of an HDL construct: the max `logic_level` of the LUTs linked below it."""
+    lvl = dict(zip(lut.ids, lut.metrics.get("logic_level", []), strict=True))
+    deepest: dict[str, float] = {}
+    for h, lu, _k, _c in links:
+        v = lvl.get(lu)
+        if v is not None and (h not in deepest or v > deepest[h]):
+            deepest[h] = v
+    hdl.set_metric("logic_level", deepest)
+
+
+def path_rows(
+    paths: list[vprfiles.SetupPath], top: str, lut_ids: set[str], placed_ids: set[str]
+) -> list[dict[str, Any]]:
+    """Reported setup paths as bundle rows, sorted by slack (worst first), atoms mapped to ids."""
+    rows = []
+    for p in sorted(paths, key=lambda q: (q.slack, q.n)):
+        rows.append(
+            {
+                "n": p.n,
+                "slack": p.slack,
+                "start": p.start,
+                "end": p.end,
+                "lut": [i for a in p.atoms if (i := f"luts:{top}/{a}") in lut_ids],
+                "placed": [i for a in p.atoms if (i := f"placed:{a}") in placed_ids],
+            }
+        )
+    return rows
+
+
 def lut_local(oid: str) -> str:
     return oid.split("/", 1)[1] if "/" in oid else oid.split(":", 1)[1]
 
@@ -361,12 +395,22 @@ def build_clb_and_placed(
     dict[str, tuple[int, int, int]],
 ]:
     clb, placed = Plane("clb"), Plane("placed")
+    levels = nl.levels()
     owner: dict[str, str] = {}
     cxy: dict[str, tuple[int, int, int]] = {}
     links: list[tuple[str, str, str, str]] = []
     cl_metrics: dict[str, dict[str, float]] = {
         k: {}
-        for k in ("atoms", "luts_inside", "ffs_inside", "x", "y", "slack_worst", "paths_through")
+        for k in (
+            "atoms",
+            "luts_inside",
+            "ffs_inside",
+            "x",
+            "y",
+            "slack_worst",
+            "paths_through",
+            "logic_level",
+        )
     }
     seen_ids: set[str] = set()
     for k, c in enumerate(clusters):
@@ -384,6 +428,9 @@ def build_clb_and_placed(
             sum(1 for a in atoms if nl.drivers.get(a) == "names")
         )
         cl_metrics["ffs_inside"][cid] = float(sum(1 for a in atoms if nl.drivers.get(a) == "latch"))
+        lvls = [levels[a] for a in atoms if a in levels]
+        if lvls:
+            cl_metrics["logic_level"][cid] = float(max(lvls))
         if timing:
             sl = [timing.worst_slack[a] for a in atoms if a in timing.worst_slack]
             if sl:
@@ -402,7 +449,7 @@ def build_clb_and_placed(
     pm: dict[str, dict[str, float]] = {
         k: {} for k in ("fanin", "fanout", "logic_level", "stage", "slack_worst", "paths_through")
     }
-    fo, lv, stg = nl.fanout(), nl.levels(), blif.stages_of(nl)
+    fo, lv, stg = nl.fanout(), levels, blif.stages_of(nl)
     for o in placed_objs:
         pid, name = o["id"], o["name"]
         drv = nl.drivers.get(name)
@@ -482,6 +529,7 @@ def build_planes(
                 below[lk["to"]] = below.get(lk["to"], 0) + 1
     hdl, parent = build_hdl(objs.get("hdl", []), below)
     lut = build_lut(lut_objs, nl, timing)
+    join_depth_up(hdl, lut, links)
     clb, placed, plinks, bottom, cxy = build_clb_and_placed(
         vprfiles.read_net(ff.net),
         vprfiles.read_place(ff.place),
@@ -509,6 +557,9 @@ def build_planes(
         "top": top,
         "dropped_links": dropped,
         "grid": vprfiles.read_place(ff.place).grid,
+        "paths": path_rows(vprfiles.read_setup_paths(ff.timing), top, lut_ids, set(placed.ids))
+        if ff.timing
+        else [],
     }
     fallback = {cid: (float(x), float(y)) for cid, (x, y, _) in cxy.items()}
     return meta, planes, sorted(set(links)), sorted(edges), parent, bottom, fallback
@@ -573,6 +624,11 @@ def export_bundle(flow: Path, out: Path, benchmark: str, src_dirs: list[Path]) -
         write_json(out / "planes" / f"{p}.json", plane_json(planes[p]))
     write_json(out / "links.json", compact_links(order, planes, links))
     write_json(out / "edges" / "lut.json", [list(e) for e in edges])
+    if meta["paths"]:
+        write_json(
+            out / "paths.json",
+            {"source": "vpr report_timing.setup.rpt", "paths": meta["paths"]},
+        )
     for name, aset in anchor_sets.items():
         write_json(out / "anchors" / f"{name}.json", aset)
     hashes: dict[str, str] = {}
@@ -602,6 +658,7 @@ def export_bundle(flow: Path, out: Path, benchmark: str, src_dirs: list[Path]) -
         "planes": order,
         "counts": {p: len(planes[p].ids) for p in order},
         "links": len(links),
+        "paths": len(meta["paths"]),
         "dropped_links": meta["dropped_links"],
         "unanchored": len(anchor_sets["placement"]["unanchored"]),
         "anchors": sorted(anchor_sets),

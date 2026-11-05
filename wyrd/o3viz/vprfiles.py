@@ -92,3 +92,61 @@ def read_setup_report(path: Path) -> AtomTiming:
                 worst[a] = min(val, worst.get(a, val))
                 npaths[a] = npaths.get(a, 0) + 1
     return AtomTiming(worst_slack=worst, npaths=npaths, paths=paths)
+
+
+@dataclass(frozen=True)
+class SetupPath:
+    n: int  # "#Path n" of the report
+    slack: float  # ns
+    start: str  # startpoint pin as printed
+    end: str  # endpoint pin as printed
+    atoms: list[str]  # atoms on the data path in order (clock network pins left out)
+
+
+def read_setup_paths(path: Path) -> list[SetupPath]:
+    """The reported setup paths: ordered atoms of the data-arrival part, one entry per `#Path`."""
+    out: list[SetupPath] = []
+    cur: dict[str, object] | None = None
+    clock = ""
+    in_data = False
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("#Path"):
+            cur = {"n": len(out) + 1, "start": "", "end": "", "atoms": []}
+            in_data, clock = True, ""
+            continue
+        if cur is None:
+            continue
+        atoms = cur["atoms"]
+        assert isinstance(atoms, list)
+        if line.startswith("Startpoint:"):
+            cur["start"] = line.split(":", 1)[1].split(" (", 1)[0].strip()
+        elif line.startswith("Endpoint"):
+            cur["end"] = line.split(":", 1)[1].split(" (", 1)[0].strip()
+        elif line.startswith("data arrival time"):
+            in_data = False
+        elif line.startswith("clock ") and not clock:
+            words = line.split()
+            clock = words[1] if len(words) > 1 else ""
+        else:
+            s = SLACK.match(line)
+            if s:
+                out.append(
+                    SetupPath(
+                        int(str(cur["n"])),
+                        float(s.group(1)),
+                        str(cur["start"]),
+                        str(cur["end"]),
+                        list(atoms),
+                    )
+                )
+                cur = None
+                continue
+            m = POINT.match(line)
+            if m and in_data:
+                atom = m.group(1)
+                port = line.split(".", 1)[1] if "." in line else ""
+                if port.startswith("clk") or (atom == clock and port.startswith("inpad")):
+                    continue
+                if not atoms or atoms[-1] != atom:
+                    atoms.append(atom)
+    return out
