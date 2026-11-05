@@ -11,6 +11,7 @@ import argparse
 import sys
 import threading
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -22,6 +23,7 @@ def shoot(
     select: str,
     size: str = "",
     evals: list[str] | None = None,
+    results: list[Any] | None = None,
 ) -> list[str]:
     from playwright.sync_api import sync_playwright
 
@@ -39,7 +41,9 @@ def shoot(
         page.wait_for_selector("body[data-ready='1']", timeout=30000)
         page.evaluate("window.__o3viz.stop()")
         for js in evals or []:
-            page.evaluate(js)
+            value = page.evaluate(js)
+            if results is not None:
+                results.append(value)
             page.wait_for_timeout(300)
         if colour:
             page.evaluate("n => window.__o3viz.setColour(n)", colour)
