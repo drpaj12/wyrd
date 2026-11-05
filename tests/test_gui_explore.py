@@ -288,6 +288,7 @@ class CurrentDesignTest(unittest.TestCase):
         calls: list[str] = []
         t = p.timing_tab
         original = t._submit
+
         def record(key: str, fn: Callable[[], object]) -> None:
             calls.append(key)
             original(key, fn)

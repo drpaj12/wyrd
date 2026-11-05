@@ -105,7 +105,8 @@ class TestPathsAndDepth(unittest.TestCase):
             }
 
             def lv(p: str, oid: str) -> float | None:
-                return pl[p]["metrics"]["logic_level"][pl[p]["ids"].index(oid)]
+                val: float | None = pl[p]["metrics"]["logic_level"][pl[p]["ids"].index(oid)]
+                return val
 
             # cluster 1 holds hl1 (level 1) and hq (level 0): max is 1
             self.assertEqual(
