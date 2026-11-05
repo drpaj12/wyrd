@@ -166,3 +166,31 @@ export function declLine(lines, name) {
   const i = lines.findIndex((l) => rx.test(l));
   return i < 0 ? 0 : i + 1;
 }
+
+// ---- graded ownership (M6) ----
+// Shares of a mapped object by tier, from the tiers of the cells it was mapped from (a tier is "A", "B", "C" or
+// undefined for a cell outside the case). {A, B, C} are fractions of all the cells, n the cell count.
+export function mixOf(tiersOfCells) {
+  const n = tiersOfCells.length, cnt = { A: 0, B: 0, C: 0 };
+  for (const t of tiersOfCells) if (t) cnt[t]++;
+  return n ? { A: cnt.A / n, B: cnt.B / n, C: cnt.C / n, n } : null;
+}
+// the mean of several mixes (a cluster or a placed atom over its LUTs); n is the number of mixes
+export function meanMix(mixes) {
+  const m = mixes.filter(Boolean);
+  if (!m.length) return null;
+  const mean = (k) => m.reduce((t, x) => t + x[k], 0) / m.length;
+  return { A: mean("A"), B: mean("B"), C: mean("C"), n: m.length };
+}
+// RGB (0..1) of a mix: the tier colours weighted by their shares; the more of the cells lie outside the case, the
+// nearer to the background
+export function mixRGB(mix, cols, bg) {
+  const tot = mix.A + mix.B + mix.C;
+  if (tot === 0) return bg.map((v) => v);
+  const rgb = [0, 1, 2].map((k) => (mix.A * cols.A[k] + mix.B * cols.B[k] + mix.C * cols.C[k]) / tot);
+  const t = 0.25 + 0.75 * Math.min(1, tot);
+  return rgb.map((v, k) => bg[k] + (v - bg[k]) * t);
+}
+// "A 12%  B 80%  C 8%  (of 25 cells)"
+export const mixText = (mix, what = "cells") =>
+  `A ${Math.round(mix.A * 100)}%  B ${Math.round(mix.B * 100)}%  C ${Math.round(mix.C * 100)}%  (of ${mix.n} ${what})`;

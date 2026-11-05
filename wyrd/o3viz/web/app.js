@@ -6,7 +6,7 @@ import { spearman, mutualInfo } from "./stats.js";
 import * as pl from "./layout.js";
 import { characterize, edgeLength, cellEdges } from "./circuit.js";
 import { barChart, drawMatrix, drawShape, cellAt } from "./circuitdraw.js";
-import { parseSpan, innermost, hdlCovering, reachDown, cone as coneOf, chainFor, tiers as tiersOf, busHue, bitLight } from "./select.js";
+import { parseSpan, innermost, hdlCovering, reachDown, cone as coneOf, chainFor, tiers as tiersOf, mixOf, meanMix, mixRGB, mixText, busHue, bitLight } from "./select.js";
 
 const BUNDLE = "./bundle/";
 const GREY = new THREE.Color("#5b6572");
@@ -267,7 +267,9 @@ function refreshPlane(p) {
     let s = r0;
     if (sz) s *= sz[i] === null ? 0.5 : 0.6 + 1.8 * norm(S.size, sz[i]);
     const st = stateOf(id), tr = S.tier?.get(id), ff = isFF(p, i);
-    if (S.tier) s *= tr === "A" ? 2 : tr === "B" ? 1.5 : tr === "C" ? 1.1 : 0.45;
+    const mx = S.tier && p !== "cell" && p !== "hdl" ? S.tierMix?.get(id) : null;
+    if (mx) s *= 0.45 + Math.min(1.55, 1.55 * (mx.A * 1.3 + mx.B * 0.9 + mx.C * 0.5));
+    else if (S.tier) s *= tr === "A" ? 2 : tr === "B" ? 1.5 : tr === "C" ? 1.1 : 0.45;
     else if (st === 2) s *= S.brush ? 1.5 : 2.4; else if (st === 3) s *= 1.3; else if (st === 1) s *= S.brush ? 1.15 : 1.5; else if (st === -1) s *= 0.55;
     if (S.ff !== "off" && p === "clb") s *= 0.45;
     const dim = S.ff === "only" && !ff && !(p === "clb" && ffCount(p, i) > 0);
@@ -280,7 +282,10 @@ function refreshPlane(p) {
     let c = S.colour === "@bus" ? busColour(d, i) : S.colour === "@cluster" ? clusterColour(p, i) : S.colour === "@role" ? roleColour(p, i) : col ? colourOf(S.colour, col[i]) : new THREE.Color("#8fc1ff");
     if (ff && (S.ff !== "off" || !col && !S.colour.startsWith("@"))) c = new THREE.Color(FF_COL);
     if (fd) c.lerp(BG, 0.85 * (1 - (fd[i] === null ? 0 : norm(S.fade, fd[i]))));
-    if (S.tier) {
+    if (mx) {
+      const [r, g, b] = mixRGB(mx, { A: hexRGB(TIER_COL.A), B: hexRGB(TIER_COL.B), C: hexRGB(TIER_COL.C) }, [BG.r, BG.g, BG.b]);
+      c = new THREE.Color(r, g, b);
+    } else if (S.tier) {
       if (tr) { c = new THREE.Color(TIER_COL[tr]); if (tr === "C") c.lerp(BG, 0.4); } else c.lerp(BG, 0.86);
     } else if (st === 3) c = new THREE.Color(CONE_COL[S.cone.nodes.get(id)] ?? "#5fe0ff");
     else if (st === 2 && !(S.colour === "@bus" && S.mode.type === "bus")) c = new THREE.Color("#ffb454");
@@ -553,9 +558,34 @@ function setTier(hdlIds) {
     const rest = S.order.slice(1).map((p) => [p, S.planes[p].ids]);
     S.tier = tiersOf(ch, hdl.ids.filter((x) => !x.startsWith("hdl:sig.")), hdlOf, rest, (x) => S.up.get(x) ?? []);
     S.tierInfo = { chain: ch.chain, item: ch.item, items: ch.items };
+    computeMix();
     return;
   }
 }
+// Graded ownership below the cell plane: a LUT takes the tier mix of the cells it was mapped from; a cluster and
+// a placed atom the mean over their LUTs. A LUT with no cell link keeps its whole tier (share 1).
+function computeMix() {
+  S.tierMix = new Map();
+  const lutMix = new Map();
+  const tierCol = (t) => ({ A: 0, B: 0, C: 0, [t]: 1 });
+  for (const id of S.planes.lut?.ids ?? []) {
+    const cells = (S.up.get(id) ?? []).filter((u) => S.byId.get(u)?.plane === "cell");
+    const m = cells.length ? mixOf(cells.map((c) => S.tier.get(c))) : S.tier.has(id) ? { ...tierCol(S.tier.get(id)), n: 0 } : null;
+    if (m) lutMix.set(id, m);
+  }
+  S.tierMix = new Map(lutMix);
+  for (const id of S.planes.clb?.ids ?? []) {
+    const m = meanMix((S.up.get(id) ?? []).map((u) => lutMix.get(u)));
+    if (m) S.tierMix.set(id, m);
+  }
+  const placed = S.planes.placed;
+  placed?.ids.forEach((id, i) => {
+    const l = S.lutByName?.get(placed.name[i]);
+    const m = l === undefined ? null : lutMix.get(S.planes.lut.ids[l]);
+    if (m) S.tierMix.set(id, m);
+  });
+}
+const hexRGB = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
 function tierCounts() {
   const out = Object.fromEntries(S.order.map((p) => [p, { A: 0, B: 0, C: 0 }]));
   if (S.tier) for (const [id, t] of S.tier) out[S.byId.get(id).plane][t]++;
@@ -620,7 +650,18 @@ function tierTable() {
   const rows = S.order.map((p) => `<tr><td>${p}</td>` + ["A", "B", "C"].map((t) => `<td style="color:${TIER_COL[t]}">${c[p][t]}</td>`).join("") + "</tr>").join("");
   return '<h2>Case tiers per plane</h2><table><tr><td></td>' +
     ["A", "B", "C"].map((t) => `<td style="color:${TIER_COL[t]}" title="${TIER_NAME[t]}"><b>${t}</b></td>`).join("") + `</tr>${rows}</table>` +
-    ["A", "B", "C"].map((t) => `<div class="sub"><span style="color:${TIER_COL[t]}">&#9632;</span> ${t} ${TIER_NAME[t]}</div>`).join("");
+    ["A", "B", "C"].map((t) => `<div class="sub"><span style="color:${TIER_COL[t]}">&#9632;</span> ${t} ${TIER_NAME[t]}</div>`).join("") + mixTable();
+}
+// lut, clb and placed are graded: colour = the tier shares of the cells a LUT was mapped from
+function mixTable() {
+  if (!S.tierMix?.size) return "";
+  const rows = ["lut", "clb", "placed"].filter((p) => S.planes[p]).map((p) => {
+    const ms = S.planes[p].ids.map((id) => S.tierMix.get(id)).filter(Boolean);
+    const some = (k) => ms.filter((m) => m[k] > 0).length;
+    return `<tr><td>${p}</td>` + ["A", "B", "C"].map((k) => `<td style="color:${TIER_COL[k]}">${some(k)}</td>`).join("") + `<td>${ms.length}/${S.planes[p].ids.length}</td></tr>`;
+  }).join("");
+  return '<h2>Graded ownership</h2><div class="sub">lut, clb and placed are coloured by the mix of A, B and C among the cells a LUT was mapped from (clusters and atoms: mean over their LUTs); hover shows the shares. Objects with some share:</div>' +
+    `<table><tr><td></td><td style="color:${TIER_COL.A}">A</td><td style="color:${TIER_COL.B}">B</td><td style="color:${TIER_COL.C}">C</td><td>graded</td></tr>${rows}</table>`;
 }
 
 function showSelection() {
@@ -1492,7 +1533,8 @@ function buildUi() {
       return;
     }
     const h = pick(e), r = $("stage").getBoundingClientRect();
-    const text = h?.id ?? (h?.blob ? `${h.plane}: ${h.blob.key} (${h.blob.members.length} objects, click to expand)` : null);
+    const mx = h?.id && S.tier ? S.tierMix?.get(h.id) : null;
+    const text = h?.id ? h.id + (mx ? "  " + mixText(mx, S.byId.get(h.id).plane === "clb" ? "LUTs" : "cells") : "") : (h?.blob ? `${h.plane}: ${h.blob.key} (${h.blob.members.length} objects, click to expand)` : null);
     tip.style.display = text ? "block" : "none";
     if (text) { tip.textContent = text; tip.style.left = e.clientX - r.left + 12 + "px"; tip.style.top = e.clientY - r.top + 12 + "px"; }
   });

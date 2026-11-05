@@ -124,3 +124,19 @@ test("bus names, colours and declaration lines", () => {
   assert.equal(declLine(["x", "reg [31:0] var0;", "wire a;"], "var0"), 2);
   assert.equal(declLine(["x"], "var0"), 0);
 });
+
+import { mixOf, meanMix, mixRGB, mixText } from "../../wyrd/o3viz/web/select.js";
+
+test("graded ownership: shares of the cells, mean over LUTs, colour mix", () => {
+  const m = mixOf(["A", "B", "B", undefined]);
+  assert.deepEqual(m, { A: 0.25, B: 0.5, C: 0, n: 4 });
+  assert.equal(mixOf([]), null);
+  assert.deepEqual(meanMix([m, null, mixOf(["A", "A"])]), { A: 0.625, B: 0.25, C: 0, n: 2 });
+  const cols = { A: [1, 0.5, 0], B: [0, 0.8, 0.7], C: [0.6, 0.5, 1] }, bg = [0.1, 0.1, 0.1];
+  assert.deepEqual(mixRGB({ A: 0, B: 0, C: 0 }, cols, bg), bg);
+  const pureA = mixRGB({ A: 1, B: 0, C: 0 }, cols, bg);
+  assert.deepEqual(pureA, [1, 0.5, 0]);
+  const half = mixRGB({ A: 0.5, B: 0, C: 0 }, cols, bg);
+  assert.ok(half[0] < pureA[0] && half[0] > bg[0]);
+  assert.equal(mixText(m), "A 25%  B 50%  C 0%  (of 4 cells)");
+});
