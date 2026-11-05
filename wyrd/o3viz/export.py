@@ -663,7 +663,7 @@ def build_planes(
     cplane = cell_plane(cd) if cd else None
     sigl: list[tuple[str, str, str, str]] = []
     bus_note = ""
-    if dumps and cd:
+    if dumps and cd and cplane:
         table, bus_note = cells.lut_buses(dumps, nl)
         sigl = apply_lut_buses(lut, placed, table, top) + cd.sig_links + ff_links(cplane, lut)
         links.extend(cd.links)
