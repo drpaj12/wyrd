@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import random
 import unittest
-from typing import Any
 from pathlib import Path
+from typing import Any
 
 from wyrd.o3viz import blif, circuit, hutton, partition
 
