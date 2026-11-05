@@ -5,18 +5,31 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from wyrd.o3viz import anchors, anchorset, blif, vprfiles
+from wyrd.o3viz import anchors, anchorset, blif, cells, nets, vprfiles
 
 BUNDLE_VERSION = 1
 CONF_RANK = {"exact": 4, "high": 3, "medium": 2, "low": 1, "ambiguous": 0}
 PLANE_STAGES = {"hdl": "hdl", "luts": "lut", "placed": "placed"}
-PLANE_ORDER = ["hdl", "lut", "clb", "placed"]
+PLANE_ORDER = ["hdl", "cell", "lut", "clb", "placed"]
 
 METRICS: list[dict[str, Any]] = [
+    {
+        "name": "is_ff",
+        "unit": "1 = flip-flop",
+        "planes": ["hdl", "cell", "lut", "placed"],
+        "scale": "seq",
+        "measurer": (
+            "wyrd.o3viz.export: a $dff-type cell, a BLIF .latch, or a declared reg that a "
+            "flip-flop drives"
+        ),
+        "source": "odin3 netlist dumps and BLIF",
+    },
     {
         "name": "depth",
         "unit": "levels",
@@ -174,6 +187,16 @@ class Plane:
     name: list[str] = field(default_factory=list)
     src: list[list[list[str]]] = field(default_factory=list)
     metrics: dict[str, list[float | None]] = field(default_factory=dict)
+    bus: list[str | None] = field(default_factory=list)
+    bit: list[int | None] = field(default_factory=list)
+    busk: list[str | None] = field(default_factory=list)
+    parent: list[str | None] = field(default_factory=list)
+
+    def set_bus(self, table: dict[str, cells.Bus]) -> None:
+        """Bus columns from a table keyed by object id."""
+        self.bus = [table[i][0] if i in table else None for i in self.ids]
+        self.bit = [table[i][1] if i in table else None for i in self.ids]
+        self.busk = [table[i][2] if i in table else None for i in self.ids]
 
     def add(
         self,
@@ -490,7 +513,7 @@ def plane_json(p: Plane) -> dict[str, Any]:
         k: [None if v is None else round(v, 6) for v in vals]
         for k, vals in sorted(p.metrics.items())
     }
-    return {
+    out: dict[str, Any] = {
         "stage": p.stage,
         "ids": p.ids,
         "kind": p.kind,
@@ -500,10 +523,81 @@ def plane_json(p: Plane) -> dict[str, Any]:
         "src": p.src,
         "metrics": cols,
     }
+    if any(b is not None for b in p.bus):
+        out.update({"bus": p.bus, "bit": p.bit, "busk": p.busk})
+    if any(b is not None for b in p.parent):
+        out["parent"] = p.parent
+    return out
+
+
+def read_texts(names: set[str], search: list[Path]) -> dict[str, list[str]]:
+    out: dict[str, list[str]] = {}
+    for n in sorted(names):
+        for d in search:
+            if (d / n).is_file():
+                out[n] = (d / n).read_text(encoding="utf-8", errors="replace").split("\n")
+                break
+    return out
+
+
+def try_dumps(flow: Path, top: str, search: list[Path]) -> tuple[nets.Dumps | None, str]:
+    """The extra Odin III run; (None, reason) when it cannot be done (the bundle then has no cell
+    plane and no bus names)."""
+    with tempfile.TemporaryDirectory() as t:
+        try:
+            nets.run_dumps(flow, Path(t), search)
+            return nets.load_dumps(Path(t), top), ""
+        except (nets.NetsError, OSError, KeyError, ValueError, subprocess.SubprocessError) as e:
+            return None, f"{type(e).__name__}: {e}"
+
+
+def pad_metrics(p: Plane) -> None:
+    for vals in p.metrics.values():
+        vals.extend([None] * (len(p.ids) - len(vals)))
+
+
+def add_signals(hdl: Plane, sigs: list[cells.Signal]) -> None:
+    for s in sigs:
+        src = [s.decl] if s.decl else []
+        hdl.add(f"hdl:sig.{s.name}", "signal", s.kind, "hdl", s.name, src)
+    pad_metrics(hdl)
+    hdl.set_metric("is_ff", {f"hdl:sig.{s.name}": 1.0 for s in sigs if s.kind == "reg"})
+    hdl.parent = [None] * len(hdl.ids)
+
+
+def cell_plane(cd: cells.CellData) -> Plane:
+    plane = Plane("cell")
+    for i, t, n, src in zip(cd.ids, cd.types, cd.names, cd.src, strict=True):
+        plane.add(i, "cell", t, "hdl", n, src)
+    plane.set_metric("is_ff", {i: 1.0 for i in cd.ids if i in cd.ff})
+    plane.set_bus(cd.bus)
+    return plane
+
+
+def apply_lut_buses(
+    lut: Plane, placed: Plane, table: dict[str, cells.Bus], top: str
+) -> list[tuple[str, str, str, str]]:
+    """Bus columns on the lut and placed planes; the signal links of the named nets."""
+    lut.set_bus({i: table[lut_local(i)] for i in lut.ids if lut_local(i) in table})
+    placed.set_bus(
+        {i: table[n] for i, n in zip(placed.ids, placed.name, strict=True) if n in table}
+    )
+    ffs = {i: 1.0 for i, t in zip(lut.ids, lut.type, strict=True) if t == "latch"}
+    lut.set_metric("is_ff", ffs)
+    placed.set_metric(
+        "is_ff", {i: 1.0 for i, t in zip(placed.ids, placed.type, strict=True) if t == "latch"}
+    )
+    out = []
+    for i, b, k in zip(lut.ids, lut.bus, lut.busk, strict=True):
+        if b is not None and k == "own":
+            out.append((f"hdl:sig.{b}", i, "name", "exact"))
+    return out
 
 
 def build_planes(
     ff: FlowFiles,
+    flow: Path,
+    search: list[Path],
 ) -> tuple[
     dict[str, Any],
     dict[str, Plane],
@@ -530,6 +624,15 @@ def build_planes(
     hdl, parent = build_hdl(objs.get("hdl", []), below)
     lut = build_lut(lut_objs, nl, timing)
     join_depth_up(hdl, lut, links)
+    texts = read_texts({s[0] for srcs in hdl.src for s in srcs}, search)
+    dumps, note = try_dumps(flow, top, search)
+    cd = (
+        cells.build_cells(dumps, {o["id"]: o for o in objs.get("hdl", [])}, parent, texts, lut.ids)
+        if dumps
+        else None
+    )
+    if cd:
+        add_signals(hdl, cd.signals)
     clb, placed, plinks, bottom, cxy = build_clb_and_placed(
         vprfiles.read_net(ff.net),
         vprfiles.read_place(ff.place),
@@ -539,7 +642,24 @@ def build_planes(
         timing,
         top,
     )
+    cplane = cell_plane(cd) if cd else None
+    sigl: list[tuple[str, str, str, str]] = []
+    bus_note = ""
+    if dumps and cd:
+        table, bus_note = cells.lut_buses(dumps, nl)
+        sigl = apply_lut_buses(lut, placed, table, top) + cd.sig_links
+        links.extend(cd.links)
+    else:
+        lut.set_metric(
+            "is_ff", {i: 1.0 for i, t in zip(lut.ids, lut.type, strict=True) if t == "latch"}
+        )
+        placed.set_metric(
+            "is_ff", {i: 1.0 for i, t in zip(placed.ids, placed.type, strict=True) if t == "latch"}
+        )
+    links.extend(sigl)
     all_ids = set(hdl.ids) | set(lut.ids) | set(clb.ids) | set(placed.ids)
+    if cplane:
+        all_ids |= set(cplane.ids)
     dropped = 0
     for lk in plinks:
         if lk[0] in all_ids and lk[1] in all_ids:
@@ -547,6 +667,8 @@ def build_planes(
         else:
             dropped += 1
     planes = {"hdl": hdl, "lut": lut, "clb": clb, "placed": placed}
+    if cplane:
+        planes["cell"] = cplane
     edges = [
         (f"luts:{top}/{a}", f"luts:{top}/{b}", k)
         for a, b, k in nl.edges()
@@ -556,6 +678,9 @@ def build_planes(
         "index": index,
         "top": top,
         "dropped_links": dropped,
+        "notes": [n for n in (note and f"cell plane off: {note}", bus_note) if n],
+        "signals": cd.signals if cd else [],
+        "selects": cd.selects if cd else 0,
         "grid": vprfiles.read_place(ff.place).grid,
         "paths": path_rows(vprfiles.read_setup_paths(ff.timing), top, lut_ids, set(placed.ids))
         if ff.timing
@@ -610,10 +735,35 @@ def write_json(path: Path, obj: Any) -> None:
     path.write_text(dumps(obj), encoding="utf-8", newline="\n")
 
 
+def bus_table(planes: dict[str, Plane], sigs: list[cells.Signal]) -> list[dict[str, Any]]:
+    """Every bus with its width, declaration line and object counts per plane."""
+    info: dict[str, dict[str, Any]] = {}
+    for s in sigs:
+        info[s.name] = {
+            "name": s.name,
+            "kind": s.kind,
+            "width": s.width,
+            "decl": s.decl,
+            "counts": {},
+        }
+    for pname, p in planes.items():
+        for b, bit in zip(p.bus, p.bit, strict=True):
+            if b is None:
+                continue
+            e = info.setdefault(
+                b, {"name": b, "kind": "net", "width": 0, "decl": None, "counts": {}}
+            )
+            e["counts"][pname] = e["counts"].get(pname, 0) + 1
+            e["width"] = max(e["width"], (bit or 0) + 1)
+    return sorted(info.values(), key=lambda e: e["name"])
+
+
 def export_bundle(flow: Path, out: Path, benchmark: str, src_dirs: list[Path]) -> dict[str, Any]:
     """Write the bundle directory `out` and return its manifest."""
     ff = find_files(flow)
-    meta, planes, links, edges, parent, bottom, fallback = build_planes(ff)
+    meta, planes, links, edges, parent, bottom, fallback = build_planes(
+        ff, flow, [*src_dirs, flow.parent]
+    )
     order = [p for p in PLANE_ORDER if planes[p].ids]
     grid = meta["grid"]
     anchor_sets = anchorset.compute_all(
@@ -663,7 +813,12 @@ def export_bundle(flow: Path, out: Path, benchmark: str, src_dirs: list[Path]) -
         "unanchored": len(anchor_sets["placement"]["unanchored"]),
         "anchors": sorted(anchor_sets),
         "metrics": metrics,
-        "missing_planes": [s for s in ("ir", "gates", "ble", "routed")],
+        "missing_planes": [
+            s for s in ("ir", "gates", "ble", "routed") if s != "ir" or "cell" not in order
+        ],
+        "buses": bus_table(planes, meta["signals"]),
+        "notes": meta["notes"],
+        "select_cells": meta["selects"],
         "grid": list(grid),
     }
     write_json(out / "manifest.json", manifest)
