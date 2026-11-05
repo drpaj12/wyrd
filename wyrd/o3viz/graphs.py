@@ -198,16 +198,29 @@ def order_layers(
     return x
 
 
+ROW_MAX = 40  # a layer wider than this is wrapped into several rows
+
+
 def layout_graph(
     layer: Mapping[str, int], edges: Sequence[tuple[str, str]]
 ) -> dict[str, tuple[float, float]]:
-    """(column, layer) with each layer centred; y grows down the layers."""
+    """(column, row): each layer centred; y grows down the layers. A layer of more than ROW_MAX
+    nodes is wrapped into rows (a quarter of a layer apart), nodes kept in barycentre order."""
     x = order_layers(layer, edges)
-    width: dict[int, int] = defaultdict(int)
+    rows: dict[int, list[str]] = defaultdict(list)
     for n, k in layer.items():
-        width[k] = max(width[k], int(x[n]) + 1)
-    wmax = max(width.values(), default=1)
-    return {n: (x[n] + (wmax - width[layer[n]]) / 2.0, float(layer[n])) for n in layer}
+        rows[k].append(n)
+    wmax = max((min(len(v), ROW_MAX) for v in rows.values()), default=1)
+    out: dict[str, tuple[float, float]] = {}
+    y = 0.0
+    for k in sorted(rows):
+        nodes = sorted(rows[k], key=lambda n: (x[n], n))
+        chunks = [nodes[i : i + ROW_MAX] for i in range(0, len(nodes), ROW_MAX)]
+        for j, chunk in enumerate(chunks):
+            for i, n in enumerate(chunk):
+                out[n] = (i + (wmax - len(chunk)) / 2.0, y + 0.25 * j)
+        y += 1.0 + 0.25 * (len(chunks) - 1)
+    return out
 
 
 def to_unit(
@@ -398,7 +411,12 @@ def link_cfg(g: GraphData, gr: Mapping[str, Any], ix: Index) -> None:
 
 
 def build_ddg(
-    doc: Mapping[str, Any], top: str, ix: Index, scoap: Sequence[Mapping[str, Any]]
+    doc: Mapping[str, Any],
+    top: str,
+    ix: Index,
+    scoap: Sequence[Mapping[str, Any]],
+    mapped: Mapping[str, Any] | None = None,
+    named: Mapping[str, tuple[int, int, int]] | None = None,
 ) -> GraphData:
     g = GraphData("ddg")
     parts: list[dict[str, tuple[float, float]]] = []
@@ -431,7 +449,7 @@ def build_ddg(
     g.metrics["is_ff"] = ff
     g.layout = to_unit(parts)
     degrees(g)
-    join_scoap(g, scoap)
+    join_scoap(g, scoap, mapped_labels(mapped, top), named)
     return g
 
 
@@ -447,16 +465,47 @@ def ends_at_ports(gr: Mapping[str, Any], lay: dict[str, int]) -> dict[str, int]:
     return out
 
 
-def join_scoap(g: GraphData, rows: Sequence[Mapping[str, Any]]) -> None:
+def mapped_labels(mapped: Mapping[str, Any] | None, top: str) -> dict[int, str] | None:
+    """Wire ID -> signal name in the DDG of the mapped netlist (where `scoap` ran), or None."""
+    if mapped is None:
+        return None
+    return {
+        int(n["wire"]): bare(str(n["label"]))
+        for gr in module_graphs(mapped, top)
+        for n in gr["nodes"]
+        if n.get("wire")
+    }
+
+
+def scoap_key(
+    r: Mapping[str, Any], wire_name: Mapping[int, str] | None, by_name: Mapping[str, str]
+) -> str:
+    if wire_name is not None:
+        return by_name.get(wire_name.get(int(r.get("wire") or 0), ""), "")
+    return f"ddg:w{r['wire']}" if r.get("wire") else f"ddg:n{r['id']}"
+
+
+def join_scoap(
+    g: GraphData,
+    rows: Sequence[Mapping[str, Any]],
+    wire_name: Mapping[int, str] | None = None,
+    named: Mapping[str, tuple[int, int, int]] | None = None,
+) -> None:
     """CC0, CC1 and CO per signal node from the `scoap --prov` rows: a signal takes the worst (max)
     value over the nets of its wire (`wire` is the ID of node `w<wire>`); a net outside a wire
-    joins `n<net>` by its ID. Unreachable (>= 10^17) is no value."""
+    joins `n<net>` by its ID. Unreachable (>= 10^17) is no value.
+
+    The scoap pass runs on the mapped netlist, where most word-level wires are gone, so its
+    wire IDs belong to the DDG of that netlist, not to the post-`proc` one in the plane. With
+    `wire_name` (the mapped DDG's wire -> name) a row joins the plane's signal of the same name;
+    without it (fixtures) by wire ID."""
     best: dict[str, list[float | None]] = {}
     have = set(g.ids)
+    by_name = {bare(nm): i for i, nm in zip(g.ids, g.name, strict=True) if i.startswith("ddg:w")}
     for r in rows:
         if "wire" not in r:
             return
-        key = f"ddg:w{r['wire']}" if r.get("wire") else f"ddg:n{r['id']}"
+        key = scoap_key(r, wire_name, by_name)
         if key not in have:
             continue
         cur = best.setdefault(key, [None, None, None])
@@ -465,6 +514,12 @@ def join_scoap(g: GraphData, rows: Sequence[Mapping[str, Any]]) -> None:
             if v is None or v >= INF:
                 continue
             cur[k] = float(v) if cur[k] is None else max(cur[k] or 0.0, float(v))
+    for (
+        nm,
+        i,
+    ) in by_name.items():  # registers: the mapped nets of their bus (no wire ID in the rows)
+        if i not in best and named and nm in named:
+            best[i] = [float(x) for x in named[nm]]
     for k, f in enumerate(("cc0", "cc1", "co")):
         g.metrics[f] = {i: x for i, v in best.items() if (x := v[k]) is not None}
     g.notes.append(f"scoap joined to {len(best)} of {len(g.ids)} ddg signals")
@@ -477,6 +532,7 @@ def build_all(
     hdl_src: Sequence[Any],
     cd: cells.CellData | None,
     scoap: Sequence[Mapping[str, Any]],
+    named: Mapping[str, tuple[int, int, int]] | None = None,
 ) -> dict[str, GraphData]:
     ix = Index(hdl_ids, hdl_src, cd)
     out: dict[str, GraphData] = {}
@@ -485,7 +541,7 @@ def build_all(
     if "cfg" in graphs:
         out["cfg"] = build_cfg(graphs["cfg"], top, ix)
     if "ddg" in graphs:
-        out["ddg"] = build_ddg(graphs["ddg"], top, ix, scoap)
+        out["ddg"] = build_ddg(graphs["ddg"], top, ix, scoap, graphs.get("ddgm"), named)
     return {k: v for k, v in out.items() if v.ids}
 
 

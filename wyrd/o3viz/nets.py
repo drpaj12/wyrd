@@ -88,6 +88,10 @@ def extended_script(
     tail = re.sub(r'"[^"]*\.blif"', f'"{work}/rt.blif"', out[at:])
     flag = " --prov" if scoap == "prov" else ""
     sc = f"scoap{flag} --out {work}/scoap.json; " if scoap != "none" else ""
+    if (
+        sc and "ddg" in graphs
+    ):  # the DDG of the mapped netlist: the one the scoap wire IDs belong to
+        sc = f"write_graph ddg {work}/ddgm.json; " + sc
     return out[:at] + sc + f"write_json --odin3 --name-style provenance {work}/gates.json; " + tail
 
 
@@ -146,7 +150,7 @@ def read_scoap_rows(path: Path, top: str) -> list[dict[str, Any]]:
 
 def read_graphs(work: Path) -> dict[str, dict[str, Any]]:
     out: dict[str, dict[str, Any]] = {}
-    for kind in GRAPH_KINDS:
+    for kind in (*GRAPH_KINDS, "ddgm"):
         p = work / f"{kind}.json"
         if p.is_file():
             out[kind] = json.loads(p.read_text(encoding="utf-8"))

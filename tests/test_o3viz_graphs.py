@@ -260,6 +260,62 @@ class ScoapTests(unittest.TestCase):
         self.assertNotIn("cc0", build(plain)["ddg"].metrics)
 
 
+class MappedScoapTests(unittest.TestCase):
+    def test_rows_join_by_name_through_the_mapped_ddg(self) -> None:
+        mapped = {
+            "modules": [
+                {
+                    "name": "m",
+                    "graphs": [
+                        {
+                            "id": "ddg",
+                            "edges": [],
+                            "nodes": [
+                                {
+                                    "id": "w7",
+                                    "kind": "signal",
+                                    "wire": 7,
+                                    "label": "state",
+                                    "src": [],
+                                },
+                                {"id": "w8", "kind": "signal", "wire": 8, "label": "y", "src": []},
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+        rows = [
+            {"id": 1, "name": "$n1", "cc0": 2, "cc1": 5, "co": 1, "wire": 7},
+            {"id": 2, "name": "$n2", "cc0": 3, "cc1": 4, "co": 9, "wire": 7},
+            {"id": 3, "name": "$n3", "cc0": 1, "cc1": 1, "co": 1, "wire": 0},
+        ]
+        docs = {"ddg": ddg_doc(), "ddgm": mapped}
+        m = graphs.build_all(docs, "m", HDL_IDS, HDL_SRC, None, rows)["ddg"].metrics
+        self.assertEqual(m["cc0"], {"ddg:w2": 3.0})
+        self.assertEqual(m["co"]["ddg:w2"], 9.0)
+
+
+class BusScoapTests(unittest.TestCase):
+    def test_register_takes_the_worst_of_its_bus_when_rows_have_no_wire(self) -> None:
+        docs = {"ddg": ddg_doc(), "ddgm": {"modules": [{"name": "m", "graphs": []}]}}
+        rows = [{"id": 1, "name": "$n1", "cc0": 1, "cc1": 1, "co": 1, "wire": 0}]
+        named = {"state": (4, 6, 2)}
+        m = graphs.build_all(docs, "m", HDL_IDS, HDL_SRC, None, rows, named)["ddg"].metrics
+        self.assertEqual(m["cc1"]["ddg:w2"], 6.0)
+
+    def test_bus_scoap_is_worst_over_bits_and_skips_unreachable(self) -> None:
+        from wyrd.o3viz import export
+
+        sc = {"a": (1, 5, 2), "b": (4, 2, 0), "c": (10**18, 1, 1), "d": (1, 1, 1)}
+        tab: dict[str, cells.Bus] = {
+            "a": ("r", 0, "own"),
+            "b": ("r", 1, "own"),
+            "c": ("r", 2, "own"),
+        }
+        self.assertEqual(export.bus_scoap(sc, tab), {"r": (4, 5, 2)})
+
+
 class LayoutTests(unittest.TestCase):
     def test_layout_is_in_the_unit_square_and_layered(self) -> None:
         gd = build()
@@ -335,27 +391,62 @@ class ReaderTests(unittest.TestCase):
 
 
 class PortNetTests(unittest.TestCase):
-    def test_port_named_net_joins_by_name_when_it_recomputes(self) -> None:
+    def dumps(self, rows: list[dict[str, Any]]) -> nets.Dumps:
+        d = nets.Dumps("m", {}, {}, {}, None, {}, {}, {})
+        d.scoap_nets = rows
+        d.graphs = {
+            "ddgm": {
+                "modules": [
+                    {
+                        "name": "m",
+                        "graphs": [
+                            {
+                                "nodes": [
+                                    {"id": "w4", "wire": 4, "label": "y", "width": 1},
+                                    {"id": "w5", "wire": 5, "label": "p", "width": 2},
+                                ]
+                            }
+                        ],
+                    }
+                ]
+            }
+        }
+        return d
+
+    def netlist(self) -> Any:
         from wyrd.o3viz import blif
 
         nl = blif.Netlist()
-        nl.primary_inputs = {"a", "b"}
+        nl.primary_inputs = {"a", "b", "p[0]", "p[1]"}
+        nl.drivers = {"y": "names"}
         nl.inputs = {"y": ["a", "b"]}
         nl.covers = {"y": [("11", "1")]}  # y = a & b
+        return nl
+
+    def test_port_net_joins_through_its_wire_when_it_recomputes(self) -> None:
+        rows = [{"id": 8, "name": "$n8", "wire": 4, "cc0": 2, "cc1": 3, "co": 0}]
         table = {"a": (1, 1, 5), "b": (1, 1, 5)}
-        good = nets.Dumps("m", {}, {}, {}, None, {}, {}, {})
-        good.scoap_nets = [{"name": "y", "wire": 4, "cc0": 2, "cc1": 3, "co": 0}]
-        self.assertEqual(cells.join_by_name(good, nl, table), 1)
+        self.assertEqual(cells.join_by_name(self.dumps(rows), self.netlist(), table), 1)
         self.assertEqual(table["y"], (2, 3, 0))
-        bad = nets.Dumps("m", {}, {}, {}, None, {}, {}, {})
-        bad.scoap_nets = [{"name": "y", "wire": 4, "cc0": 9, "cc1": 9, "co": 0}]
-        t2 = {"a": (1, 1, 5), "b": (1, 1, 5)}
-        self.assertEqual(cells.join_by_name(bad, nl, t2), 0)
-        self.assertNotIn("y", t2)
 
-    def test_no_prov_rows_no_name_join(self) -> None:
-        from wyrd.o3viz import blif
+    def test_wrong_values_are_dropped(self) -> None:
+        rows = [{"id": 8, "name": "$n8", "wire": 4, "cc0": 9, "cc1": 9, "co": 0}]
+        table = {"a": (1, 1, 5), "b": (1, 1, 5)}
+        self.assertEqual(cells.join_by_name(self.dumps(rows), self.netlist(), table), 0)
+        self.assertNotIn("y", table)
 
+    def test_bus_input_takes_rows_in_net_order(self) -> None:
+        rows = [
+            {"id": 21, "name": "$n21", "wire": 5, "cc0": 1, "cc1": 1, "co": 7},
+            {"id": 20, "name": "$n20", "wire": 5, "cc0": 1, "cc1": 1, "co": 6},
+        ]
+        table: dict[str, tuple[int, int, int]] = {}
+        self.assertEqual(cells.join_by_name(self.dumps(rows), self.netlist(), table), 2)
+        self.assertEqual((table["p[0]"][2], table["p[1]"][2]), (6, 7))
+
+    def test_width_mismatch_and_no_graph_join_nothing(self) -> None:
+        one = [{"id": 20, "name": "$n20", "wire": 5, "cc0": 1, "cc1": 1, "co": 6}]
+        self.assertEqual(cells.join_by_name(self.dumps(one), self.netlist(), {}), 0)
         d = nets.Dumps("m", {}, {}, {}, None, {}, {}, {})
-        d.scoap_nets = [{"name": "y", "cc0": 1, "cc1": 1, "co": 1}]
-        self.assertEqual(cells.join_by_name(d, blif.Netlist(), {}), 0)
+        d.scoap_nets = one
+        self.assertEqual(cells.join_by_name(d, self.netlist(), {}), 0)

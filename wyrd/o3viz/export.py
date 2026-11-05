@@ -697,13 +697,14 @@ def add_graph_planes(
     cd: cells.CellData | None,
     planes: dict[str, Plane],
     links: list[tuple[str, str, str, str]],
+    named: dict[str, tuple[int, int, int]] | None = None,
 ) -> tuple[dict[str, graphs.GraphData], list[str]]:
     """Graph planes (stg, cfg, ddg) from `write_graph`, their links, and notes."""
     if not dumps or not dumps.graphs:
         return {}, [
             "graph planes off: this Odin III build gave no write_graph output"
         ] if dumps else []
-    gd = graphs.build_all(dumps.graphs, top, hdl.ids, hdl.src, cd, dumps.scoap_nets)
+    gd = graphs.build_all(dumps.graphs, top, hdl.ids, hdl.src, cd, dumps.scoap_nets, named)
     notes = [n for g in gd.values() for n in g.notes]
     for kind in nets.GRAPH_KINDS:
         if kind not in gd:
@@ -747,6 +748,21 @@ def apply_lut_buses(
     for i, b, k in zip(lut.ids, lut.bus, lut.busk, strict=True):
         if b is not None and k == "own":
             out.append((f"hdl:sig.{b}", i, "name", "exact"))
+    return out
+
+
+def bus_scoap(
+    sc: dict[str, tuple[int, int, int]], table: dict[str, cells.Bus]
+) -> dict[str, tuple[int, int, int]]:
+    """SCOAP of a named signal: the worst (largest) CC0, CC1 and CO over the nets of its bus. Used
+    for the registers, whose nets carry no wire ID in the scoap file of the mapped netlist."""
+    out: dict[str, tuple[int, int, int]] = {}
+    for net, v in sc.items():
+        b = table.get(net)
+        if b is None or max(v) >= graphs.INF:
+            continue
+        cur = out.get(b[0])
+        out[b[0]] = v if cur is None else (max(cur[0], v[0]), max(cur[1], v[1]), max(cur[2], v[2]))
     return out
 
 
@@ -850,9 +866,9 @@ def build_planes(
         top,
     )
     cplane = cell_plane(cd) if cd else None
-    gdata, gnotes = add_graph_planes(dumps, top, hdl, cd, gplanes, links)
     sigl: list[tuple[str, str, str, str]] = []
     bus_note = ""
+    table: dict[str, cells.Bus] = {}
     if dumps and cd and cplane:
         table, bus_note = cells.lut_buses(dumps, nl)
         sigl = apply_lut_buses(lut, placed, table, top) + cd.sig_links + ff_links(cplane, lut)
@@ -868,6 +884,10 @@ def build_planes(
     if dumps:
         sc, scoap_note = cells.lut_scoap(dumps, nl)
         add_scoap(lut, placed, sc)
+        named = bus_scoap(sc, table)
+    else:
+        named = {}
+    gdata, gnotes = add_graph_planes(dumps, top, hdl, cd, gplanes, links, named)
     ff_attach(lut, placed, nl, top)
     for plane, pnets in ((lut, [lut_local(i) for i in lut.ids]), (placed, placed.name)):
         plane.metrics.update(circuitviz.node_columns(nl, pnets))
