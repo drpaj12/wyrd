@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from typing import Any
 
 from wyrd.o3viz import cells, graphs, nets
 
@@ -184,7 +185,7 @@ SCOAP = [
 ]
 
 
-def build(scoap: list[dict[str, int | str]] | None = None) -> dict[str, graphs.GraphData]:
+def build(scoap: list[dict[str, Any]] | None = None) -> dict[str, graphs.GraphData]:
     docs = {"cfg": cfg_doc(), "stg": stg_doc(), "ddg": ddg_doc()}
     return graphs.build_all(docs, "m", HDL_IDS, HDL_SRC, cell_data(), scoap or [])
 
