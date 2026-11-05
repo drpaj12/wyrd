@@ -1695,6 +1695,7 @@ function buildUi() {
   applyPanels();
   document.addEventListener("keydown", (e) => {
     if (/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName) || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === "?") { window.open("help.html", "_blank", "noopener"); return; }
     const pk = pl.panelForKey(e.key);
     if (pk) { togglePanel(pk); return; }
     if (e.key === "0") focusPlane(null);
