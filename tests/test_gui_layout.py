@@ -391,6 +391,7 @@ class LayoutTest(unittest.TestCase):
         w = self.make()
         lay = w.viewlayout
         assert lay is not None
+
         def ticked() -> list[str]:
             return [n for n, a in lay._preset_actions.items() if a.isChecked()]
 

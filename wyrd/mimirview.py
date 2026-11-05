@@ -227,9 +227,7 @@ class TimingRunInfo:
     missing: tuple[str, ...] = ()  # optional timing_run columns this store lacks
 
 
-NO_PATH_DATA = (
-    "this store has no per-path data; run mimir import-timing --paths-from-blobs"
-)
+NO_PATH_DATA = "this store has no per-path data; run mimir import-timing --paths-from-blobs"
 NO_RUN_PATHS = (
     "this run has no per-path rows; run mimir import-timing --paths-from-blobs on the store"
 )
@@ -272,9 +270,7 @@ class PathNodeRow:
         return (name, int(tail)) if sep and name and tail.isdigit() else None
 
 
-NO_GRAPH = (
-    "this store has no HDL graph; run mimir hdl-graph on the store (schema version 7)"
-)
+NO_GRAPH = "this store has no HDL graph; run mimir hdl-graph on the store (schema version 7)"
 NO_RUN_GRAPH = "this run has no HDL graph; run mimir hdl-graph on the store"
 GraphNode = tuple[str, str, str, int]
 """(span file:line, module, word, bit); bit is -1 when unknown."""

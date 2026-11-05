@@ -314,6 +314,7 @@ class ViewLayout(QObject):
         height = min(dock.height(), max(area.height() - SCREEN_MARGIN - extra_h, 1))
         dock.resize(width, height)
         dock.move(area.left() + SCREEN_MARGIN // 2, area.top() + SCREEN_MARGIN // 2)
+
     # ---- title and tab double-click ----
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:

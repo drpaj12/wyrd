@@ -88,4 +88,3 @@ def find_source(
     first = candidates[0]
     problems = "; ".join(_missing_text(n, extra_env) for n in dict.fromkeys(candidates[:3]))
     return SourceChoice(None, expand(first, extra_env), f"source not found: {problems}", first)
-
