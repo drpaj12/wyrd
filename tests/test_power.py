@@ -165,6 +165,14 @@ INST_BEGIN
         self.assertEqual(set(p.instances), {"o3__c14", "clkbuf_1"})
         self.assertAlmostEqual(p.clock_w, 1.1e-7 + 1e-12, places=12)
 
+    def test_driver_pins_use_the_raw_command(self) -> None:
+        # `set_power_activity -pins` skips output pins silently (OpenSTA keeps input pins only),
+        # which left every net but the input ports at the default activity (bug found 2026-11-06).
+        tcl = sta.sta_script(Path("l.lib"), Path("d.odb"), "clk", 20.0, Path("t.txt"))
+        self.assertIn("sta::set_power_pin_activity $drv $act $duty", tcl)
+        self.assertNotIn("set_power_activity -pins", tcl)
+        self.assertIn("set_power_activity -input_ports", tcl)
+
     def test_table_skips_clock_like_nets(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             t = Path(d) / "t.txt"
