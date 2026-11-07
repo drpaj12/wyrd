@@ -48,7 +48,11 @@ def write_activity_table(path: Path, acts: Mapping[str, NetAct], skip: set[str])
 
 
 def sta_script(lib: Path, odb: Path, clock_port: str, period_ns: float, table: Path) -> str:
-    """The Tcl that sets per-net activity from ``table`` and reports power."""
+    """The Tcl that sets per-net activity from ``table`` and reports power.
+
+    ``set_power_activity -pins`` only acts on input pins (OpenSTA skips output pins without a
+    message), so a net's driver pin is set with ``sta::set_power_pin_activity`` (activity in
+    transitions per clock cycle, duty as the probability of 1)."""
     return f"""read_liberty {lib}
 read_db {odb}
 create_clock -name clk -period {period_ns} [get_ports {clock_port}]
@@ -64,7 +68,7 @@ while {{[gets $f line] >= 0}} {{
   if {{$n eq ""}} continue
   set drv [get_pins -quiet -of_objects $n -filter "direction == output"]
   if {{$drv ne ""}} {{
-    set_power_activity -pins $drv -activity $act -duty $duty
+    sta::set_power_pin_activity $drv $act $duty
     incr nset
   }} elseif {{[get_ports -quiet $nm] ne ""}} {{
     set_power_activity -input_ports [get_ports $nm] -activity $act -duty $duty
