@@ -29,7 +29,7 @@ class AsicPower:
 
     @property
     def dynamic_w(self) -> float:
-        return self.internal_w + self.switching_w
+        return self.total_w - self.leakage_w
 
     @property
     def matched_fraction(self) -> float:

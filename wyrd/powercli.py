@@ -26,6 +26,8 @@ def add_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None
     run.add_argument(
         "--silicon", metavar="DIR", help="silicon flow output (or/final.odb, or/final.v)"
     )
+    run.add_argument("--incdir", nargs="*", default=[], metavar="DIR", help="`include directories")
+    run.add_argument("--define", nargs="*", default=[], metavar="NAME[=V]")
     run.add_argument("--period-ns", type=float, default=10.0)
     run.add_argument("--out", required=True, metavar="DIR")
 
@@ -48,6 +50,8 @@ def main(args: argparse.Namespace) -> int:
         tb_data=[Path(f).resolve() for f in args.tb_data],
         silicon=Path(args.silicon).resolve() if args.silicon else None,
         asic_period_ns=args.period_ns,
+        incdirs=[Path(d).resolve() for d in args.incdir],
+        defines=list(args.define),
     )
     try:
         result = run_power(discover(), job)

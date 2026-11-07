@@ -116,11 +116,29 @@ Mimir measure columns (proposed only, a mimirIII PR after the controller reviews
 `pw_asic_dyn_w`, `pw_asic_static_w`, `pw_asic_clock_w` (watts), `pw_act_matched` (fraction),
 `pw_act_source` (text), `pw_tb_cycles` (count).
 
+## 5a. Decisions made while building (2026-11-06)
+
+- The VCD is read through a named pipe while `vvp` runs, so a long testbench (wb_lcd: 26 ms) never writes a
+  large file. Only the DUT instance and the testbench clock are dumped.
+- Latch start state: a netlist has lost the RTL `initial` values. The gate-level run starts the latches at
+  x, then 0, then 1; the first run whose testbench prints PASS is used and `start_state` says which.
+- Frequency: VPR evaluates power at 1/(critical path) of the placed design; the ASIC run uses the clock
+  period given (`--period-ns`, the testbench clock). Totals are therefore at different frequencies. The
+  report adds `freq_mhz` and `energy_per_cycle_pj` (total power x period) per target as the comparable
+  number. Activity is per cycle, so it does not depend on the frequency.
+- VPR needs the clock net in the `.act` file; it is written with probability 0.5 and activity 2.
+- ASIC clock power is the power of the clock-tree cells (`clkbuf_*`, `clkload*`); the clock-pin power
+  inside the flip-flops is in their own (internal) power, so `clock_w` is a lower bound.
+- The silicon flow works on a single-file `design.v`; its HDL lines (ASIC by_line) are lines of that file,
+  the FPGA by_line uses the original files.
+- Odin III replay is optional (a failure is recorded as `odin_replay_error`); it is the weaker source
+  because only ports keep their HDL names in the BLIF (matched fraction about 28% on mmuart).
+
 ## 6. Code (stdlib only, in `wyrd/bifrost/power/`)
 
-`vcdact.py` (streaming VCD reader -> per-bit P1 and A), `blifnet.py` (BLIF reader, Verilog netlist writer,
+`vcdact.py` (streaming VCD reader -> per-bit P1 and A, edge sampler), `sim.py` (iverilog runs), `tools.py`, `flow.py`, `blifnet.py` (BLIF reader, Verilog netlist writer,
 `.names` provenance reader), `actfile.py` (write `.act`, read `.power`), `sta.py` (OpenROAD script and
-report parser), `crosscheck.py`, `run.py` (the steps), CLI `wyrd power run|report`. Odin III is used as a
+report parser), `crosscheck.py`, CLI `wyrd power run` (`wyrd/powercli.py`). Odin III is used as a
 program (`odin3` binary), per wyrd/CLAUDE.md. Unit tests use small fixtures and fakes; the pilot is run by
 hand and its reports kept in `docs/power/`.
 

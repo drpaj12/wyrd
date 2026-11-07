@@ -6,6 +6,7 @@ import csv
 import json
 import os
 import re
+import shutil
 import subprocess
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
@@ -82,12 +83,23 @@ def synthesize(tools: PowerTools, job: Job) -> tuple[Path, Path]:
 
 
 def gate_activity_fpga(job: Job, blif: blifnet.Blif, work: Path) -> sim.SimResult:
-    """The design's own testbench against the BLIF as Verilog: activity of every BLIF net."""
-    work.mkdir(parents=True, exist_ok=True)
-    nl = work / "netlist.v"
+    """The design's own testbench against the BLIF as Verilog: activity of every BLIF net.
+
+    The latches start at x, then 0, then 1 (first pass wins): a netlist has lost the RTL
+    ``initial`` values, so x can stay unresolved (X pessimism, as in the silicon gate_sim)."""
     inner = f"{job.top}_nl"
-    nl.write_text(blifnet.verilog_netlist(blif, inner) + blifnet.wrapper(blif, inner, job.top))
-    return sim.activity_run(job.tbrun([nl, *job.tb], job.prefix() + "u_nl."), work)
+    last = sim.SimResult(False, "")
+    for mode in ("x", "0", "1"):
+        w = work / f"state_{mode}"
+        w.mkdir(parents=True, exist_ok=True)
+        nl = w / "netlist.v"
+        text = blifnet.verilog_netlist(blif, inner, None if mode == "x" else mode)
+        nl.write_text(text + blifnet.wrapper(blif, inner, job.top))
+        last = sim.activity_run(job.tbrun([nl, *job.tb], job.prefix() + "u_nl."), w)
+        last.start_state = mode
+        if last.passed:
+            return last
+    return last
 
 
 def rtl_activity(job: Job, work: Path) -> sim.SimResult:
@@ -102,6 +114,8 @@ def odin_replay_activity(tools: PowerTools, job: Job, work: Path) -> tuple[dict[
     """Odin III replay: the DUT port waveform of ``sim_tb --vcd``, sampled per clock edge and
     replayed with ``sim --vectors-in --vcd``. Top scope removed from names. One clock only."""
     work.mkdir(parents=True, exist_ok=True)
+    for d in job.tb_data:
+        shutil.copy(d, work / d.name)
     tbs = " ".join(f'"{t}"' for t in job.tb)
     base = f"{_read(job)}; proc; opt; lower"
     tbv, hdr = work / "tb.vcd", work / "hdr.vec"

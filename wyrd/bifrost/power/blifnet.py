@@ -123,8 +123,10 @@ def _subckt_lines(model: str, pins: dict[str, str]) -> list[str]:
     return [f"assign {{{_esc(pins['cout'])}, {_esc(pins['sumout'])}}} = {s};"]
 
 
-def verilog_netlist(blif: Blif, module: str) -> str:
-    """The BLIF as a Verilog module ``module`` with the BLIF net names as escaped identifiers."""
+def verilog_netlist(blif: Blif, module: str, init: str | None = None) -> str:
+    """The BLIF as a Verilog module ``module`` with the BLIF net names as escaped identifiers.
+
+    ``init`` (``"0"`` or ``"1"``) gives every latch that start value instead of x."""
     regs = {lt.q for lt in blif.latches}
     ports = ",\n  ".join(
         [f"input {_esc(n)}" for n in blif.inputs]
@@ -141,6 +143,8 @@ def verilog_netlist(blif: Blif, module: str) -> str:
     for lt in blif.latches:
         edge = "negedge" if lt.kind == "fe" else "posedge"
         lines.append(f"always @({edge} {_esc(lt.clock)}) {_esc(lt.q)} <= {_esc(lt.d)};")
+    if init is not None:
+        lines += [f"initial {_esc(lt.q)} = 1'b{init};" for lt in blif.latches]
     for model, pins in blif.subckts:
         lines += _subckt_lines(model, pins)
     lines.append("endmodule")
