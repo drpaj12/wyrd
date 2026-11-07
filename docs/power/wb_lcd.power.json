@@ -37,14 +37,14 @@
    "pdk": "sky130_fd_sc_hd tt_025C_1v80",
    "parasitics": "placement",
    "start_state": "0",
-   "total_w": 0.00212,
-   "dynamic_w": 0.0021199884,
+   "total_w": 0.00179,
+   "dynamic_w": 0.0017899883999999999,
    "static_w": 1.16e-08,
    "clock_w": 0.0005128285198,
    "freq_mhz": 50.0,
-   "energy_per_cycle_pj": 42.4,
-   "switching_w": 0.000428,
-   "internal_w": 0.0017,
+   "energy_per_cycle_pj": 35.8,
+   "switching_w": 0.000259,
+   "internal_w": 0.00153,
    "activity_set": 3102,
    "nets": 3214,
    "matched_fraction": 0.9651524579962664
@@ -176,112 +176,112 @@
   {
    "file": "design.v",
    "line": 187,
-   "asic_dyn_w": 0.0013240165227690081,
-   "asic_static_w": 9.313282999999968e-09,
+   "asic_dyn_w": 0.0010677625217655937,
+   "asic_static_w": 9.313282999999925e-09,
    "cells": 2538
   },
   {
    "file": "<physical>",
    "line": 0,
-   "asic_dyn_w": 0.000531759,
-   "asic_static_w": 5.915999999999997e-10,
+   "asic_dyn_w": 0.000512832158900011,
+   "asic_static_w": 5.916e-10,
    "cells": 11620
   },
   {
    "file": "design.v",
    "line": 250,
-   "asic_dyn_w": 0.00015368880000000003,
-   "asic_static_w": 5.260000000000008e-10,
+   "asic_dyn_w": 0.00012236204784099998,
+   "asic_static_w": 5.26000000000001e-10,
    "cells": 62
   },
   {
    "file": "design.v",
    "line": 62,
-   "asic_dyn_w": 4.3284699999999996e-05,
+   "asic_dyn_w": 4.313469999999999e-05,
    "asic_static_w": 1.688e-10,
    "cells": 20
   },
   {
    "file": "design.v",
    "line": 466,
-   "asic_dyn_w": 3.46961e-05,
+   "asic_dyn_w": 2.98531557e-05,
    "asic_static_w": 1.266e-10,
    "cells": 15
   },
   {
    "file": "design.v",
-   "line": 427,
-   "asic_dyn_w": 1.2422743627406408e-05,
-   "asic_static_w": 4.088390000000001e-10,
-   "cells": 188
-  },
-  {
-   "file": "design.v",
    "line": 66,
-   "asic_dyn_w": 7.236390000373399e-06,
-   "asic_static_w": 1.9667399999999986e-10,
+   "asic_dyn_w": 2.571052845000001e-06,
+   "asic_static_w": 1.9667399999999983e-10,
    "cells": 64
   },
   {
    "file": "design.v",
-   "line": 395,
-   "asic_dyn_w": 4.439254738243e-06,
-   "asic_static_w": 1.0717000000000003e-10,
-   "cells": 55
-  },
-  {
-   "file": "design.v",
-   "line": 214,
-   "asic_dyn_w": 4.124460000017431e-06,
-   "asic_static_w": 7.512099999999999e-11,
-   "cells": 36
-  },
-  {
-   "file": "design.v",
    "line": 662,
-   "asic_dyn_w": 2.1118e-06,
+   "asic_dyn_w": 2.1018e-06,
    "asic_static_w": 8.44e-12,
    "cells": 1
   },
   {
    "file": "design.v",
-   "line": 472,
-   "asic_dyn_w": 2.057657e-06,
-   "asic_static_w": 4.1675999999999996e-11,
-   "cells": 21
-  },
-  {
-   "file": "design.v",
    "line": 650,
-   "asic_dyn_w": 1.990000000818e-06,
+   "asic_dyn_w": 1.9900411e-06,
    "asic_static_w": 8.44e-12,
    "cells": 1
   },
   {
    "file": "design.v",
    "line": 667,
-   "asic_dyn_w": 1.99e-06,
+   "asic_dyn_w": 1.99000125e-06,
    "asic_static_w": 8.44e-12,
    "cells": 1
   },
   {
    "file": "design.v",
+   "line": 395,
+   "asic_dyn_w": 1.144610143e-06,
+   "asic_static_w": 1.0717e-10,
+   "cells": 55
+  },
+  {
+   "file": "design.v",
+   "line": 427,
+   "asic_dyn_w": 2.4528475917000005e-08,
+   "asic_static_w": 4.088389999999998e-10,
+   "cells": 188
+  },
+  {
+   "file": "design.v",
+   "line": 214,
+   "asic_dyn_w": 9.495407999999996e-09,
+   "asic_static_w": 7.512100000000002e-11,
+   "cells": 36
+  },
+  {
+   "file": "design.v",
+   "line": 472,
+   "asic_dyn_w": 1.624922e-09,
+   "asic_static_w": 4.167599999999999e-11,
+   "cells": 21
+  },
+  {
+   "file": "design.v",
    "line": 69,
-   "asic_dyn_w": 3.313e-07,
+   "asic_dyn_w": 4.648799999999999e-11,
    "asic_static_w": 1.594e-11,
    "cells": 5
   },
   {
    "file": "design.v",
    "line": 260,
-   "asic_dyn_w": 3.0296986048974994e-07,
+   "asic_dyn_w": 5.980000000000001e-13,
    "asic_static_w": 2.7545e-11,
    "cells": 10
   },
   {
    "file": "design.v",
    "line": 536,
-   "asic_dyn_w": 5.8330000004632e-08,
+   "asic_dyn_w": 2.35e-13,
    "asic_static_w": 7.4e-12,
    "cells": 3
   }
