@@ -25,14 +25,50 @@ on ASIC 96.5 to 98.5 percent of the nets carry a measured activity (the rest are
 
 | design | ASIC total | dyn | static (leakage) | clock-tree cells | ASIC MHz | ASIC pJ/cycle | ASIC nets with activity | latch start |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| mmuart | 0.567 | 0.567 | 1.8e-6 | 0.112 | 100 | 5.7 | 0.985 | 0 |
-| verilog_cordic_core | 6.52 | 6.52 | 2.3e-5 | 1.174 | 100 | 65.2 | 0.982 | x |
-| wb_lcd | 2.12 | 2.12 | 1.2e-5 | 0.513 | 50 | 42.4 | 0.965 | 0 |
+| mmuart | 0.514 | 0.514 | 1.8e-6 | 0.112 | 100 | 5.1 | 0.985 | 0 |
+| verilog_cordic_core | 7.25 | 7.25 | 2.3e-5 | 1.174 | 100 | 72.5 | 0.982 | x |
+| wb_lcd | 1.79 | 1.79 | 1.2e-5 | 0.513 | 50 | 35.8 | 0.965 | 0 |
 
 FPGA latch start: x for mmuart and cordic, 0 for wb_lcd. Testbench vs vectorless FPGA total: 0.84x, 1.80x,
 0.67x of the vectorless total (mmuart, cordic, wb_lcd): the vectorless estimate is higher for the two
 mostly-idle designs and lower for cordic, whose short 220-cycle testbench is busy.
 cordic's 220 cycles is a short run; its activity is that of a short directed test.
+
+## Correction (2026-11-07): ASIC activity was not applied, and why wb_lcd ASIC is 5x the FPGA
+
+The first version of this table was wrong. The OpenROAD script used `set_power_activity -pins <driver>`;
+OpenSTA's Tcl wrapper only acts on input pins and skips output pins without a message, so only the input
+ports kept their measured activity and every other net took OpenSTA's propagated default. Evidence:
+per-pin activity of 0, 0.1, 1 and 2 on the same flop output gave identical power; the raw
+`sta::set_power_pin_activity` does act. Fixed in `sta.sta_script` (unit test
+`test_driver_pins_use_the_raw_command`). Hand check with the fix, mmuart, 100 MHz, 1.8 V, net capacitance
+from `report_net` (upper bound of the range OpenSTA uses), P = 0.5 C V^2 activity f:
+
+| net | activity/cycle | C (fF) | hand (W) | OpenSTA switching (W) |
+| --- | --- | --- | --- | --- |
+| enable16_counter[0] | 0.973 | 10.745 | 1.694e-6 | 1.694e-6 |
+| enable16_counter[3] | 0.0962 | 9.890 | 1.541e-7 | 1.542e-7 |
+| csr_do[0] | 1.38e-4 | 1.055 | 2.36e-11 | 2.36e-11 |
+
+Corrected energy per cycle (pJ), ASIC before to after: mmuart 5.67 to 5.14, cordic 65.2 to 72.5
+(ASIC run only; its by_line_asic is dropped until the next full run), wb_lcd 42.4 to 35.8. The FPGA
+numbers are unchanged (VPR reads the whole .act file). Activity is per testbench clock cycle for both
+targets: the testbench clock is the DUT clock in all three (wb_lcd has one clock, wb_clk_i; tb period 20
+ns = the 50 MHz given to OpenROAD; mmuart and cordic 10 ns = 100 MHz), VPR evaluates at 1/critical path
+with the same per-cycle activity, and pJ/cycle = power x its own period in both targets, so there is no
+normalisation error. Unmatched ASIC nets are 3.5% for wb_lcd and carry the default.
+
+Why wb_lcd ASIC is still 5x its FPGA figure (35.8 vs 7.36 pJ) while mmuart is near parity: the design is
+idle in its testbench, so the ASIC figure is the clock-pin floor of its 625 flip-flops. Sequential cells
+are 71% of the ASIC power (1.27 mW internal, 1.1 uW switching), 41 fJ per flop per cycle; a flop with
+activity 0.096 in mmuart takes 4.2 uW at 100 MHz against 6.0 uW at activity 0.97, so ~4.1 uW (41 fJ per
+cycle) is paid whatever the data does. Clock-tree cells add 0.513 mW (10.3 pJ). VPR's whole dynamic budget
+for wb_lcd is 3.8 pJ per cycle for 636 flip-flops (6 fJ each) at 0.9 V in a 45 nm model. mmuart's FPGA
+figure is higher per flop because its testbench is busy (a counter bit toggles every cycle) and because
+its static share is large for such a small design. So the pattern is technology and idleness (sky130 1.8 V
+liberty charges the clock pin of every flop every cycle; VPR's PTM 45 nm model at 0.9 V does not), not a
+bug. Compare trends, not absolute pJ across targets. A later Odin III (rel-main5, `sim_tb --vcd-all` with
+BLIF names) could replace the iverilog gate-level path as FPGA activity source; not done here.
 
 ## Activity cross-check (Odin III replay vs iverilog RTL, same testbench)
 

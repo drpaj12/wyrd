@@ -37,14 +37,14 @@
    "pdk": "sky130_fd_sc_hd tt_025C_1v80",
    "parasitics": "placement",
    "start_state": "x",
-   "total_w": 0.00652,
-   "dynamic_w": 0.006519977,
+   "total_w": 0.00725,
+   "dynamic_w": 0.007249977,
    "static_w": 2.3e-08,
    "clock_w": 0.0011742605842000001,
    "freq_mhz": 100.0,
-   "energy_per_cycle_pj": 65.19999999999999,
-   "switching_w": 0.00188,
-   "internal_w": 0.00465,
+   "energy_per_cycle_pj": 72.5,
+   "switching_w": 0.0023,
+   "internal_w": 0.00495,
    "activity_set": 7588,
    "nets": 7730,
    "matched_fraction": 0.9816300129366106
@@ -104,43 +104,6 @@
    "line": 245,
    "fpga_dyn_w": 1.554881720795148e-06,
    "nets": 56
-  }
- ],
- "by_line_asic": [
-  {
-   "file": "design.v",
-   "line": 221,
-   "asic_dyn_w": 0.003501655788000002,
-   "asic_static_w": 6.341219999999889e-09,
-   "cells": 750
-  },
-  {
-   "file": "design.v",
-   "line": 236,
-   "asic_dyn_w": 0.0018381673841621662,
-   "asic_static_w": 1.5339002999999802e-08,
-   "cells": 6503
-  },
-  {
-   "file": "<physical>",
-   "line": 0,
-   "asic_dyn_w": 0.001174260000000003,
-   "asic_static_w": 5.841999999999996e-10,
-   "cells": 22213
-  },
-  {
-   "file": "design.v",
-   "line": 178,
-   "asic_dyn_w": 7.99700001531058e-06,
-   "asic_static_w": 7.250340000000034e-10,
-   "cells": 281
-  },
-  {
-   "file": "design.v",
-   "line": 171,
-   "asic_dyn_w": 0.0,
-   "asic_static_w": 6.48e-12,
-   "cells": 2
   }
  ]
 }
