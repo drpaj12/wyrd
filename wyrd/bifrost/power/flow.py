@@ -35,8 +35,24 @@ class Job:
     asic_period_ns: float = 10.0
     pass_text: str = "PASS"
 
+    tb_data: list[Path] = field(default_factory=list)  # files the testbench reads ($readmemh)
+
     def prefix(self) -> str:
         return f"{self.tb_top}.{self.dut_inst}."
+
+    def tbrun(self, sources: list[Path], strip: str, extra: list[str] | None = None) -> sim.TbRun:
+        return sim.TbRun(
+            sources,
+            self.tb_top,
+            self.dut_inst,
+            self.tb_clock,
+            strip,
+            self.tb_data,
+            self.defines,
+            self.incdirs,
+            self.pass_text,
+            extra or [],
+        )
 
 
 def _odin(tools: PowerTools, job: Job, script: str, cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -71,30 +87,12 @@ def gate_activity_fpga(job: Job, blif: blifnet.Blif, work: Path) -> sim.SimResul
     nl = work / "netlist.v"
     inner = f"{job.top}_nl"
     nl.write_text(blifnet.verilog_netlist(blif, inner) + blifnet.wrapper(blif, inner, job.top))
-    return sim.activity_run(
-        [nl, *job.tb],
-        job.tb_top,
-        job.tb_clock,
-        job.prefix() + "u_nl.",
-        work,
-        defines=job.defines,
-        incdirs=job.incdirs,
-        pass_text=job.pass_text,
-    )
+    return sim.activity_run(job.tbrun([nl, *job.tb], job.prefix() + "u_nl."), work)
 
 
 def rtl_activity(job: Job, work: Path) -> sim.SimResult:
     """iverilog on the RTL: activity of every net under the DUT instance (the cross-check side)."""
-    return sim.activity_run(
-        [*job.sources, *job.tb],
-        job.tb_top,
-        job.tb_clock,
-        job.prefix(),
-        work,
-        defines=job.defines,
-        incdirs=job.incdirs,
-        pass_text=job.pass_text,
-    )
+    return sim.activity_run(job.tbrun([*job.sources, *job.tb], job.prefix()), work)
 
 
 _PORT = re.compile(r"^# (clock|input|output) (\S+) (\d+)")
@@ -279,15 +277,7 @@ def asic_gate_activity(tools: PowerTools, job: Job, work: Path) -> sim.SimResult
             pv.write_text(sim.patch_primitives(prim, mode))
         srcs = [job.silicon / "or/final.v", pv, models / "sky130_fd_sc_hd.v", *job.tb]
         last = sim.activity_run(
-            srcs,
-            job.tb_top,
-            job.tb_clock,
-            job.prefix(),
-            w,
-            defines=job.defines,
-            incdirs=job.incdirs,
-            pass_text=job.pass_text,
-            extra=["-DFUNCTIONAL", "-DUNIT_DELAY=#0"],
+            job.tbrun(srcs, job.prefix(), ["-DFUNCTIONAL", "-DUNIT_DELAY=#0"]), w
         )
         last.start_state = mode
         if last.passed:
@@ -379,11 +369,13 @@ def run_power(tools: PowerTools, job: Job, asic: bool = True) -> dict[str, Any]:
                 "arch": tools.arch().name,
                 "tech": "PTM_45nm",
                 "method": "vpr --power",
+                "freq_mhz": 1e-6 / fpga.critical_path_s if fpga.critical_path_s else 0.0,
+                "energy_per_cycle_pj": fpga.total_w * fpga.critical_path_s * 1e12,
                 "vectorless_total_w": vless.total_w,
                 "vectorless_dynamic_w": vless.dynamic_w,
             }
         },
-        "crosscheck": _crosscheck(tools, job, blif, gl, act_path, names_path, fpga),
+        "crosscheck": _crosscheck(tools, job, blif, gl, blif_path),
     }
     result["by_line"] = fpga_by_line(blif, act, prov, fpga.dynamic_w, fpga.clock_w)
     write_activity_csv(job.work / "activity.csv", act, prov, "iverilog-gate")
@@ -398,21 +390,32 @@ def _crosscheck(
     job: Job,
     blif: blifnet.Blif,
     gl: sim.SimResult,
-    act_path: Path,
-    names_path: Path,
-    fpga: actfile.FpgaPower,
+    blif_path: Path,
 ) -> dict[str, Any]:
     rtl = rtl_activity(job, job.work / "rtl")
-    odin, _ = odin_replay_activity(tools, job, job.work / "replay")
+    out: dict[str, Any] = {"rtl_passed": rtl.passed}
+    try:
+        odin, _ = odin_replay_activity(tools, job, job.work / "replay")
+    except PowerError as e:
+        out["odin_replay_error"] = str(e)[-300:]
+        return out
     cc = crosscheck.compare(odin, rtl.acts)
-    names = set(blif.nets())
-    mapped = {n: a for n, a in odin.items() if n in names}
-    return {
-        "odin_vs_iverilog_rtl": asdict(cc) | {"identical_fraction": cc.identical_fraction},
-        "rtl_passed": rtl.passed,
-        "odin_replay_nets_in_blif": len(mapped),
-        "odin_replay_matched_fraction": len(mapped) / max(len(names), 1),
+    out["odin_vs_iverilog_rtl"] = asdict(cc) | {"identical_fraction": cc.identical_fraction}
+    clock_net = blif.latches[0].clock if blif.latches else job.dut_clock
+    act, summ = actfile.build_act(blif.nets(), odin, skip=[clock_net])
+    act[clock_net] = (0.5, 2.0)
+    path = job.work / "fpga/odin_replay.act"
+    actfile.write_act(path, act)
+    p = vpr_power(tools, blif_path, path, job.work / "fpga/odin_replay")
+    out["fpga_odin_replay"] = {
+        "matched": summ.matched,
+        "nets": summ.nets,
+        "matched_fraction": summ.matched_fraction,
+        "total_w": p.total_w,
+        "dynamic_w": p.dynamic_w,
+        "clock_w": p.clock_w,
     }
+    return out
 
 
 def _add_asic(tools: PowerTools, job: Job, result: dict[str, Any]) -> None:
@@ -433,6 +436,8 @@ def _add_asic(tools: PowerTools, job: Job, result: dict[str, Any]) -> None:
         "dynamic_w": p.dynamic_w,
         "static_w": p.leakage_w,
         "clock_w": p.clock_w,
+        "freq_mhz": 1e3 / job.asic_period_ns,
+        "energy_per_cycle_pj": p.total_w * job.asic_period_ns * 1e3,
         "switching_w": p.switching_w,
         "internal_w": p.internal_w,
         "activity_set": p.activity_set,

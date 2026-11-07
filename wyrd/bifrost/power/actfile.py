@@ -57,6 +57,7 @@ class FpgaPower:
     clock_w: float
     routing_w: float
     logic_w: float
+    critical_path_s: float = 0.0
     warnings: list[str] = field(default_factory=list)
 
 
@@ -81,6 +82,7 @@ def parse_power(text: str) -> FpgaPower:
         clock_w=rows.get("Clock", (0.0, 0.0))[0],
         routing_w=rows.get("Routing", (0.0, 0.0))[0],
         logic_w=rows.get("PB Types", (0.0, 0.0))[0],
+        critical_path_s=_crit(text),
         warnings=_warnings(text),
     )
 
@@ -88,3 +90,8 @@ def parse_power(text: str) -> FpgaPower:
 def _warnings(text: str) -> list[str]:
     m = re.search(r"-+ Warnings -+\n(.*?)\n-{5,}", text, re.S)
     return [w.strip() for w in m.group(1).splitlines() if w.strip()] if m else []
+
+
+def _crit(text: str) -> float:
+    m = re.search(r"^Critical Path:\s*(\S+)", text, re.M)
+    return float(m.group(1)) if m else 0.0

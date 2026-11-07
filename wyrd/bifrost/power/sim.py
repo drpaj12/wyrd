@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
 import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -44,25 +46,26 @@ def run(
     )
 
 
-def dump_module(vcd: Path, tb_top: str) -> str:
-    body = f'$dumpfile("{vcd}"); $dumpvars(0, {tb_top});'
+def dump_module(vcd: Path, tb_top: str, inst: str, clock: str) -> str:
+    """A module that dumps the DUT instance and the testbench clock (not the whole testbench)."""
+    body = f'$dumpfile("{vcd}"); $dumpvars(0, {tb_top}.{inst}); $dumpvars(0, {tb_top}.{clock});'
     return f"module wyrd_dump; initial begin {body} end endmodule\n"
 
 
-def iverilog_run(
+def compile_tb(
     sources: Sequence[Path],
     tb_top: str,
     work: Path,
     vcd: Path,
-    defines: Sequence[str] = (),
-    incdirs: Sequence[Path] = (),
-    pass_text: str = "PASS",
-    extra: Sequence[str] = (),
-) -> SimResult:
-    """Compile and run one testbench with a full dump of the testbench scope into ``vcd``."""
+    inst: str,
+    clock: str,
+    defines: Sequence[str],
+    incdirs: Sequence[Path],
+    extra: Sequence[str],
+) -> Path:
     work.mkdir(parents=True, exist_ok=True)
     dump = work / "wyrd_dump.v"
-    dump.write_text(dump_module(vcd, tb_top))
+    dump.write_text(dump_module(vcd, tb_top, inst, clock))
     vvp = work / "sim.vvp"
     cmd = ["iverilog", "-g2005", *extra, "-s", tb_top, "-s", "wyrd_dump", "-o", str(vvp)]
     cmd += [f"-D{d}" for d in defines] + [f"-I{i}" for i in incdirs]
@@ -70,42 +73,65 @@ def iverilog_run(
     comp = run(cmd, work)
     if comp.returncode != 0:
         raise PowerError(f"iverilog failed: {comp.stderr.strip()[:400]}")
-    sim = run(["vvp", "-n", str(vvp)], work)
-    text = sim.stdout + sim.stderr
-    ok = sim.returncode == 0 and pass_text in text and PASS_BAD.search(text) is None
-    return SimResult(ok, text)
+    return vvp
+
+
+@dataclass(frozen=True)
+class TbRun:
+    """One testbench run: what to simulate and where the DUT and its clock are."""
+
+    sources: Sequence[Path]
+    tb_top: str
+    inst: str
+    clock: str
+    strip: str  # prefix removed from the net names of the result (``tb.dut.``)
+    data: Sequence[Path] = ()  # files the testbench reads from its working directory
+    defines: Sequence[str] = ()
+    incdirs: Sequence[Path] = ()
+    pass_text: str = "PASS"
+    extra: Sequence[str] = ()
+
+
+def activity_run(tb: TbRun, work: Path, timeout: int = 14400) -> SimResult:
+    """Run a testbench; the VCD goes through a named pipe and is reduced to activity on the fly,
+    so a long run never writes a large file. Names have ``tb.strip`` removed."""
+    vcd = work / "act.fifo"
+    vvp = compile_tb(
+        tb.sources, tb.tb_top, work, vcd, tb.inst, tb.clock, tb.defines, tb.incdirs, tb.extra
+    )
+    for d in tb.data:
+        shutil.copy(d, work / d.name)
+    if vcd.exists():
+        vcd.unlink()
+    os.mkfifo(vcd)
+    log = work / "sim.log"
+    with log.open("w") as out:
+        proc = subprocess.Popen(
+            ["vvp", "-n", str(vvp)],
+            cwd=work,
+            stdout=out,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+        )
+        clk = f"{tb.tb_top}.{tb.clock}"
+        try:
+            acts = read_activity_file(vcd, clk)
+        except ValueError:
+            acts = {}
+        proc.wait(timeout=timeout)
+    vcd.unlink()
+    text = log.read_text(errors="replace")
+    ok = proc.returncode == 0 and tb.pass_text in text and PASS_BAD.search(text) is None
+    res = SimResult(ok, text)
+    if ok and clk in acts:
+        res.cycles = acts[clk].toggles // 2
+        res.acts = {k[len(tb.strip) :]: v for k, v in acts.items() if k.startswith(tb.strip)}
+    return res
 
 
 def patch_primitives(text: str, init: str) -> str:
     """The sky130 flip-flop and latch UDPs starting at ``init`` (0 or 1) instead of x."""
     return SEQ_UDP.sub(lambda m: f"{m.group(0)}\n    initial Q = 1'b{init};", text)
-
-
-def activity_run(
-    sources: Sequence[Path],
-    tb_top: str,
-    clock: str,
-    prefix: str,
-    work: Path,
-    keep_vcd: bool = False,
-    defines: Sequence[str] = (),
-    incdirs: Sequence[Path] = (),
-    pass_text: str = "PASS",
-    extra: Sequence[str] = (),
-) -> SimResult:
-    """Run a testbench and read the activity of every net under ``prefix`` (e.g. ``tb.dut.``).
-
-    Names in the result have the prefix removed. ``clock`` is the testbench clock net."""
-    vcd = work / "act.vcd"
-    res = iverilog_run(sources, tb_top, work, vcd, defines, incdirs, pass_text, extra)
-    if not res.passed:
-        return res
-    acts = read_activity_file(vcd, f"{tb_top}.{clock}")
-    res.cycles = acts[f"{tb_top}.{clock}"].toggles // 2
-    res.acts = {k[len(prefix) :]: v for k, v in acts.items() if k.startswith(prefix)}
-    if not keep_vcd:
-        vcd.unlink()
-    return res
 
 
 def vectors_from_tb_vcd(
