@@ -1,0 +1,289 @@
+{
+ "version": 1,
+ "design": "wb_lcd",
+ "testbench": "tb_wb_lcd.v",
+ "tb_pass": true,
+ "clock": "clk",
+ "cycles": 1295076,
+ "start_state": "0",
+ "activity": {
+  "source": "iverilog-gate",
+  "nets": 719,
+  "matched": 719,
+  "matched_fraction": 1.0,
+  "default_activity": 0.005994070980163742
+ },
+ "targets": {
+  "fpga": {
+   "total_w": 0.002632,
+   "dynamic_w": 0.0013696927999999999,
+   "static_w": 0.0012623072,
+   "clock_w": 0.0004238,
+   "routing_w": 0.0007241,
+   "logic_w": 0.001484,
+   "critical_path_s": 2.79812e-09,
+   "warnings": [
+    "No transistor counter function for BLIF model: .subckt adder"
+   ],
+   "arch": "k6_frac_N10_frac_chain_mem32K_40nm.xml",
+   "tech": "PTM_45nm",
+   "method": "vpr --power",
+   "freq_mhz": 357.38281417523194,
+   "energy_per_cycle_pj": 7.364651839999998,
+   "vectorless_total_w": 0.003916,
+   "vectorless_dynamic_w": 0.0026444748000000002
+  },
+  "asic": {
+   "pdk": "sky130_fd_sc_hd tt_025C_1v80",
+   "parasitics": "placement",
+   "start_state": "0",
+   "total_w": 0.00212,
+   "dynamic_w": 0.0021199884,
+   "static_w": 1.16e-08,
+   "clock_w": 0.0005128285198,
+   "freq_mhz": 50.0,
+   "energy_per_cycle_pj": 42.4,
+   "switching_w": 0.000428,
+   "internal_w": 0.0017,
+   "activity_set": 3102,
+   "nets": 3214,
+   "matched_fraction": 0.9651524579962664
+  }
+ },
+ "crosscheck": {
+  "rtl_passed": true,
+  "odin_vs_iverilog_rtl": {
+   "only_a": 0,
+   "only_b": 159,
+   "compared": 304,
+   "identical": 139,
+   "activity_diff": {
+    "min": 0.0,
+    "median": 9.113781739450039e-07,
+    "p90": 0.0002347352587801797,
+    "max": 0.0007191931963838415
+   },
+   "p1_diff": {
+    "min": 0.0,
+    "median": 1.088621826054996e-06,
+    "p90": 0.1301062881325884,
+    "max": 0.4208776164487644
+   },
+   "identical_fraction": 0.45723684210526316
+  },
+  "fpga_odin_replay": {
+   "matched": 113,
+   "nets": 719,
+   "matched_fraction": 0.1571627260083449,
+   "total_w": 0.002386,
+   "dynamic_w": 0.0012388112,
+   "clock_w": 0.0004238
+  }
+ },
+ "by_line": [
+  {
+   "file": "delay_counter.v",
+   "line": 62,
+   "fpga_dyn_w": 0.0006392652045578678,
+   "nets": 20
+  },
+  {
+   "file": "lcd_display.v",
+   "line": 169,
+   "fpga_dyn_w": 0.0002030175174493109,
+   "nets": 32
+  },
+  {
+   "file": "<port-or-unmapped>",
+   "line": 0,
+   "fpga_dyn_w": 9.00454972124348e-05,
+   "nets": 115
+  },
+  {
+   "file": "lcd_display.v",
+   "line": 177,
+   "fpga_dyn_w": 1.1538773088509917e-05,
+   "nets": 42
+  },
+  {
+   "file": "lcd_display.v",
+   "line": 393,
+   "fpga_dyn_w": 1.0830329001190174e-06,
+   "nets": 15
+  },
+  {
+   "file": "lcd_display.v",
+   "line": 141,
+   "fpga_dyn_w": 5.804789649348947e-07,
+   "nets": 11
+  },
+  {
+   "file": "lcd_display.v",
+   "line": 399,
+   "fpga_dyn_w": 1.2532595025424954e-07,
+   "nets": 8
+  },
+  {
+   "file": "lcd_display.v",
+   "line": 144,
+   "fpga_dyn_w": 9.45587593633476e-08,
+   "nets": 89
+  },
+  {
+   "file": "lcd_display.v",
+   "line": 373,
+   "fpga_dyn_w": 7.445243484209227e-08,
+   "nets": 19
+  },
+  {
+   "file": "wb_lcd.v",
+   "line": 79,
+   "fpga_dyn_w": 4.778290594343236e-08,
+   "nets": 193
+  },
+  {
+   "file": "lcd_display.v",
+   "line": 147,
+   "fpga_dyn_w": 9.098198660740753e-09,
+   "nets": 16
+  },
+  {
+   "file": "lcd_display.v",
+   "line": 114,
+   "fpga_dyn_w": 7.396627155487712e-09,
+   "nets": 152
+  },
+  {
+   "file": "lcd_display.v",
+   "line": 187,
+   "fpga_dyn_w": 2.0141050470342124e-09,
+   "nets": 5
+  },
+  {
+   "file": "lcd_display.v",
+   "line": 115,
+   "fpga_dyn_w": 1.4584898616454643e-09,
+   "nets": 2
+  },
+  {
+   "file": "wb_lcd.v",
+   "line": 110,
+   "fpga_dyn_w": 2.083556945207806e-10,
+   "nets": 1
+  }
+ ],
+ "by_line_asic": [
+  {
+   "file": "design.v",
+   "line": 187,
+   "asic_dyn_w": 0.0013240165227690081,
+   "asic_static_w": 9.313282999999968e-09,
+   "cells": 2538
+  },
+  {
+   "file": "<physical>",
+   "line": 0,
+   "asic_dyn_w": 0.000531759,
+   "asic_static_w": 5.915999999999997e-10,
+   "cells": 11620
+  },
+  {
+   "file": "design.v",
+   "line": 250,
+   "asic_dyn_w": 0.00015368880000000003,
+   "asic_static_w": 5.260000000000008e-10,
+   "cells": 62
+  },
+  {
+   "file": "design.v",
+   "line": 62,
+   "asic_dyn_w": 4.3284699999999996e-05,
+   "asic_static_w": 1.688e-10,
+   "cells": 20
+  },
+  {
+   "file": "design.v",
+   "line": 466,
+   "asic_dyn_w": 3.46961e-05,
+   "asic_static_w": 1.266e-10,
+   "cells": 15
+  },
+  {
+   "file": "design.v",
+   "line": 427,
+   "asic_dyn_w": 1.2422743627406408e-05,
+   "asic_static_w": 4.088390000000001e-10,
+   "cells": 188
+  },
+  {
+   "file": "design.v",
+   "line": 66,
+   "asic_dyn_w": 7.236390000373399e-06,
+   "asic_static_w": 1.9667399999999986e-10,
+   "cells": 64
+  },
+  {
+   "file": "design.v",
+   "line": 395,
+   "asic_dyn_w": 4.439254738243e-06,
+   "asic_static_w": 1.0717000000000003e-10,
+   "cells": 55
+  },
+  {
+   "file": "design.v",
+   "line": 214,
+   "asic_dyn_w": 4.124460000017431e-06,
+   "asic_static_w": 7.512099999999999e-11,
+   "cells": 36
+  },
+  {
+   "file": "design.v",
+   "line": 662,
+   "asic_dyn_w": 2.1118e-06,
+   "asic_static_w": 8.44e-12,
+   "cells": 1
+  },
+  {
+   "file": "design.v",
+   "line": 472,
+   "asic_dyn_w": 2.057657e-06,
+   "asic_static_w": 4.1675999999999996e-11,
+   "cells": 21
+  },
+  {
+   "file": "design.v",
+   "line": 650,
+   "asic_dyn_w": 1.990000000818e-06,
+   "asic_static_w": 8.44e-12,
+   "cells": 1
+  },
+  {
+   "file": "design.v",
+   "line": 667,
+   "asic_dyn_w": 1.99e-06,
+   "asic_static_w": 8.44e-12,
+   "cells": 1
+  },
+  {
+   "file": "design.v",
+   "line": 69,
+   "asic_dyn_w": 3.313e-07,
+   "asic_static_w": 1.594e-11,
+   "cells": 5
+  },
+  {
+   "file": "design.v",
+   "line": 260,
+   "asic_dyn_w": 3.0296986048974994e-07,
+   "asic_static_w": 2.7545e-11,
+   "cells": 10
+  },
+  {
+   "file": "design.v",
+   "line": 536,
+   "asic_dyn_w": 5.8330000004632e-08,
+   "asic_static_w": 7.4e-12,
+   "cells": 3
+  }
+ ]
+}
