@@ -510,13 +510,13 @@ def run_power(tools: PowerTools, job: Job, asic: bool = True) -> dict[str, Any]:
         vless, vless_act = vectorless_run(tools, blif_path, clock_net, vless_dir)
         act = ace_activity(blif.nets(), vless_act, clock_net)
         fpga = vless
-        summ = len(act), len(act)
+        nets = len([n for n in blif.nets() if n != clock_net])
         result["tb_pass"] = None
         result["cycles"] = 0
         result["activity"] |= {
-            "nets": len(blif.nets()) - 1,
-            "matched": summ[1],
-            "matched_fraction": summ[1] / max(len(blif.nets()) - 1, 1),
+            "nets": nets,
+            "matched": len(act),
+            "matched_fraction": len(act) / nets if nets else 0.0,
             "ace_defaults": ACE_DEFAULTS,
         }
     else:
