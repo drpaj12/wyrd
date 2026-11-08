@@ -18,6 +18,14 @@ from wyrd.bifrost.power.sim import PowerError
 from wyrd.bifrost.power.tools import PowerTools
 from wyrd.bifrost.power.vcdact import NetAct, read_activity_file
 
+# Memory cap for the heavy tools (VPR, ACE2, OpenROAD), e.g. "4G". When set, they run under
+# ``systemd-run --user --scope`` with that cap and no swap, instead of ``tools/heavy-run``.
+MEM_CAP: str | None = None
+
+# The pass list of ``odin3-flow --prov`` (the flow the Heimdall pages are built from).
+FLOW_PASSES = "proc; fsm; opt; flatten; tristate; opt -full; wreduce; hardmap; lower; abc --lut 6"
+ACE_DEFAULTS = {"pi_static_prob": 0.5, "pi_switch_prob": 0.2, "seed": 1}  # ace2/ace.h, -s 1
+
 
 @dataclass
 class Job:
@@ -37,6 +45,12 @@ class Job:
     pass_text: str = "PASS"
 
     tb_data: list[Path] = field(default_factory=list)  # files the testbench reads ($readmemh)
+    blif: Path | None = None  # run on this Odin III flow BLIF (its .names file beside it)
+    activity: str | None = (
+        None  # "odin3", "iverilog" or "ace2"; None: iverilog with a tb, else ace2
+    )
+    mem_cap: str | None = None  # MemoryMax of the heavy tools, e.g. "4G"
+    odin_passes: str = FLOW_PASSES  # passes that rebuild the BLIF's netlist for sim_tb --vcd-all
 
     def prefix(self) -> str:
         return f"{self.tb_top}.{self.dut_inst}."
@@ -56,9 +70,16 @@ class Job:
         )
 
 
+def _capped(argv: list[str]) -> list[str]:
+    if not MEM_CAP:
+        return argv
+    return ["systemd-run", "--user", "--scope", "-q", "-p", f"MemoryMax={MEM_CAP}",
+            "-p", "MemorySwapMax=0", *argv]  # fmt: skip
+
+
 def _odin(tools: PowerTools, job: Job, script: str, cwd: Path) -> subprocess.CompletedProcess[str]:
     cmd = [str(tools.odin3), "--diag-paths", "resolved", "--top", job.top, "-p", script]
-    res = sim.run(cmd, cwd)
+    res = sim.run(_capped(cmd), cwd)
     if res.returncode != 0:
         raise PowerError(f"odin3 failed: {(res.stdout + res.stderr)[-400:]}")
     return res
@@ -152,7 +173,40 @@ def odin_replay_activity(tools: PowerTools, job: Job, work: Path) -> tuple[dict[
     return {k[len(job.top) + 1 :]: v for k, v in acts.items()}, len(rows)
 
 
+def odin_sim_activity(tools: PowerTools, job: Job, work: Path) -> sim.SimResult:
+    """Odin III ``sim_tb --vcd-all --vcd-names hash`` on the netlist the flow BLIF was written
+    from: every BLIF net is in the waveform under its BLIF name (Odin III 1.5 and later), so
+    the names join the flow BLIF exactly. ``job.odin_passes`` must be the flow's passes."""
+    work.mkdir(parents=True, exist_ok=True)
+    for d in job.tb_data:
+        shutil.copy(d, work / d.name)
+    techlib = tools.odin3.resolve().parents[2] / "lib/vtr.o3lib"
+    tbs = " ".join(f'"{t}"' for t in job.tb)
+    vcd, out = work / "all.vcd", work / "run.txt"
+    script = (
+        f"read_techlib {techlib}; {_read(job)}; {job.odin_passes}; sim_tb --top {job.tb_top} "
+        f"--out {out} --vcd {vcd} --vcd-all --vcd-names hash {tbs}"
+    )
+    _odin(tools, job, script, work)
+    text = out.read_text(errors="replace") if out.exists() else ""
+    ok = job.pass_text in text and sim.PASS_BAD.search(text) is None
+    res = sim.SimResult(ok, text)
+    clk = f"{job.tb_top}.{job.tb_clock}"
+    try:
+        acts = read_activity_file(vcd, clk)
+    finally:
+        vcd.unlink(missing_ok=True)
+    nested = f"{job.prefix()}{job.top}."
+    strip = nested if any(k.startswith(nested) for k in acts) else job.prefix()
+    if ok and clk in acts:
+        res.cycles = acts[clk].toggles // 2
+        res.acts = {k[len(strip) :]: v for k, v in acts.items() if k.startswith(strip)}
+    return res
+
+
 def _heavy(tools: PowerTools, argv: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+    if MEM_CAP:
+        return sim.run(_capped(argv), cwd)
     env = dict(os.environ, ODIN3_HEAVY_OK="1")
     cmd = ([str(tools.heavy_run)] if tools.heavy_run else []) + argv
     return sim.run(cmd, cwd, env)
@@ -184,7 +238,14 @@ def vpr_power(tools: PowerTools, blif: Path, act: Path | None, out: Path) -> act
 
 
 def vectorless_power(tools: PowerTools, blif: Path, clock: str, out: Path) -> actfile.FpgaPower:
-    """ACE2 vectorless activity, then VPR power on the ACE netlist (the VTR power flow)."""
+    return vectorless_run(tools, blif, clock, out)[0]
+
+
+def vectorless_run(
+    tools: PowerTools, blif: Path, clock: str, out: Path
+) -> tuple[actfile.FpgaPower, dict[str, tuple[float, float]]]:
+    """ACE2 vectorless activity (primary inputs at ``ACE_DEFAULTS``), then VPR power on the ACE
+    netlist (the VTR power flow). Also returns ACE2's (p1, activity) of every net."""
     out.mkdir(parents=True, exist_ok=True)
     (out / "in.blif").write_bytes(blif.read_bytes())
     ace = _heavy(
@@ -209,7 +270,8 @@ def vectorless_power(tools: PowerTools, blif: Path, clock: str, out: Path) -> ac
     fix = sim.run([str(tools.restore_latch()), "in.blif", "raw.ace.blif", "circuit.blif"], out)
     if fix.returncode != 0:
         raise PowerError(f"restore_multiclock_latch failed: {fix.stderr[-300:]}")
-    return vpr_power(tools, out / "circuit.blif", out / "ace.act", out / "vpr")
+    power = vpr_power(tools, out / "circuit.blif", out / "ace.act", out / "vpr")
+    return power, actfile.read_act(out / "ace.act")
 
 
 def fanouts(blif: blifnet.Blif) -> dict[str, int]:
@@ -319,6 +381,46 @@ def asic_power(
     return sta.parse_sta_power(res.stdout)
 
 
+_OUT_PINS = ("Q", "X", "Y", "SUM", "HI", "LO", "Q_N", "COUT", "GCLK")
+_CELL = re.compile(r"^\s*(sky130_fd_sc_hd__\w+)\s+(\\?\S+)\s*\((.*?)\);", re.S | re.M)
+
+
+def instance_out_nets(final_v: str) -> dict[str, str]:
+    """Instance name to the net on its first output pin, from the silicon flow's final.v."""
+    out: dict[str, str] = {}
+    for m in _CELL.finditer(final_v):
+        pins = dict(re.findall(r"\.(\w+)\(\s*([^)]*?)\s*\)", m.group(3)))
+        for o in _OUT_PINS:
+            if pins.get(o):
+                out[m.group(2).lstrip("\\")] = pins[o].lstrip("\\")
+                break
+    return out
+
+
+def write_asic_csvs(
+    work: Path,
+    acts: dict[str, NetAct],
+    instances: dict[str, tuple[float, float]],
+    final_v: Path,
+    prov_csv: Path,
+) -> None:
+    """``asic_nets.csv`` (net,p1,activity) and ``asic_inst.csv``
+    (inst,dyn_w,static_w,out_net,file,line): the Heimdall III activity-overlay input."""
+    with (work / "asic_nets.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["net", "p1", "activity"])
+        for n, a in acts.items():
+            w.writerow([n, f"{a.p1:.6f}", f"{a.activity:.6f}"])
+    out_net = instance_out_nets(final_v.read_text()) if final_v.exists() else {}
+    prov = read_prov_csv(prov_csv) if prov_csv.exists() else {}
+    with (work / "asic_inst.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["inst", "dyn_w", "static_w", "out_net", "file", "line"])
+        for inst, (dyn, stat) in instances.items():
+            fl = prov.get(inst, ("", ""))
+            w.writerow([inst, repr(dyn), repr(stat), out_net.get(inst, ""), fl[0], fl[1]])
+
+
 def write_activity_csv(
     path: Path,
     act: dict[str, tuple[float, float]],
@@ -343,57 +445,102 @@ def write_activity_csv(
             )
 
 
+SOURCE_LABEL = {"odin3": "odin3-sim", "iverilog": "iverilog-gate", "ace2": "ace2"}
+
+
+def _testbench_activity(
+    tools: PowerTools, job: Job, source: str, blif: blifnet.Blif
+) -> sim.SimResult:
+    if source == "odin3":
+        return odin_sim_activity(tools, job, job.work / "odin")
+    return gate_activity_fpga(job, blif, job.work / "gl")
+
+
 def run_power(tools: PowerTools, job: Job, asic: bool = True) -> dict[str, Any]:
-    """All steps for one design; writes ``power.json`` and ``activity.csv`` in ``job.work``."""
+    """All steps for one design; writes ``power.json``, ``activity.csv`` and (with a silicon run)
+    ``asic_nets.csv`` and ``asic_inst.csv`` in ``job.work``.
+
+    The activity source is ``job.activity``: ``odin3`` (``sim_tb --vcd-all``), ``iverilog``
+    (testbench on the BLIF as Verilog) or ``ace2`` (vectorless); the default is ``iverilog``
+    with a testbench and ``ace2`` without."""
+    global MEM_CAP
+    MEM_CAP = job.mem_cap
     missing = tools.missing()
     if missing:
         raise PowerError("missing tools: " + ", ".join(missing))
+    source = job.activity or ("iverilog" if job.tb else "ace2")
+    if source not in SOURCE_LABEL:
+        raise PowerError(f"unknown activity source {source!r}")
+    if source != "ace2" and not job.tb:
+        raise PowerError(f"activity source {source!r} needs a testbench")
     job.work.mkdir(parents=True, exist_ok=True)
-    blif_path, names_path = synthesize(tools, job)
-    blif, prov = blifnet.read_blif(blif_path), blifnet.parse_names(names_path.read_text())
-    gl = gate_activity_fpga(job, blif, job.work / "gl")
-    if not gl.passed:
-        raise PowerError("gate-level testbench did not pass: " + gl.log[-300:])
+    if job.blif is not None:
+        blif_path = job.blif.resolve()
+        names_path = Path(str(blif_path) + ".names")
+    else:
+        blif_path, names_path = synthesize(tools, job)
+    blif = blifnet.read_blif(blif_path)
+    prov = blifnet.parse_names(names_path.read_text()) if names_path.exists() else {}
     clock_net = blif.latches[0].clock if blif.latches else job.dut_clock
-    act, summary = actfile.build_act(blif.nets(), gl.acts, skip=[clock_net])
-    act[clock_net] = (0.5, 2.0)  # VPR wants the clock in the file: probability 0.5, 2 per cycle
     (job.work / "fpga").mkdir(exist_ok=True)
-    act_path = job.work / "fpga/tb.act"
-    actfile.write_act(act_path, act)
-    fpga = vpr_power(tools, blif_path, act_path, job.work / "fpga/tb")
-    vless = vectorless_power(tools, blif_path, clock_net, job.work / "fpga/vectorless")
+    label = SOURCE_LABEL[source]
+    vless_dir = job.work / "fpga/vectorless"
     result: dict[str, Any] = {
         "version": 1,
         "design": job.design,
-        "testbench": job.tb[0].name,
-        "tb_pass": True,
+        "blif": blif_path.name,
         "clock": job.tb_clock,
-        "cycles": gl.cycles,
-        "start_state": gl.start_state,
-        "activity": {
-            "source": "iverilog-gate",
+        "activity": {"source": label},
+        "targets": {},
+    }
+    if source == "ace2":
+        vless, vless_act = vectorless_run(tools, blif_path, clock_net, vless_dir)
+        act = {n: vless_act[n] for n in blif.nets() if n in vless_act and n != clock_net}
+        fpga = vless
+        summ = len(act), len(act)
+        result["tb_pass"] = None
+        result["cycles"] = 0
+        result["activity"] |= {
+            "nets": len(blif.nets()) - 1,
+            "matched": summ[1],
+            "matched_fraction": summ[1] / max(len(blif.nets()) - 1, 1),
+            "ace_defaults": ACE_DEFAULTS,
+        }
+    else:
+        tb = _testbench_activity(tools, job, source, blif)
+        if not tb.passed:
+            raise PowerError(f"{source} testbench did not pass: " + tb.log[-300:])
+        act, summary = actfile.build_act(blif.nets(), tb.acts, skip=[clock_net])
+        act[clock_net] = (0.5, 2.0)  # VPR wants the clock: probability 0.5, 2 per cycle
+        act_path = job.work / "fpga/tb.act"
+        actfile.write_act(act_path, act)
+        fpga = vpr_power(tools, blif_path, act_path, job.work / "fpga/tb")
+        vless = vectorless_run(tools, blif_path, clock_net, vless_dir)[0]
+        result["testbench"] = job.tb[0].name
+        result["tb_pass"] = True
+        result["cycles"] = tb.cycles
+        result["start_state"] = tb.start_state
+        result["activity"] |= {
             "nets": summary.nets,
             "matched": summary.matched,
             "matched_fraction": summary.matched_fraction,
             "default_activity": summary.default_activity,
-        },
-        "targets": {
-            "fpga": {
-                **asdict(fpga),
-                "arch": tools.arch().name,
-                "tech": "PTM_45nm",
-                "method": "vpr --power",
-                "freq_mhz": 1e-6 / fpga.critical_path_s if fpga.critical_path_s else 0.0,
-                "energy_per_cycle_pj": fpga.total_w * fpga.critical_path_s * 1e12,
-                "vectorless_total_w": vless.total_w,
-                "vectorless_dynamic_w": vless.dynamic_w,
-            }
-        },
-        "crosscheck": _crosscheck(tools, job, blif, gl, blif_path),
+        }
+        if job.blif is None and source == "iverilog":
+            result["crosscheck"] = _crosscheck(tools, job, blif, tb, blif_path)
+    result["targets"]["fpga"] = {
+        **asdict(fpga),
+        "arch": tools.arch().name,
+        "tech": "PTM_45nm",
+        "method": "vpr --power",
+        "freq_mhz": 1e-6 / fpga.critical_path_s if fpga.critical_path_s else 0.0,
+        "energy_per_cycle_pj": fpga.total_w * fpga.critical_path_s * 1e12,
+        "vectorless_total_w": vless.total_w,
+        "vectorless_dynamic_w": vless.dynamic_w,
     }
     result["by_line"] = fpga_by_line(blif, act, prov, fpga.dynamic_w, fpga.clock_w)
-    write_activity_csv(job.work / "activity.csv", act, prov, "iverilog-gate")
-    if asic and job.silicon is not None:
+    write_activity_csv(job.work / "activity.csv", act, prov, label)
+    if asic and job.silicon is not None and job.tb:
         _add_asic(tools, job, result)
     (job.work / "power.json").write_text(json.dumps(result, indent=1) + "\n")
     return result
@@ -461,3 +608,4 @@ def _add_asic(tools: PowerTools, job: Job, result: dict[str, Any]) -> None:
     prov_csv = job.silicon / "prov.csv"
     if prov_csv.exists():
         result["by_line_asic"] = asic_by_line(p.instances, read_prov_csv(prov_csv))
+    write_asic_csvs(job.work, g.acts, p.instances, job.silicon / "or/final.v", prov_csv)

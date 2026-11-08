@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import csv
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from wyrd.bifrost.power import actfile, blifnet, crosscheck, sim, sta
+from wyrd.bifrost.power import actfile, blifnet, crosscheck, flow, sim, sta
 from wyrd.bifrost.power.flow import asic_by_line, fpga_by_line, read_prov_csv
+from wyrd.bifrost.power.tools import PowerTools
 from wyrd.bifrost.power.vcdact import NetAct, read_activity, sample_rising
 
 VCD = """$timescale 1ns $end
@@ -214,6 +217,96 @@ class Rollups(unittest.TestCase):
         rows = fpga_by_line(b, act, prov, dynamic_w=1.0, clock_w=0.2)
         self.assertAlmostEqual(sum(r["fpga_dyn_w"] for r in rows), 0.8)
         self.assertEqual(rows[0]["file"], "f.v")
+
+
+FINAL_V = """module top (clk, a, q);
+  sky130_fd_sc_hd__dfxtp_1 \\ff[0]$_DFF_P_  (.CLK(clk), .D(n1), .Q(q));
+  sky130_fd_sc_hd__nand2_1 g1 (.A(a), .B(q), .Y(n1));
+  sky130_fd_sc_hd__clkbuf_4 cts (.A(clk), .X(clk_b));
+  sky130_fd_sc_hd__tapvpwrvgnd_1 PHY_1 ();
+endmodule
+"""
+
+
+class AsicFiles(unittest.TestCase):
+    def test_instance_out_nets(self) -> None:
+        got = flow.instance_out_nets(FINAL_V)
+        self.assertEqual(got["ff[0]$_DFF_P_"], "q")
+        self.assertEqual(got["g1"], "n1")
+        self.assertEqual(got["cts"], "clk_b")
+        self.assertNotIn("PHY_1", got)
+
+    def test_asic_csvs_have_the_heimdall_columns(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            w = Path(d)
+            (w / "final.v").write_text(FINAL_V)
+            (w / "prov.csv").write_text("inst,src_chain\ng1,rtl/top.v:7.1-7.9|x.v:1.1-1.2\n")
+            flow.write_asic_csvs(
+                w,
+                {"n1": NetAct(0.4, 0.5, 3, 10)},
+                {"g1": (1e-6, 2e-9), "cts": (3e-6, 0.0)},
+                w / "final.v",
+                w / "prov.csv",
+            )
+            with (w / "asic_nets.csv").open() as f:
+                nets = list(csv.DictReader(f))
+            with (w / "asic_inst.csv").open() as f:
+                inst = {r["inst"]: r for r in csv.DictReader(f)}
+            self.assertEqual(nets, [{"net": "n1", "p1": "0.400000", "activity": "0.500000"}])
+            self.assertEqual(
+                list(inst["g1"]), ["inst", "dyn_w", "static_w", "out_net", "file", "line"]
+            )
+            self.assertEqual(
+                (inst["g1"]["out_net"], inst["g1"]["file"], inst["g1"]["line"]),
+                ("n1", "top.v", "7"),
+            )
+            self.assertEqual((inst["cts"]["out_net"], inst["cts"]["file"]), ("clk_b", ""))
+
+
+class Options(unittest.TestCase):
+    def test_capped_command(self) -> None:
+        flow.MEM_CAP = None
+        self.assertEqual(flow._capped(["vpr"]), ["vpr"])
+        flow.MEM_CAP = "4G"
+        try:
+            cmd = flow._capped(["vpr", "x"])
+        finally:
+            flow.MEM_CAP = None
+        self.assertEqual(cmd[:3], ["systemd-run", "--user", "--scope"])
+        self.assertIn("MemoryMax=4G", cmd)
+        self.assertIn("MemorySwapMax=0", cmd)
+        self.assertEqual(cmd[-2:], ["vpr", "x"])
+
+    def test_source_defaults_and_errors(self) -> None:
+        tools = PowerTools(Path("o"), Path("v"), None, None, None)
+        job = flow.Job("d", [], "top", [], "", Path("w"), activity="odin3")
+        with mock.patch.object(PowerTools, "missing", return_value=[]):
+            with self.assertRaisesRegex(sim.PowerError, "needs a testbench"):
+                flow.run_power(tools, job)
+            job.activity = "bogus"
+            with self.assertRaisesRegex(sim.PowerError, "unknown activity"):
+                flow.run_power(tools, job)
+
+    def test_cli_options(self) -> None:
+        import argparse
+
+        from wyrd import powercli
+
+        top = argparse.ArgumentParser()
+        powercli.add_parser(top.add_subparsers(dest="cmd"))
+        a = top.parse_args(
+            ["power", "run", "--design", "d", "--top", "t", "--blif", "x.blif", "--out", "o",
+             "--activity", "ace2", "--mem-cap", "4G"]
+        )  # fmt: skip
+        self.assertEqual(
+            (a.blif, a.activity, a.mem_cap, a.tb, a.src), ("x.blif", "ace2", "4G", [], [])
+        )
+        self.assertEqual(
+            powercli.main(
+                top.parse_args(["power", "run", "--design", "d", "--top", "t", "--out", "o"])
+            ),
+            2,
+        )
 
 
 @unittest.skipIf(shutil.which("iverilog") is None, "iverilog not installed")
