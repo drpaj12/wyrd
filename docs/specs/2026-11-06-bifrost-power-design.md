@@ -147,3 +147,22 @@ hand and its reports kept in `docs/power/`.
 Glitch power is not counted. Activity from a testbench is the activity of that testbench (a short
 directed test, not a workload). The FPGA roll-up per line is a model; the ASIC one is not. ASIC wire load is
 placement-based. Cordic and other DUTs Odin III cannot read yet have no netlist and are not pilots.
+
+## Follow-ups (2026-11-08)
+
+- `wyrd power run` writes `asic_nets.csv` (net,p1,activity) and `asic_inst.csv`
+  (inst,dyn_w,static_w,out_net,file,line) beside `power.json` and `activity.csv`: the Heimdall III
+  activity-overlay input, no out-of-repo driver.
+- `--blif FILE` runs on a given Odin III flow BLIF (hash names, `FILE.names` beside it), so the FPGA
+  net names are those of the BLIF a Heimdall page was built from.
+- `--activity odin3|iverilog|ace2` (default `iverilog` with `--tb`, else `ace2`); the source is
+  recorded in `power.json` `activity.source` as `odin3-sim`, `iverilog-gate` or `ace2`.
+  - `ace2`: vectorless; ACE2's own defaults, primary-input static probability 0.5 and switching
+    activity 0.2 (ace2/ace.h), seed 1; no testbench. ACE2 renames some nodes `new_<name>`; they are
+    mapped back, its internal gates are dropped. The FPGA figure is VPR power on the ACE2 netlist.
+  - `odin3`: `sim_tb --vcd-all --vcd-names hash` on the netlist rebuilt with `--odin-passes`
+    (default the passes of `odin3-flow --prov`). With Odin III 1.5.0 the testbenches of mmuart,
+    verilog_cordic_core and wb_lcd do not pass on the abc-mapped netlist (4-state x on the
+    outputs, FAIL lines), so the Mimir runs use `iverilog`.
+- `--mem-cap SIZE` runs VPR, ACE2, OpenROAD and Odin III under `systemd-run --user --scope -p
+  MemoryMax=SIZE -p MemorySwapMax=0` instead of `tools/heavy-run`.

@@ -445,6 +445,19 @@ def write_activity_csv(
             )
 
 
+def ace_activity(
+    nets: list[str], found: dict[str, tuple[float, float]], clock: str
+) -> dict[str, tuple[float, float]]:
+    """ACE2's (p1, activity) of the netlist nets. ACE2 renames some rewritten nodes to
+    ``new_<name>``; its internal gates (``n<k>``) have no counterpart in the Odin III netlist."""
+    out: dict[str, tuple[float, float]] = {}
+    for n in nets:
+        hit = found.get(n) or found.get("new_" + n)
+        if hit is not None and n != clock:
+            out[n] = hit
+    return out
+
+
 SOURCE_LABEL = {"odin3": "odin3-sim", "iverilog": "iverilog-gate", "ace2": "ace2"}
 
 
@@ -489,13 +502,13 @@ def run_power(tools: PowerTools, job: Job, asic: bool = True) -> dict[str, Any]:
         "version": 1,
         "design": job.design,
         "blif": blif_path.name,
-        "clock": job.tb_clock,
+        "clock": job.tb_clock if source != "ace2" else clock_net,
         "activity": {"source": label},
         "targets": {},
     }
     if source == "ace2":
         vless, vless_act = vectorless_run(tools, blif_path, clock_net, vless_dir)
-        act = {n: vless_act[n] for n in blif.nets() if n in vless_act and n != clock_net}
+        act = ace_activity(blif.nets(), vless_act, clock_net)
         fpga = vless
         summ = len(act), len(act)
         result["tb_pass"] = None

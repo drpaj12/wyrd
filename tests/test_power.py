@@ -264,6 +264,11 @@ class AsicFiles(unittest.TestCase):
 
 
 class Options(unittest.TestCase):
+    def test_ace_names(self) -> None:
+        found = {"clk": (0.5, 2.0), "a": (0.5, 0.2), "new_b": (0.4, 0.1), "n220": (0.1, 0.1)}
+        got = flow.ace_activity(["clk", "a", "b", "c"], found, "clk")
+        self.assertEqual(got, {"a": (0.5, 0.2), "b": (0.4, 0.1)})
+
     def test_capped_command(self) -> None:
         flow.MEM_CAP = None
         self.assertEqual(flow._capped(["vpr"]), ["vpr"])
