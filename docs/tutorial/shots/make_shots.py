@@ -11,7 +11,9 @@ https://github.com/drpaj12/YggdrasilIII/blob/main/docs/tools.md). Typical call:
       VTR_ROOT=/path/to/vtr-verilog-to-routing QT_QPA_PLATFORM=offscreen \\
       python make_shots.py /tmp/wdoc-tutorial
 
-ODIN3_BUILD defaults to $ODIN3_ROOT/build/release. Output: ../images/*.png (screenshots) and ../transcripts/*.txt (command output). WORK_DIR is
+ODIN3_BUILD defaults to $ODIN3_ROOT/build/release.
+
+Output: ../images/*.png (screenshots) and ../transcripts/*.txt (command output). WORK_DIR is
 wiped first. In the transcripts WORK_DIR/demo is printed as ~/wyrd-demo and nothing else is
 edited. The samples commands are shown with `--project samples` but run inside the copy, which
 gives the same output.

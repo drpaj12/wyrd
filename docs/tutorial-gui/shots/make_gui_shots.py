@@ -31,10 +31,7 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tutorial" / "shots"))
 
-import odin3_env  # noqa: E402
-
-odin3_env.setup()
-
+import odin3_env  # the shots/ directory of the CLI tutorial, put on sys.path above
 from PySide6.QtCore import QPoint, QSettings
 from PySide6.QtWidgets import QApplication, QMenu, QWidget
 
@@ -121,6 +118,7 @@ def select_run_child(win: MainWindow, app: QApplication, index: int) -> None:
 
 
 def main(root: Path) -> int:
+    odin3_env.setup()
     clear_root(root)
     root.mkdir(parents=True)
     (root / MARKER).write_text("", encoding="utf-8")

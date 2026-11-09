@@ -1,9 +1,9 @@
-"""Point the screenshot scripts at an Odin III build (shared by make_shots.py and make_gui_shots.py).
+"""Point the screenshot scripts at an Odin III build (make_shots.py, make_gui_shots.py).
 
-    ODIN3_BUILD   directory with the `odin3` binary and libodin3.so (default: $ODIN3_ROOT/build/release)
-    ODIN3_ROOT    an Odin III checkout; its tools/flow and plugins/python are used (default: not set)
+    ODIN3_BUILD   directory with `odin3` and libodin3.so (default: $ODIN3_ROOT/build/release)
+    ODIN3_ROOT    an Odin III checkout; its tools/flow and plugins/python are used
 
-Whatever is already in PATH, PYTHONPATH and ODIN3_LIB wins; this only fills in what is missing.
+Whatever PATH, PYTHONPATH and ODIN3_LIB already hold wins; this only fills in the rest.
 Needs Odin III 1.6.0 (C ABI 7) or later; `check_version` stops with a message otherwise.
 """
 
@@ -43,4 +43,5 @@ def check_version() -> None:
         sys.exit("odin3 not found: set ODIN3_BUILD (or ODIN3_ROOT) or put odin3 on PATH")
     m = re.match(r"odin3 (\d+)\.(\d+)\.(\d+)", out)
     if not m or tuple(int(x) for x in m.groups()) < MIN_VERSION:
-        sys.exit(f"Odin III {'.'.join(map(str, MIN_VERSION))} or later needed, got: {out.strip()!r}")
+        need = ".".join(map(str, MIN_VERSION))
+        sys.exit(f"Odin III {need} or later needed, got: {out.strip()!r}")
