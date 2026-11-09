@@ -1,4 +1,4 @@
-# Build the Wyrd III GUI tutorial PDF with Tectonic (the same tool the CLI tutorial uses).
+# Build the Wyrd III GUI tutorial PDF with latexmk (TeX Live; the same tool the CLI tutorial uses).
 #
 #   make          wyrd-gui-tutorial.pdf
 #   make shots    regenerate images/gt-*.png from the real GUI (needs the environment that
@@ -7,7 +7,7 @@
 #
 # The PDF is committed: a reader needs no LaTeX. The project sources are those of the CLI tutorial.
 
-TECTONIC ?= tectonic
+LATEXMK  ?= latexmk -pdf -interaction=nonstopmode -halt-on-error
 PYTHON   ?= python3
 WORK     ?= $(CURDIR)/build/shots-work
 
@@ -19,7 +19,7 @@ all: wyrd-gui-tutorial.pdf
 
 wyrd-gui-tutorial.pdf: wyrd-gui-tutorial.tex $(IMAGES)
 	mkdir -p build
-	$(TECTONIC) -X compile --outdir build wyrd-gui-tutorial.tex
+	$(LATEXMK) -outdir=build wyrd-gui-tutorial.tex
 	cp build/wyrd-gui-tutorial.pdf wyrd-gui-tutorial.pdf
 
 shots:
