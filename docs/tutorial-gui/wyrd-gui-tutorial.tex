@@ -333,6 +333,12 @@ $ cmake -S $VTR_ROOT -B <dir> -DCMAKE_BUILD_TYPE=Release -DVPR_USE_EZGL=on \
 $ cmake --build <dir> --target vpr -j6
 \end{lstlisting}
 The program is \cmd{<dir>/vpr/vpr}.
+Qt is what this VTR needs for graphics. Older VTR builds drew with GTK instead (Ubuntu package \cmd{libgtk-3-dev}); with the VTR
+commit used here the \cmd{-DVPR\_USE\_EZGL=on} configure step stops with ``Qt6 >= 6.9.3 was not found'' until the Qt prefix is given.
+Versions and install notes for all the tools are on the hub's tools page,
+\url{https://github.com/drpaj12/YggdrasilIII/blob/main/docs/tools.md}.
+The program finds its Qt libraries through the path recorded in it at build time; if you move the Qt folder, add its \cmd{lib} folder to
+\cmd{LD\_LIBRARY\_PATH}.
 \item Check that graphics are in. The command prints \cmd{0} when \cmd{NO\_GRAPHICS} is not defined:
 \begin{lstlisting}[language=bash]
 $ grep -c NO_GRAPHICS <dir>/vpr/CMakeFiles/vpr.dir/flags.make
@@ -382,7 +388,7 @@ Close the window when you are done.
 \note{A grab of the VPR window is black under WSLg, because VPR draws with OpenGL. The three pictures here were made by VPR itself instead:
 with \cmd{--disp off} VPR draws offscreen, and \cmd{--graphics\_commands "save\_graphics place.png"} writes a PNG. The script
 \cmd{docs/tutorial-gui/shots/floorplan\_shots.py} builds the same command as the \ui{Floorplan} button for the run of the tutorial and saves
-the pictures. They show the same drawing as the window; the \ui{Route} switches, which only the live window can set, are not in them.}
+the pictures: \cmd{python floorplan\_shots.py \$VPR\_GUI <run dir> <out dir>}, where \cmd{VPR\_GUI} is the graphics VPR of this section (the same variable \cmd{make\_gui\_shots.py} puts into its private machine file). They show the same drawing as the window; the \ui{Route} switches, which only the live window can set, are not in them.}
 
 \shot[0.72]{gt-fp-place}{The placement of the tutorial design on the EArch grid: two logic blocks (CLBs) and the I/O pads around them.}
 \shot[0.72]{gt-fp-nets}{The same placement with the nets drawn as flylines (\ui{Display Nets}).}
