@@ -105,7 +105,7 @@ and in the run keys, which are hashes of the project path and tools.
 \subsection{What you need}
 
 Wyrd III runs on Linux, including WSL on Windows (WSLg shows the windows). You need Python 3.11 or later,
-a built Odin III (the programs \cmd{odin3} and \cmd{odin3-flow}), and a VTR checkout for the \cmd{vpr} program
+a built Odin III 1.6.0 (the programs \cmd{odin3} and \cmd{odin3-flow}), and a VTR checkout for the \cmd{vpr} program
 and the architecture files. The timings in this tutorial are those of a laptop under WSL; every run in it
 takes about a second.
 
@@ -123,7 +123,7 @@ $ python3 -m venv .venv
 $ .venv/bin/pip install -e .
 \end{lstlisting}
 \item Add the graphical interface (PySide6), and Bifrost III for simulation (the \cmd{odin3} Python package, version
-1.0.3 or later), and the game (pygame-ce):
+1.0.3 or later; this tutorial was run with 1.6.0), and the game (pygame-ce):
 \begin{lstlisting}[language={}]
 $ .venv/bin/pip install -e ".[gui]"
 $ .venv/bin/pip install -e ".[sim]"

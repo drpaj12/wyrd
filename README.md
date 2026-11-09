@@ -16,7 +16,7 @@ Wyrd III has no paper of its own; it is the tool the experiments of the other pi
 ([command line](https://drpaj12.github.io/wyrd/wyrd-tutorial.pdf), [GUI](https://drpaj12.github.io/wyrd/wyrd-gui-tutorial.pdf)).
 Manual: <https://drpaj12.github.io/wyrd/>. Hub: <https://github.com/drpaj12/YggdrasilIII>.
 
-Wyrd III is part of **Yggdrasil III**, the suite of Odin III (<https://github.com/drpaj12/odin3>, the trunk), Wyrd III (<https://github.com/drpaj12/wyrd>, the canopy, with Bifrost III and Midgard III), Loki III (<https://github.com/drpaj12/loki>), The Norns III (<https://github.com/drpaj12/nornsIII>) and Verdandi III (<https://github.com/drpaj12/verdandiIII>) on side branches, and Mímir III (<https://github.com/drpaj12/mimirIII>, the fruit). Wyrd III is the canopy, with Bifrost III (the simulation bridge) and Midgard III (Verilog Town, W4, after the original verilogTown: Jamieson, Grace, Mizuno, Zhang, ASEE 2017). Version 0.1.0 (`pyproject.toml`; in the Yggdrasil III hub snapshot [v1.4.0](https://github.com/drpaj12/YggdrasilIII/blob/v1.4.0/docs/versions.md)); Odin III 1.4.0. The hub is <https://github.com/drpaj12/YggdrasilIII> (documentation: <https://drpaj12.github.io/YggdrasilIII/>, versions of every piece: <https://drpaj12.github.io/YggdrasilIII/versions.html>) and its picture of the tree is <https://github.com/drpaj12/YggdrasilIII/blob/main/images/yggdrasil-tree.png>.
+Wyrd III is part of **Yggdrasil III**, the suite of Odin III (<https://github.com/drpaj12/odin3>, the trunk), Wyrd III (<https://github.com/drpaj12/wyrd>, the canopy, with Bifrost III and Midgard III), Loki III (<https://github.com/drpaj12/loki>), The Norns III (<https://github.com/drpaj12/nornsIII>) and Verdandi III (<https://github.com/drpaj12/verdandiIII>) on side branches, and Mímir III (<https://github.com/drpaj12/mimirIII>, the fruit). Wyrd III is the canopy, with Bifrost III (the simulation bridge) and Midgard III (Verilog Town, W4, after the original verilogTown: Jamieson, Grace, Mizuno, Zhang, ASEE 2017). Version 0.1.0 (`pyproject.toml`; hub snapshot [v1.4.0](https://github.com/drpaj12/YggdrasilIII/blob/v1.4.0/docs/versions.md)); tested with Odin III 1.6.0 (C ABI 7): the `sim` extra needs the `odin3` package 1.0.3 or later, testbench mode 1.3.0 or later. The hub is <https://github.com/drpaj12/YggdrasilIII> (documentation: <https://drpaj12.github.io/YggdrasilIII/>, versions of every piece: <https://drpaj12.github.io/YggdrasilIII/versions.html>) and its picture of the tree is <https://github.com/drpaj12/YggdrasilIII/blob/main/images/yggdrasil-tree.png>.
 
     pip install -e .
     wyrd config init     # write ~/.config/wyrd/machine.toml with detected values
@@ -42,6 +42,7 @@ Status: **works** = on `main` with tests; **optional** = needs an extra (`[gui]`
 | Floorplan: re-run VPR with its graphics for a run | optional (VPR built with Qt6 graphics) | GUI Floorplan button |
 | Bifrost III simulation: compile Verilog with Odin III, set inputs, step, reset, record, VCD; `wyrd sim` with random or vector-file inputs; GUI Simulate tab with waveform and GTKWave | optional (`[sim]`) | `wyrd.bifrost`, `wyrd sim`; [simulation](docs/user/simulation.md) |
 | Testbench mode: run Verilog testbenches on RTL, netlist or both, and convert between vector files and testbenches (needs an Odin III with `run_testbenches`) | optional (`[sim]`) | `wyrd tb run\|convert`; [testbench](docs/user/testbench.md) |
+| Power pilot: FPGA (VPR) and ASIC (OpenROAD) power from a design's testbench switching activity; results of three designs in `docs/power/` | optional (pilot; needs iverilog, VTR with power data, ACE 2.0, OpenROAD) | `wyrd power run`; [power](docs/user/power.md) |
 | Midgard III (Verilog Town): replication of the verilogTown game with a Verilog editor and a level editor | optional (`[midgard]`) | `midgard`; [midgard](docs/user/midgard.md) |
 | Step types: `odin3`, `vpr`, `abc`, `shell`, `odin3-flow`, and Python plugins registered as entry points (Loki III registers step plugins) | works | `wyrd/steps/`; [projects](docs/user/projects.md) |
 
@@ -116,7 +117,7 @@ config-versus-base comparisons. See `docs/user/gui.md`.
 
 ## Simulation (`wyrd[sim]`)
 
-    pip install -e ".[sim]"      # Odin III 1.0.3 or later; odin3 is not on PyPI, install its release wheel
+    pip install -e ".[sim]"      # the odin3 package, 1.0.3 or later (1.6.0 tested); odin3 is not on PyPI, install its release wheel
 
 `wyrd.bifrost` (Bifrost III) wraps Odin III's per-cycle simulator: it compiles Verilog with
 `read_verilog; proc; opt; lower`, then exposes named inputs and outputs, step, reset, recording and VCD output.
@@ -135,7 +136,7 @@ The command line runs vector files or random inputs:
     wyrd sim traffic.v --random 100 --seed 3 --vcd traffic.vcd
     wyrd sim traffic.v --vectors in.txt --save-vectors out.txt
 
-Testbench mode (needs an Odin III with `run_testbenches`, main after PR 310): `wyrd tb run --project p.o3proj`
+Testbench mode (needs Odin III 1.3.0 or later, for `run_testbenches`): `wyrd tb run --project p.o3proj`
 or `wyrd tb run --tb tb.v --dut dut.v` runs Verilog testbenches (RTL, netlist or both); `wyrd tb convert --to tb|vectors`
 converts between vector files and testbenches. See `docs/user/testbench.md`.
 
@@ -192,7 +193,7 @@ License), see `NOTICE` and `docs/CITATIONS.md`. The font is Creepster (Font Dine
 ## Samples
 
 `samples/` holds three projects (`single`, `multi`, `dsp`) swept over two architectures. They need
-Odin III 1.0 (`odin3`, `odin3-flow` on PATH) and `VTR_ROOT`.
+Odin III 1.6.0 (`odin3`, `odin3-flow` on PATH), VTR (see the hub's [tools page](https://github.com/drpaj12/YggdrasilIII/blob/main/docs/tools.md)) and `VTR_ROOT`.
 
     wyrd config init                          # then check vtr_root in machine.toml
     wyrd run --project samples

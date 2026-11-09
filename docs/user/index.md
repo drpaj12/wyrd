@@ -38,6 +38,7 @@ The table with commands is in the [repository README](https://github.com/drpaj12
   and Structures tab, the Floorplan button ([gui](gui.md), [mimir](mimir.md)).
 - Simulate (optional): Bifrost III, `wyrd sim`, the Simulate tab, VCD ([simulation](simulation.md)) and testbench mode
   `wyrd tb run|convert` ([testbench](testbench.md)).
+- Power (pilot): `wyrd power run`, activity-based FPGA and ASIC power estimates ([power](power.md)).
 - Play (optional): Midgard III, Verilog Town ([midgard](midgard.md)).
 
 ```{toctree}
@@ -51,6 +52,7 @@ mimir
 viz
 simulation
 testbench
+power
 midgard
 samples
 ```

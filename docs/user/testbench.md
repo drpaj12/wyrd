@@ -4,7 +4,7 @@ Besides driving a design with a vector file (`wyrd sim`), Wyrd runs a design's o
 through Odin III and converts between vector files and testbenches. It uses Odin III's `sim_tb` and
 `run_testbenches` passes through the `odin3` Python package, so Wyrd never changes the core.
 
-Needs an Odin III main after PR 310 (planned v1.2.0; the latest tag v1.1.1 does not have
+Needs Odin III 1.3.0 or later (tested with 1.6.0; 1.2.0 and earlier have no
 `run_testbenches`). Run against a checkout with `ODIN3_LIB=<build>/libodin3.so` and
 `PYTHONPATH=<odin3>/plugins/python`. Without it the commands say so and exit 2. The `sim` extra stays
 `odin3>=1.0.3`: cycle simulation does not need the newer pass.
@@ -29,7 +29,7 @@ leading number of the line, field, wanted and got text); an error names the step
 each status. Exit codes: 0 all pass; 1 a testbench failed, errored or timed out; 2 usage, compile or
 backend error. `--json` writes the typed results. `--out` writes the `$display` text.
 
-`--vcd` writes a waveform. Odin III does not implement `sim_tb --vcd` yet, so Wyrd replays the input
+`--vcd` writes a waveform. Wyrd does not use Odin III's own `sim_tb --vcd` (available since 1.5.0); it replays the input
 columns of the printed vector lines (see below) through the simulator; it works for testbenches that print
 Wyrd's format and stops with an error for others.
 
@@ -51,7 +51,7 @@ file (with the output column). A testbench that prints other text cannot be conv
 testbench to vectors gives back the same file, byte for byte (the first header line is kept in a
 `// wyrd-vectors-header:` comment of the testbench).
 
-The simulator is 2-state and powers on with state 0, iverilog with x: begin a vector file with a reset.
+The cycle simulator behind vector files is 2-state and powers on with state 0, iverilog with x (`sim_tb` is 4-state by default since Odin III 1.5.0, regs start x): begin a vector file with a reset.
 
 ## From Python
 

@@ -2,14 +2,16 @@
 
     python make_shots.py WORK_DIR
 
-Needs on this machine: the wyrd venv (PySide6, pygame-ce, odin3 with the simulation API), `odin3`
-and `odin3-flow` on PATH, PYTHONPATH and ODIN3_LIB for the odin3 Python package, and VTR (the
-machine file `wyrd config init` writes takes it from $VTR_ROOT). Typical call:
+Needs on this machine: the wyrd venv (PySide6, pygame-ce, odin3 with the simulation API), an
+Odin III 1.6.0 or later build (`odin3`, `odin3-flow`, libodin3.so; see odin3_env.py), and VTR (the
+machine file `wyrd config init` writes takes it from $VTR_ROOT; tools page of the hub:
+https://github.com/drpaj12/YggdrasilIII/blob/main/docs/tools.md). Typical call:
 
-    O=~/odin3-ws/odin3
-    PATH=$O/build/release:$O/tools/flow:$PATH PYTHONPATH=$O/plugins/python \\
-      ODIN3_LIB=$O/build/release/libodin3.so VTR_ROOT=~/odin3-ws/external/vtr-verilog-to-routing \\
-      python make_shots.py /tmp/claude-1000/wdoc-tutorial
+    ODIN3_ROOT=/path/to/odin3 ODIN3_BUILD=$ODIN3_ROOT/build/release \\
+      VTR_ROOT=/path/to/vtr-verilog-to-routing QT_QPA_PLATFORM=offscreen \\
+      python make_shots.py /tmp/wdoc-tutorial
+
+ODIN3_BUILD defaults to $ODIN3_ROOT/build/release.
 
 Output: ../images/*.png (screenshots) and ../transcripts/*.txt (command output). WORK_DIR is
 wiped first. In the transcripts WORK_DIR/demo is printed as ~/wyrd-demo and nothing else is
@@ -25,10 +27,15 @@ import subprocess
 import sys
 from pathlib import Path
 
+import odin3_env
+
 HERE = Path(__file__).resolve().parent
 TUTORIAL = HERE.parent
 IMAGES = TUTORIAL / "images"
 TRANSCRIPTS = TUTORIAL / "transcripts"
+
+
+odin3_env.setup()
 
 
 class Work:
@@ -43,6 +50,9 @@ class Work:
                               check=False)
         text = (proc.stdout + proc.stderr).replace(str(self.demo), "~/wyrd-demo")
         text = text.replace(str(self.root / "machine.toml"), "~/.config/wyrd/machine.toml")
+        vtr = os.environ.get("VTR_ROOT")
+        if vtr:  # the reader's tree is shown at the documented location, never the author's path
+            text = text.replace(vtr.rstrip("/"), "~/vtr-verilog-to-routing")
         line = shown if shown is not None else " ".join(argv)
         TRANSCRIPTS.mkdir(parents=True, exist_ok=True)
         (TRANSCRIPTS / f"{name}.txt").write_text(f"$ {line}\n{text}", encoding="utf-8")
