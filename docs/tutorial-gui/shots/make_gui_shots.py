@@ -3,15 +3,14 @@
     QT_QPA_PLATFORM=offscreen python make_gui_shots.py WORK_DIR
 
 Needs the same environment as the CLI tutorial's shots/make_shots.py: the wyrd venv (PySide6,
-pygame-ce, odin3 with the simulation API), `odin3` and `odin3-flow` on PATH, PYTHONPATH and
-ODIN3_LIB for the odin3 Python package, and VTR (the machine file takes it from vtr_root).
-The machine file is the one `wyrd config init` writes into WORK_DIR (WYRD_CONFIG), never the
-reader's own. Typical call:
+pygame-ce, odin3 with the simulation API), an Odin III 1.6.0 or later build (ODIN3_ROOT and
+ODIN3_BUILD, see ../../tutorial/shots/odin3_env.py) and VTR (the machine file takes it from
+vtr_root). The machine file is the one `wyrd config init` writes into WORK_DIR (WYRD_CONFIG),
+never the reader's own. Typical call:
 
-    O=~/odin3-ws/odin3
-    PATH=$O/build/release:$O/tools/flow:$PATH PYTHONPATH=$O/plugins/python \\
-      ODIN3_LIB=$O/build/release/libodin3.so VTR_ROOT=~/odin3-ws/external/vtr-verilog-to-routing \\
-      python make_gui_shots.py /tmp/claude-1000/guitut-work
+    ODIN3_ROOT=/path/to/odin3 ODIN3_BUILD=$ODIN3_ROOT/build/release \\
+      VTR_ROOT=/path/to/vtr-verilog-to-routing QT_QPA_PLATFORM=offscreen \\
+      python make_gui_shots.py /tmp/guitut-work
 
 Output: ../images/gt-*.png. Every picture is a grab of a live widget; the numbers in them are
 those of the real runs. File and folder housekeeping is done here with the same steps the
@@ -30,6 +29,11 @@ from collections.abc import Callable
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tutorial" / "shots"))
+
+import odin3_env  # noqa: E402
+
+odin3_env.setup()
 
 from PySide6.QtCore import QPoint, QSettings
 from PySide6.QtWidgets import QApplication, QMenu, QWidget
@@ -142,7 +146,7 @@ def main(root: Path) -> int:
     menu_shot(app, win, "File", "gt-menu-file")
     win.new_project(demo)
     wait(app, lambda: win.project_dir == demo)  # the template names a file that does not exist yet
-    win.tabs.setCurrentWidget(win.editor)
+    win.show_panel(win.editor)
     grab(win, "gt-new-project")
     design(app, win)
     settings(app, win, cfg)
@@ -202,7 +206,7 @@ def design(app: QApplication, win: MainWindow) -> None:
     win.editor.save()
     pump(app, 1.5)
     assert win.project is not None and list(win.project.designs) == ["counteradd"], "toml edit"
-    win.tabs.setCurrentWidget(win.source_view)
+    win.show_panel(win.source_view)
     win.show_source(win.project_dir / "src" / "top.v")
     grab(win, "gt-source")
 
@@ -223,7 +227,7 @@ def run_demo(app: QApplication, win: MainWindow, demo: Path) -> None:
     wait(app, lambda: not win.flow.is_running())
     win.refresh_results()
     pump(app, 1.5)
-    win.tabs.setCurrentWidget(win.report_view)
+    win.show_panel(win.report_view)
     grab(win, "gt-flow-done")
     select_run_child(win, app, 0)
     grab(win, "gt-summary")
@@ -269,7 +273,7 @@ def compare_demo(app: QApplication, win: MainWindow, root: Path, demo: Path) -> 
     wait(app, lambda: not win.flow.is_running())
     win.refresh_results()
     pump(app, 1.5)
-    win.tabs.setCurrentWidget(win.report_view)
+    win.show_panel(win.report_view)
     tree = win.report_view.tree
     compare_item = tree.topLevelItem(tree.topLevelItemCount() - 1)
     assert compare_item is not None
@@ -288,7 +292,7 @@ def simulate(app: QApplication, win: MainWindow, demo: Path) -> None:
     panel = win.sim_panel
     win.docks["Flow"].hide()
     win.docks["Messages"].hide()
-    win.tabs.setCurrentWidget(panel)
+    win.show_panel(panel)
     grab(win, "gt-sim-tab")
     panel.compile()
     wait(app, lambda: panel.session is not None)
@@ -312,7 +316,7 @@ def samples(app: QApplication, win: MainWindow, root: Path) -> None:
                     ignore=shutil.ignore_patterns("expected", "make-expected", "__pycache__"))
     win.open_project(scratch)
     wait(app, lambda: win.project is not None and win.project.name == "samples")
-    win.tabs.setCurrentWidget(win.report_view)
+    win.show_panel(win.report_view)
     show_dock(win, "Flow")
     grab(win, "gt-samples-open")
     win.flow.force_box.setChecked(False)

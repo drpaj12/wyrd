@@ -7,7 +7,7 @@
 #
 # The PDF is committed: a reader needs no LaTeX. Tectonic fetches TeX packages on demand.
 
-TECTONIC ?= $(HOME)/odin3-ws/work/tools/tectonic/tectonic
+TECTONIC ?= tectonic
 PYTHON   ?= python3
 WORK     ?= $(CURDIR)/build/shots-work
 

@@ -3,8 +3,8 @@
 ## Requirements
 
 - Python 3.11 or later. The runner (`wyrd`) uses only the standard library.
-- Odin III 1.0 or later with `odin3` and `odin3-flow` on `PATH` (or named in the machine settings).
-- A VTR checkout for the `vtr` flow: the `vpr` binary and the architecture files
+- Odin III 1.6.0 (the version this manual was checked against; the runner works with 1.0 or later) with `odin3` and `odin3-flow` on `PATH` (or named in the machine settings).
+- A VTR checkout for the `vtr` flow (versions and install: the hub's [tools page](https://github.com/drpaj12/YggdrasilIII/blob/main/docs/tools.md)): the `vpr` binary and the architecture files
   (`vtr_flow/arch/timing/<arch>.xml`). Its location is the `vtr_root` machine setting, taken from
   `$VTR_ROOT` when you create the settings file.
 - On Linux and WSL, `systemd-run --user` if you keep the default `launcher = "systemd"` (memory
@@ -18,7 +18,7 @@ From a clone of the repository, in a virtual environment:
 python3 -m venv .venv
 .venv/bin/pip install -e .                 # the runner and `wyrd`
 .venv/bin/pip install -e ".[gui]"          # adds PySide6 for `wyrd-gui`
-.venv/bin/pip install -e ".[sim]"          # adds odin3 >= 1.0.3 for simulation (Bifrost III)
+.venv/bin/pip install -e ".[sim]"          # adds odin3 (>= 1.0.3; 1.3.0 for testbench mode) for simulation (Bifrost III)
 .venv/bin/pip install -e ".[midgard]"      # pygame-ce, PySide6 and odin3 for Midgard III
 ```
 

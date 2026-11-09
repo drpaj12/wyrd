@@ -57,7 +57,7 @@ def grab(widget: QWidget, out: Path, name: str) -> None:
 def samples_shot(app: QApplication, win: MainWindow, out: Path, samples: Path) -> None:
     win.open_project(samples)
     wait(app, lambda: win.project is not None and win.project.name == "samples")
-    win.tabs.setCurrentWidget(win.report_view)
+    win.show_panel(win.report_view)
     win.docks["Flow"].show()
     win.docks["Flow"].raise_()
     win.refresh_results()
@@ -78,7 +78,7 @@ def main(project: Path, out: Path, samples: Path | None) -> int:
     wait(app, lambda: win.project is not None)
     win.show_source(project / "src" / "top.v")
     grab(win, out, "gui-open")
-    win.tabs.setCurrentWidget(win.editor)
+    win.show_panel(win.editor)
     grab(win, out, "gui-toml")
     dialogs(app, win, out)
     run_flow(app, win, out)
@@ -113,7 +113,7 @@ def run_flow(app: QApplication, win: MainWindow, out: Path) -> None:
     wait(app, lambda: not win.flow.is_running())
     win.refresh_results()
     pump(app, 1.0)
-    win.tabs.setCurrentWidget(win.report_view)
+    win.show_panel(win.report_view)
     grab(win, out, "gui-flow-done")
     tree = win.report_view.tree
     run_item = tree.topLevelItem(1)
@@ -142,7 +142,7 @@ def simulate(app: QApplication, win: MainWindow, out: Path, project: Path) -> No
     panel = win.sim_panel
     win.docks["Flow"].hide()
     win.docks["Messages"].hide()
-    win.tabs.setCurrentWidget(panel)
+    win.show_panel(panel)
     grab(win, out, "gui-sim-tab")
     panel.compile()
     wait(app, lambda: panel.session is not None)

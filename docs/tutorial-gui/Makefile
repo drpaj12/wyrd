@@ -7,7 +7,7 @@
 #
 # The PDF is committed: a reader needs no LaTeX. The project sources are those of the CLI tutorial.
 
-TECTONIC ?= $(HOME)/odin3-ws/work/tools/tectonic/tectonic
+TECTONIC ?= tectonic
 PYTHON   ?= python3
 WORK     ?= $(CURDIR)/build/shots-work
 
