@@ -400,6 +400,10 @@ def table_cells(table: "QTableWidget") -> list[list[str]]:
 @unittest.skipUnless(HAVE_QT, "PySide6 not installed")
 class ReportTest(unittest.TestCase):
     def setUp(self) -> None:
+        # Ignore the developer's ~/.config/wyrd/machine.toml (its vpr_gui changes the tooltip).
+        env = mock.patch.dict(os.environ, {"WYRD_CONFIG": "/nonexistent/m.toml"})
+        env.start()
+        self.addCleanup(env.stop)
         self._tmp = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmp.name)
 
