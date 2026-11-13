@@ -16,7 +16,7 @@ Wyrd III has no paper of its own; it is the tool the experiments of the other pi
 ([command line](https://drpaj12.github.io/wyrd/wyrd-tutorial.pdf), [GUI](https://drpaj12.github.io/wyrd/wyrd-gui-tutorial.pdf)).
 Manual: <https://drpaj12.github.io/wyrd/>. Hub: <https://github.com/drpaj12/YggdrasilIII>.
 
-Wyrd III is part of **Yggdrasil III**, the suite of Odin III (<https://github.com/drpaj12/odin3>, the trunk), Wyrd III (<https://github.com/drpaj12/wyrd>, the canopy, with Bifrost III and Midgard III), Loki III (<https://github.com/drpaj12/loki>), The Norns III (<https://github.com/drpaj12/nornsIII>) and Verdandi III (<https://github.com/drpaj12/verdandiIII>) on side branches, and Mímir III (<https://github.com/drpaj12/mimirIII>, the fruit). Wyrd III is the canopy, with Bifrost III (the simulation bridge) and Midgard III (Verilog Town, W4, after the original verilogTown: Jamieson, Grace, Mizuno, Zhang, ASEE 2017). Version 0.1.0 (`pyproject.toml`; hub snapshot [v1.4.0](https://github.com/drpaj12/YggdrasilIII/blob/v1.4.0/docs/versions.md)); tested with Odin III 1.6.0 (C ABI 7): the `sim` extra needs the `odin3` package 1.0.3 or later, testbench mode 1.3.0 or later. The hub is <https://github.com/drpaj12/YggdrasilIII> (documentation: <https://drpaj12.github.io/YggdrasilIII/>, versions of every piece: <https://drpaj12.github.io/YggdrasilIII/versions.html>) and its picture of the tree is <https://github.com/drpaj12/YggdrasilIII/blob/main/images/yggdrasil-tree.png>.
+Wyrd III is part of **Yggdrasil III**, the suite of Odin III (<https://github.com/drpaj12/odin3>, the trunk), Wyrd III (<https://github.com/drpaj12/wyrd>, the canopy, with Bifrost III and Midgard III) and Heimdall III (<https://github.com/drpaj12/heimdallIII>, the canopy viewer), Loki III (<https://github.com/drpaj12/loki>), The Norns III (<https://github.com/drpaj12/nornsIII>), Verdandi III (<https://github.com/drpaj12/verdandiIII>) and Leman Russ III (<https://github.com/drpaj12/lemanrussIII>) on side branches, and Mímir III (<https://github.com/drpaj12/mimirIII>, the fruit). Wyrd III is the canopy, with Bifrost III (the simulation bridge) and Midgard III (Verilog Town, W4, after the original verilogTown: Jamieson, Grace, Mizuno, Zhang, ASEE 2017). Version 0.1.0 (`pyproject.toml`; hub snapshot [v1.6.0](https://github.com/drpaj12/YggdrasilIII/blob/v1.6.0/docs/versions.md)); tested with Odin III 1.6.0 (C ABI 7): the `sim` extra needs the `odin3` package 1.0.3 or later, testbench mode 1.3.0 or later. The hub is <https://github.com/drpaj12/YggdrasilIII> (documentation: <https://drpaj12.github.io/YggdrasilIII/>, versions of every piece: <https://drpaj12.github.io/YggdrasilIII/versions.html>) and its picture of the tree is <https://github.com/drpaj12/YggdrasilIII/blob/main/images/yggdrasil-tree.png>.
 
     pip install -e .
     wyrd config init     # write ~/.config/wyrd/machine.toml with detected values
@@ -43,6 +43,7 @@ Status: **works** = on `main` with tests; **optional** = needs an extra (`[gui]`
 | Bifrost III simulation: compile Verilog with Odin III, set inputs, step, reset, record, VCD; `wyrd sim` with random or vector-file inputs; GUI Simulate tab with waveform and GTKWave | optional (`[sim]`) | `wyrd.bifrost`, `wyrd sim`; [simulation](docs/user/simulation.md) |
 | Testbench mode: run Verilog testbenches on RTL, netlist or both, and convert between vector files and testbenches (needs an Odin III with `run_testbenches`) | optional (`[sim]`) | `wyrd tb run\|convert`; [testbench](docs/user/testbench.md) |
 | Power pilot: FPGA (VPR) and ASIC (OpenROAD) power from a design's testbench switching activity; results of three designs in `docs/power/` | optional (pilot; needs iverilog, VTR with power data, ACE 2.0, OpenROAD) | `wyrd power run`; [power](docs/user/power.md) |
+| 3D provenance viewer: `wyrd viz export\|serve\|site` forwards to Heimdall III, which has its own repository | optional (`[viz]`) | `wyrd viz`; [viz](docs/user/viz.md) |
 | Midgard III (Verilog Town): replication of the verilogTown game with a Verilog editor and a level editor | optional (`[midgard]`) | `midgard`; [midgard](docs/user/midgard.md) |
 | Step types: `odin3`, `vpr`, `abc`, `shell`, `odin3-flow`, and Python plugins registered as entry points (Loki III registers step plugins) | works | `wyrd/steps/`; [projects](docs/user/projects.md) |
 
@@ -59,7 +60,7 @@ Start at the Yggdrasil III hub; every manual links to the others.
   [GUI](https://drpaj12.github.io/wyrd/wyrd-gui-tutorial.pdf).
 - [Loki III manual](https://drpaj12.github.io/loki/).
 - [Verdandi III manual](https://drpaj12.github.io/verdandiIII/).
-- [The Norns III](https://github.com/drpaj12/nornsIII) (repository; plan and paper under `docs/`).
+- [The Norns III](https://github.com/drpaj12/nornsIII) (repository; plan under `docs/`; its paper is kept locally by the author).
 - [Set up the whole suite](https://drpaj12.github.io/YggdrasilIII/getting-started.html) on a clean Linux or
   Windows machine, and [drive it with Claude Code](https://drpaj12.github.io/YggdrasilIII/ai-agent.html).
 
