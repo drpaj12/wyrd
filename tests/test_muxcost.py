@@ -17,7 +17,9 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from tests.test_cli import CliBase
 from wyrd import cli
 from wyrd.muxcost import blif, flow, logical, lutcost, netlist, provmap, render, report
 
@@ -397,6 +399,34 @@ class TestCli(unittest.TestCase):
         self.assertEqual(wyrd("mux-cost", "a.v", "--from", "d")[0], 2)
         self.assertEqual(wyrd("mux-cost", "--from", str(self.tmp))[0], 2)
         self.assertEqual(wyrd("mux-cost", "--from", str(self.tmp), "--limit", "0")[0], 2)
+
+
+class TestProjectRun(CliBase):
+    """`--project DIR --run KEY`: the design and top of the run, output under the run directory."""
+
+    def test_design_run_dir_and_found_timing_report(self) -> None:
+        root = self.init_project()
+        self.assertEqual(wyrd("run", "--project", str(root))[0], 0)
+        rows = cli._rows(str(root))
+        assert rows is not None
+        key, run_dir = str(rows[0]["key"]), Path(str(rows[0]["run_dir"]))
+        seen: list[flow.FlowSpec] = []
+
+        def fake_run(spec: flow.FlowSpec) -> report.Inputs:
+            seen.append(spec)
+            return inputs("case_tern")
+
+        (run_dir / "vpr").mkdir(parents=True, exist_ok=True)
+        write_timing(run_dir / "vpr", "case_tern", {})  # found, and its pins join the BLIF
+        with mock.patch.object(flow, "run", fake_run):
+            code, out, err = wyrd("mux-cost", "--project", str(root), "--run", key[:8], "--json")
+        self.assertEqual(code, 0, err)
+        (spec,) = seen
+        self.assertEqual(spec.files, (root / "a.v",))
+        self.assertEqual(spec.out, run_dir / "mux-cost")
+        self.assertTrue(json.loads(out)["timing"])
+        self.assertEqual(wyrd("mux-cost", "--project", str(root), "--run", "abc")[0], 2)
+        self.assertEqual(wyrd("mux-cost", "--project", str(root), "--run", "ffffff")[0], 2)
 
 
 @unittest.skipUnless(all(REAL), "set WYRD_TEST_ODIN3 and WYRD_TEST_ODIN3_FLOW to run Odin III")

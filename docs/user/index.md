@@ -39,6 +39,7 @@ The table with commands is in the [repository README](https://github.com/drpaj12
 - Simulate (optional): Bifrost III, `wyrd sim`, the Simulate tab, VCD ([simulation](simulation.md)) and testbench mode
   `wyrd tb run|convert` ([testbench](testbench.md)).
 - Power (pilot): `wyrd power run`, activity-based FPGA and ASIC power estimates ([power](power.md)).
+- Mux cost: `wyrd mux-cost`, the mux bits, LUTs and select lateness of each HDL construct ([mux-cost](mux-cost.md)).
 - Play (optional): Midgard III, Verilog Town ([midgard](midgard.md)).
 
 ```{toctree}
@@ -53,6 +54,7 @@ viz
 simulation
 testbench
 power
+mux-cost
 midgard
 samples
 ```
