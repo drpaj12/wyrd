@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from wyrd.muxcost.blif import Blif
 from wyrd.muxcost.logical import Logical
 from wyrd.muxcost.netlist import Netlist
-from wyrd.muxcost.provmap import MapError, NameMap
+from wyrd.muxcost.provmap import MapError, NameMap, Record
 
 
 @dataclass
@@ -68,12 +68,22 @@ def _cells_of_gate(final: NameMap, gate: str, by_uid: dict[str, list[str]]) -> l
     return []
 
 
+def _cut(rec: Record | None) -> str:
+    """``exact`` or ``approx`` for a LUT record; ``named`` when the LUT's output net keeps a name
+    (the map shows that net's older record); ``none`` for no record or a LUT record with no cut."""
+    if rec is None:
+        return "none"
+    if rec.level != "lut":
+        return "named"
+    return rec.flags.get("cut", "none")
+
+
 def attribute(blif: Blif, final: NameMap, by_uid: dict[str, list[str]]) -> Attribution:
     out = Attribution()
     for lut in sorted(blif.luts):
         rec_id = final.objects.get(("net", lut), ("", ""))[0]
         rec = final.records.get(rec_id)
-        cut = rec.flags.get("cut", "none") if rec is not None and rec.level == "lut" else "none"
+        cut = _cut(rec)
         out.cuts[cut] += 1
         if rec is None or cut != "exact":
             continue

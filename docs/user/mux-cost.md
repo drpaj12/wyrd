@@ -73,10 +73,11 @@ the LUTs, and the worst `late`.
 A LUT made with `abc --prov-cut on` has an exact cut when Odin III can prove which old gates its function covers
 (`cut=exact`); the record then lists the word cells the LUT covers. The report counts a LUT for a mux when its exact cut
 contains that mux cell. A LUT with an approximate cut (ABC rebuilt its function) or no cut is not attributed to any
-cell; the header line counts them, so a design with many approximate LUTs shows `luts 0` for rows that do cost LUTs.
-Two limits of the name map apply (see the Odin III provenance page): a LUT that drives a net that keeps its name, such
-as an output port, shows that net's older record and is not found; register the outputs of a small sample, as
-`tests/data/muxcost/src/` does. A LUT that covers two cells is counted in both rows and listed as shared.
+cell. A LUT that drives a net that keeps its name, such as an output port, shows that net's older record in the name map
+(a limit of the map, see the Odin III provenance page) and is not found either. The header line counts the LUTs of each
+kind (`exact`, `approx`, `named`, `none`), so a design with many of the last three shows `luts 0` for rows that do cost
+LUTs: read the counts before trusting a small `luts`. The samples in `tests/data/muxcost/src/` register their outputs for
+this reason. A LUT that covers two cells is counted in both rows and listed as shared.
 
 ### The lower bound
 
@@ -113,7 +114,7 @@ LUT with no separate select pin, or with no data pin, shows `-` (JSON `null`).
 ## JSON
 
 `--json` prints one object: `schema` (`wyrd-mux-cost`), `schema_version` (1), `design` (`top`, `lut_k`), `totals`
-(`logical_muxes`, `mux_cells`, `mux_bits`, `luts`, `luts_attributed`, `cuts` with `exact`, `approx`, `none`), `sort`,
+(`logical_muxes`, `mux_cells`, `mux_bits`, `luts`, `luts_attributed`, `cuts` with `exact`, `approx`, `named`, `none`), `sort`,
 `timing` (true when a routed report was used), `muxes` (one object per logical mux with the columns above and `id`,
 the root cell's hash name) and `constructs`. With a routed report each mux also has `sel_crit`, `data_crit`, `late` and
 `witness`, each construct has `late`, and `timing_note` states the criticality formula. The keys of a version do not
@@ -126,7 +127,7 @@ directory of the design files).
 
 ```text
 Mux cost of case_tern (K=6): 2 logical muxes, 2 mux cells, 16 mux bits (2:1 equivalents)
-LUTs 8; with an exact cut 8, approximate 0, no cut 0; attributed to a word cell 8
+LUTs 8: exact cut 8, approximate 0, drive a named net 0, no cut 0; attributed to a word cell 8
 Sorted by bits.
 
 Per HDL construct

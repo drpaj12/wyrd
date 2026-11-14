@@ -72,7 +72,7 @@ class TestCaseTernary(unittest.TestCase):
         self.assertEqual(t["mux_cells"], 2)
         self.assertEqual(t["mux_bits"], 16)  # 4 x (4 - 1) + 4 x (2 - 1)
         self.assertEqual(t["luts"], 8)
-        self.assertEqual(t["cuts"], {"exact": 8, "approx": 0, "none": 0})
+        self.assertEqual(t["cuts"], {"exact": 8, "approx": 0, "named": 0, "none": 0})
         self.assertEqual(t["luts_attributed"], 8)
 
     def test_case_row(self) -> None:
@@ -130,7 +130,7 @@ class TestShiftx(unittest.TestCase):
         self.assertEqual(r["luts"], 0)
         t = doc["totals"]
         assert isinstance(t, dict)
-        self.assertEqual(t["cuts"], {"exact": 0, "approx": 3, "none": 0})
+        self.assertEqual(t["cuts"], {"exact": 0, "approx": 3, "named": 0, "none": 0})
 
 
 class TestNoRouting(unittest.TestCase):

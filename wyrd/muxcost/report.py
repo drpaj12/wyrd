@@ -233,7 +233,7 @@ def _document(
             "mux_bits": sum(g.bits for g in groups),
             "luts": len(blif.luts),
             "luts_attributed": len({lut for lut in attr.lut_cells if attr.lut_cells[lut]}),
-            "cuts": {k: attr.cuts.get(k, 0) for k in ("exact", "approx", "none")},
+            "cuts": {k: attr.cuts.get(k, 0) for k in ("exact", "approx", "named", "none")},
         },
         "sort": sort,
         "timing": crit is not None,

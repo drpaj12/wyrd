@@ -115,8 +115,9 @@ def render(doc: dict[str, object]) -> str:
         f"Mux cost of {design['top']} (K={design['lut_k']}): "
         f"{totals['logical_muxes']} logical muxes, "
         f"{totals['mux_cells']} mux cells, {totals['mux_bits']} mux bits (2:1 equivalents)",
-        f"LUTs {totals['luts']}; with an exact cut {cuts['exact']}, approximate {cuts['approx']}, "
-        f"no cut {cuts['none']}; attributed to a word cell {totals['luts_attributed']}",
+        f"LUTs {totals['luts']}: exact cut {cuts['exact']}, approximate {cuts['approx']}, "
+        f"drive a named net {cuts['named']}, no cut {cuts['none']}; "
+        f"attributed to a word cell {totals['luts_attributed']}",
         f"Sorted by {doc['sort']}.",
         "",
         "Per HDL construct",
