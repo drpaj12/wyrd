@@ -1,0 +1,21 @@
+# Odin III 1.6.1 write_blif --vtr (K=6, names hash)
+# abc: script=builtin:lib/abc/vtr.abc sha256=0d0d27670d8c71d6ae62366f0588ef445008fa9e824dab79cb751d8f6edcab62 abc=a3001b72edc5de22442e942165487fddf150e3d0 K=6 exchange=blif depth=2
+
+.model index
+.inputs clk v[0] v[1] v[2] v[3] v[4] v[5] v[6] v[7] idx[0] idx[1] idx[2]
+.outputs o
+.names v[7] v[6] v[3] v[2] idx[0] idx[2] hjt3pb74cwq
+---000 1
+--0-10 1
+-0--01 1
+0---11 1
+.names v[5] v[4] v[1] v[0] idx[0] idx[2] hyptbubaoff
+---000 1
+--0-10 1
+-0--01 1
+0---11 1
+.names hyptbubaoff hjt3pb74cwq idx[1] hosaqv3wdgs
+0-0 1
+-01 1
+.latch hosaqv3wdgs o re clk 2
+.end

@@ -1,0 +1,26 @@
+# odin3-names 2 hash=sha256 width=10 prov=1 ast=refs
+O	index	node	hmdtxszb3ay	index/$c7@index.v:2	index	index.v	2	r2	word
+O	index	node	hzz5n7ksjzs	index/$c5@index.v:2	index	index.v	2	r3	expr
+N	index	wire	clk	r4	stmt
+N	index	wire	idx	r5	stmt
+N	index	wire	o	r6	stmt
+N	index	wire	v	r7	stmt
+R	r1	S	block	origin	t1.1		f1:2.3-2.37	c2	hier=index,uid=6
+R	r2	D	word	refine:stmt	t2.1	r1			uid=9
+R	r3	S	expr	origin	t1.1		f1:2.30-2.36	c5	hier=index,uid=7
+R	r4	S	stmt	origin	t1.1		f1:1.14-1.23	c6	hier=index,uid=2
+R	r5	S	stmt	origin	t1.1		f1:1.40-1.55	c7	hier=index,uid=4
+R	r6	S	stmt	origin	t1.1		f1:1.57-1.69	c8	hier=index,uid=5
+R	r7	S	stmt	origin	t1.1		f1:1.25-1.38	c9	hier=index,uid=3
+C	c1	MODULE	module		f1	1.1-3.10	index
+C	c2	ALWAYS	block	c1	f1	2.3-2.37	
+C	c3	TIMING_STMT	stmt	c2	f1	2.10-2.37	
+C	c4	NONBLOCKING_ASSIGN	stmt	c3	f1	2.25-2.37	
+C	c5	SELECT	expr	c4	f1	2.30-2.36	
+C	c6	PORT_DECL	stmt	c1	f1	1.14-1.23	
+C	c7	PORT_DECL	stmt	c1	f1	1.40-1.55	
+C	c8	PORT_DECL	stmt	c1	f1	1.57-1.69	
+C	c9	PORT_DECL	stmt	c1	f1	1.25-1.38	
+F	f1	index.v
+T	t1	read_verilog	--nolatches --vtr-compat --prov-ast refs "index.v"	
+T	t2	proc		

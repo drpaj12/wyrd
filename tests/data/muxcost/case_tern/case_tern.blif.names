@@ -1,0 +1,103 @@
+# odin3-names 2 hash=sha256 width=10 prov=1 ast=refs
+O	case_tern	net	hbdbzdgtjs2	case_tern/$n34@case_tern.v:14	case_tern	case_tern.v	14	r3	lut
+O	case_tern	net	hesg7l73z6j	case_tern/$n17@case_tern.v:1	case_tern	case_tern.v	1	r4	module
+O	case_tern	net	hgbgopq34tu	case_tern/$n27@case_tern.v:5	case_tern	case_tern.v	5	r22	lut
+O	case_tern	net	hlqijdt6rxi	case_tern/$n29@case_tern.v:5	case_tern	case_tern.v	5	r23	lut
+O	case_tern	net	ht5bogernxt	case_tern/$n32@case_tern.v:14	case_tern	case_tern.v	14	r24	lut
+O	case_tern	net	htwxh42swu2	case_tern/$n33@case_tern.v:14	case_tern	case_tern.v	14	r25	lut
+O	case_tern	net	hwaqwzpdpl3	case_tern/$n18@case_tern.v:1	case_tern	case_tern.v	1	r4	module
+O	case_tern	net	hwktdjublje	case_tern/$n31@case_tern.v:14	case_tern	case_tern.v	14	r26	lut
+O	case_tern	net	hyzr6u66pzz	case_tern/$n28@case_tern.v:5	case_tern	case_tern.v	5	r27	lut
+O	case_tern	net	hznw35lyd3y	case_tern/$n30@case_tern.v:5	case_tern	case_tern.v	5	r28	lut
+N	case_tern	net	a[0]	r29	stmt
+N	case_tern	net	a[1]	r29	stmt
+N	case_tern	net	a[2]	r29	stmt
+N	case_tern	net	a[3]	r29	stmt
+N	case_tern	net	b[0]	r30	stmt
+N	case_tern	net	b[1]	r30	stmt
+N	case_tern	net	b[2]	r30	stmt
+N	case_tern	net	b[3]	r30	stmt
+N	case_tern	net	c[0]	r31	stmt
+N	case_tern	net	c[1]	r31	stmt
+N	case_tern	net	c[2]	r31	stmt
+N	case_tern	net	c[3]	r31	stmt
+N	case_tern	net	clk	r32	stmt
+N	case_tern	net	en	r33	stmt
+N	case_tern	net	sel[0]	r34	stmt
+N	case_tern	net	sel[1]	r34	stmt
+N	case_tern	net	y[0]	r37	gate
+N	case_tern	net	y[1]	r37	gate
+N	case_tern	net	y[2]	r37	gate
+N	case_tern	net	y[3]	r37	gate
+N	case_tern	net	z[0]	r38	gate
+N	case_tern	net	z[1]	r38	gate
+N	case_tern	net	z[2]	r38	gate
+N	case_tern	net	z[3]	r38	gate
+R	r1	S	expr	origin	t1.1		f1:14.10-14.20	c6	hier=case_tern,uid=23
+R	r2	D	gate	refine:word	t2.1	r1			cell=$mux,cw=4,ca=2,uid=34
+R	r3	D	lut	coarsen:gate	t3.8	r2			cut=exact,uid=64
+R	r4	S	module	origin	t1.1		f1:1.1-16.10	c1	hier=case_tern,uid=1
+R	r5	S	stmt	origin	t1.1		f1:5.5-10.12	c10	hier=case_tern,uid=12
+R	r6	S	branch	origin	t1.1		f1:8.7-8.20	c11	hier=case_tern,uid=17
+R	r7	S	branch	origin	t1.1		f1:7.7-7.20	c12	hier=case_tern,uid=15
+R	r8	S	branch	origin	t1.1		f1:6.7-6.20	c13	hier=case_tern,uid=13
+R	r9	D	word	refine:stmt	t4.1	r5,r6,r7,r8			uid=30
+R	r10	D	gate	refine:word	t2.3	r9			cell=$pmux,cw=4,ca=4,uid=36
+R	r11	S	stmt	origin	t1.1		f1:6.13-6.20	c14	hier=case_tern,uid=14
+R	r12	D	word	refine:stmt	t4.1	r5,r8,r11			uid=29
+R	r13	D	word	rewrite:word	t4.3	r12			uid=32
+R	r14	D	gate	refine:word	t2.6	r13			cell=$logic_not,cw=1,uid=39
+R	r15	S	stmt	origin	t1.1		f1:7.13-7.20	c15	hier=case_tern,uid=16
+R	r16	D	word	refine:stmt	t4.1	r5,r7,r15			uid=28
+R	r17	D	word	rewrite:word	t5.1	r16			uid=33
+R	r18	D	gate	refine:word	t2.7	r17			cell=$eq,cw=1,uid=40
+R	r19	S	stmt	origin	t1.1		f1:8.13-8.20	c16	hier=case_tern,uid=18
+R	r20	D	word	refine:stmt	t4.1	r5,r6,r19			uid=26
+R	r21	D	gate	refine:word	t2.2	r20			cell=$eq,cw=1,uid=35
+R	r22	D	lut	coarsen:gate	t3.1	r10,r14,r18,r21		c14,c15,c16	join,cut=exact,uid=57
+R	r23	D	lut	coarsen:gate	t3.3	r10,r14,r18,r21		c14,c15,c16	join,cut=exact,uid=59
+R	r24	D	lut	coarsen:gate	t3.6	r2			cut=exact,uid=62
+R	r25	D	lut	coarsen:gate	t3.7	r2			cut=exact,uid=63
+R	r26	D	lut	coarsen:gate	t3.5	r2			cut=exact,uid=61
+R	r27	D	lut	coarsen:gate	t3.2	r10,r14,r18,r21		c14,c15,c16	join,cut=exact,uid=58
+R	r28	D	lut	coarsen:gate	t3.4	r10,r14,r18,r21		c14,c15,c16	join,cut=exact,uid=60
+R	r29	S	stmt	origin	t1.1		f1:1.46-1.65	c17	hier=case_tern,uid=4
+R	r30	S	stmt	origin	t1.1		f1:1.46-1.65	c17	hier=case_tern,uid=5
+R	r31	S	stmt	origin	t1.1		f1:1.46-1.65	c17	hier=case_tern,uid=6
+R	r32	S	stmt	origin	t1.1		f1:1.18-1.27	c18	hier=case_tern,uid=2
+R	r33	S	stmt	origin	t1.1		f1:1.67-1.75	c19	hier=case_tern,uid=7
+R	r34	S	stmt	origin	t1.1		f1:1.29-1.44	c20	hier=case_tern,uid=3
+R	r35	S	block	origin	t1.1		f1:12.3-15.6	c2	hier=case_tern,uid=21
+R	r36	D	word	refine:stmt	t4.2	r35			uid=31
+R	r37	D	gate	refine:word	t2.4	r36			cell=$dff,cw=4,uid=37
+R	r38	D	gate	refine:word	t2.5	r36			cell=$dff,cw=4,uid=38
+C	c1	MODULE	module		f1	1.1-16.10	case_tern
+C	c2	ALWAYS	block	c1	f1	12.3-15.6	
+C	c3	TIMING_STMT	stmt	c2	f1	12.10-15.6	
+C	c4	SEQ_BLOCK	stmt	c3	f1	12.25-15.6	
+C	c5	NONBLOCKING_ASSIGN	stmt	c4	f1	14.5-14.21	
+C	c6	TERNARY	expr	c5	f1	14.10-14.20	
+C	c7	ALWAYS	block	c1	f1	4.3-11.6	
+C	c8	TIMING_STMT	stmt	c7	f1	4.10-11.6	
+C	c9	SEQ_BLOCK	stmt	c8	f1	4.15-11.6	
+C	c10	CASE	stmt	c9	f1	5.5-10.12	
+C	c11	CASE_ITEM	branch	c10	f1	8.7-8.20	
+C	c12	CASE_ITEM	branch	c10	f1	7.7-7.20	
+C	c13	CASE_ITEM	branch	c10	f1	6.7-6.20	
+C	c14	BLOCKING_ASSIGN	stmt	c13	f1	6.13-6.20	
+C	c15	BLOCKING_ASSIGN	stmt	c12	f1	7.13-7.20	
+C	c16	BLOCKING_ASSIGN	stmt	c11	f1	8.13-8.20	
+C	c17	PORT_DECL	stmt	c1	f1	1.46-1.65	
+C	c18	PORT_DECL	stmt	c1	f1	1.18-1.27	
+C	c19	PORT_DECL	stmt	c1	f1	1.67-1.75	
+C	c20	PORT_DECL	stmt	c1	f1	1.29-1.44	
+F	f1	case_tern.v
+T	t1	read_verilog	--nolatches --vtr-compat --prov-ast refs "case_tern.v"	
+T	t2	lower		modules=1 cells=7 nodes=48
+T	t3	abc	--lut 6 --prov-cut on	script=builtin:lib/abc/vtr.abc sha256=0d0d27670d8c71d6ae62366f0588ef445008fa9e824dab79cb751d8f6edcab62 abc=a3001b72edc5de22442e942165487fddf150e3d0 K=6 exchange=blif depth=1
+T	t4	proc		
+T	t5	wreduce		
+Q	r22		depth								why=-,objective=i,gain=-,pcrit=-,rho=-,slack=-,near=-,npaths=-	-
+Q	r23		depth								why=-,objective=i,gain=-,pcrit=-,rho=-,slack=-,near=-,npaths=-	-
+Q	r27		depth								why=-,objective=i,gain=-,pcrit=-,rho=-,slack=-,near=-,npaths=-	-
+Q	r28		depth								why=-,objective=i,gain=-,pcrit=-,rho=-,slack=-,near=-,npaths=-	-

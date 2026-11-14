@@ -1,4 +1,4 @@
-"""Command line of Wyrd III: init, run, status, table, compare, timing, config, sim, tb, mimir."""
+"""Command line of Wyrd III: init, run, status, table, compare, timing, mux-cost, sim, tb, mimir."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from collections import Counter
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from wyrd import mimircli, powercli, report, settings, tbcli, vizcli
+from wyrd import mimircli, muxcli, powercli, report, settings, tbcli, vizcli
 from wyrd.guimodel import timing
 from wyrd.preflight import ProjectLocked, acquire_lock, preflight
 from wyrd.project import ConfigError, Project, load_project
@@ -401,6 +401,7 @@ def _parser() -> argparse.ArgumentParser:
     tbcli.add_parser(sub)
     powercli.add_parser(sub)
     vizcli.add_parser(sub)
+    muxcli.add_parser(sub)
     return p
 
 
@@ -421,6 +422,8 @@ def main(argv: list[str] | None = None) -> int:
         return powercli.main(args)
     if args.command == "viz":
         return vizcli.main(args)
+    if args.command == "mux-cost":
+        return muxcli.main(args)
     handlers = {
         "run": _run,
         "status": _status,

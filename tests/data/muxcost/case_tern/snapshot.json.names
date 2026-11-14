@@ -1,0 +1,70 @@
+# odin3-names 2 hash=sha256 width=10 prov=1 ast=refs
+O	case_tern	node	h6izsdt4nvh	case_tern/$c21@case_tern.v:5	case_tern	case_tern.v	5	r5	word
+O	case_tern	node	h6lnfe7tywi	case_tern/$c14@case_tern.v:5	case_tern	case_tern.v	5	r8	word
+O	case_tern	node	h73rbbcvfrd	case_tern/$c17@case_tern.v:5	case_tern	case_tern.v	5	r10	word
+O	case_tern	node	hc4mopap2sz	case_tern/$c20@case_tern.v:5	case_tern	case_tern.v	5	r13	word
+O	case_tern	node	hdet4yuazp6	case_tern/$c18@case_tern.v:12	case_tern	case_tern.v	12	r15	word
+O	case_tern	node	hig62zdxdoo	case_tern/$c12@case_tern.v:14	case_tern	case_tern.v	14	r16	expr
+O	case_tern	node	hs3lv7jji3m	case_tern/$c19@case_tern.v:12	case_tern	case_tern.v	12	r15	word
+O	case_tern	wire	hzcyejjfb3f	case_tern/ny@case_tern.v:3	case_tern	case_tern.v	3	r17	stmt
+N	case_tern	wire	a	r18	stmt
+N	case_tern	wire	b	r19	stmt
+N	case_tern	wire	c	r20	stmt
+N	case_tern	wire	clk	r21	stmt
+N	case_tern	wire	en	r22	stmt
+N	case_tern	wire	sel	r23	stmt
+N	case_tern	wire	y	r24	stmt
+N	case_tern	wire	z	r25	stmt
+R	r1	S	stmt	origin	t1.1		f1:5.5-10.12	c5	hier=case_tern,uid=12
+R	r2	S	branch	origin	t1.1		f1:7.7-7.20	c6	hier=case_tern,uid=15
+R	r3	S	stmt	origin	t1.1		f1:7.13-7.20	c7	hier=case_tern,uid=16
+R	r4	D	word	refine:stmt	t2.1	r1,r2,r3			uid=28
+R	r5	D	word	rewrite:word	t3.1	r4			uid=33
+R	r6	S	branch	origin	t1.1		f1:8.7-8.20	c8	hier=case_tern,uid=17
+R	r7	S	stmt	origin	t1.1		f1:8.13-8.20	c9	hier=case_tern,uid=18
+R	r8	D	word	refine:stmt	t2.1	r1,r6,r7			uid=26
+R	r9	S	branch	origin	t1.1		f1:6.7-6.20	c10	hier=case_tern,uid=13
+R	r10	D	word	refine:stmt	t2.1	r1,r6,r2,r9			uid=30
+R	r11	S	stmt	origin	t1.1		f1:6.13-6.20	c11	hier=case_tern,uid=14
+R	r12	D	word	refine:stmt	t2.1	r1,r9,r11			uid=29
+R	r13	D	word	rewrite:word	t2.3	r12			uid=32
+R	r14	S	block	origin	t1.1		f1:12.3-15.6	c12	hier=case_tern,uid=21
+R	r15	D	word	refine:stmt	t2.2	r14			uid=31
+R	r16	S	expr	origin	t1.1		f1:14.10-14.20	c16	hier=case_tern,uid=23
+R	r17	S	stmt	origin	t1.1		f1:3.13-3.15	c18	hier=case_tern,uid=10
+R	r18	S	stmt	origin	t1.1		f1:1.46-1.65	c19	hier=case_tern,uid=4
+R	r19	S	stmt	origin	t1.1		f1:1.46-1.65	c19	hier=case_tern,uid=5
+R	r20	S	stmt	origin	t1.1		f1:1.46-1.65	c19	hier=case_tern,uid=6
+R	r21	S	stmt	origin	t1.1		f1:1.18-1.27	c20	hier=case_tern,uid=2
+R	r22	S	stmt	origin	t1.1		f1:1.67-1.75	c21	hier=case_tern,uid=7
+R	r23	S	stmt	origin	t1.1		f1:1.29-1.44	c22	hier=case_tern,uid=3
+R	r24	S	stmt	origin	t1.1		f1:2.18-2.36	c23	hier=case_tern,uid=8
+R	r25	S	stmt	origin	t1.1		f1:2.38-2.56	c24	hier=case_tern,uid=9
+C	c1	MODULE	module		f1	1.1-16.10	case_tern
+C	c2	ALWAYS	block	c1	f1	4.3-11.6	
+C	c3	TIMING_STMT	stmt	c2	f1	4.10-11.6	
+C	c4	SEQ_BLOCK	stmt	c3	f1	4.15-11.6	
+C	c5	CASE	stmt	c4	f1	5.5-10.12	
+C	c6	CASE_ITEM	branch	c5	f1	7.7-7.20	
+C	c7	BLOCKING_ASSIGN	stmt	c6	f1	7.13-7.20	
+C	c8	CASE_ITEM	branch	c5	f1	8.7-8.20	
+C	c9	BLOCKING_ASSIGN	stmt	c8	f1	8.13-8.20	
+C	c10	CASE_ITEM	branch	c5	f1	6.7-6.20	
+C	c11	BLOCKING_ASSIGN	stmt	c10	f1	6.13-6.20	
+C	c12	ALWAYS	block	c1	f1	12.3-15.6	
+C	c13	TIMING_STMT	stmt	c12	f1	12.10-15.6	
+C	c14	SEQ_BLOCK	stmt	c13	f1	12.25-15.6	
+C	c15	NONBLOCKING_ASSIGN	stmt	c14	f1	14.5-14.21	
+C	c16	TERNARY	expr	c15	f1	14.10-14.20	
+C	c17	VAR_DECL	stmt	c1	f1	3.3-3.16	
+C	c18	DECLARATOR	stmt	c17	f1	3.13-3.15	ny
+C	c19	PORT_DECL	stmt	c1	f1	1.46-1.65	
+C	c20	PORT_DECL	stmt	c1	f1	1.18-1.27	
+C	c21	PORT_DECL	stmt	c1	f1	1.67-1.75	
+C	c22	PORT_DECL	stmt	c1	f1	1.29-1.44	
+C	c23	PORT_DECL	stmt	c1	f1	2.18-2.36	
+C	c24	PORT_DECL	stmt	c1	f1	2.38-2.56	
+F	f1	case_tern.v
+T	t1	read_verilog	--nolatches --vtr-compat --prov-ast refs "case_tern.v"	
+T	t2	proc		
+T	t3	wreduce		

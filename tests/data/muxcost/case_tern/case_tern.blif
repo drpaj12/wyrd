@@ -1,0 +1,43 @@
+# Odin III 1.6.1 write_blif --vtr (K=6, names hash)
+# abc: script=builtin:lib/abc/vtr.abc sha256=0d0d27670d8c71d6ae62366f0588ef445008fa9e824dab79cb751d8f6edcab62 abc=a3001b72edc5de22442e942165487fddf150e3d0 K=6 exchange=blif depth=1
+
+.model case_tern
+.inputs clk sel[0] sel[1] a[0] a[1] a[2] a[3] b[0] b[1] b[2] b[3] c[0] c[1] c[2] c[3] en
+.outputs y[0] y[1] y[2] y[3] z[0] z[1] z[2] z[3]
+.names a[0] c[0] b[0] sel[0] sel[1] hgbgopq34tu
+1--00 1
+--110 1
+-1-01 1
+.names a[1] c[1] b[1] sel[0] sel[1] hyzr6u66pzz
+1--00 1
+--110 1
+-1-01 1
+.names a[2] c[2] b[2] sel[0] sel[1] hlqijdt6rxi
+1--00 1
+--110 1
+-1-01 1
+.names a[3] c[3] b[3] sel[0] sel[1] hznw35lyd3y
+1--00 1
+--110 1
+-1-01 1
+.names b[0] a[0] en hwktdjublje
+1-0 1
+-11 1
+.names b[1] a[1] en ht5bogernxt
+1-0 1
+-11 1
+.names b[2] a[2] en htwxh42swu2
+1-0 1
+-11 1
+.names b[3] a[3] en hbdbzdgtjs2
+1-0 1
+-11 1
+.latch hgbgopq34tu y[0] re clk 2
+.latch hyzr6u66pzz y[1] re clk 2
+.latch hlqijdt6rxi y[2] re clk 2
+.latch hznw35lyd3y y[3] re clk 2
+.latch hwktdjublje z[0] re clk 2
+.latch ht5bogernxt z[1] re clk 2
+.latch htwxh42swu2 z[2] re clk 2
+.latch hbdbzdgtjs2 z[3] re clk 2
+.end

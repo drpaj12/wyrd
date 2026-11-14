@@ -1,0 +1,142 @@
+{
+  "creator": "Odin III",
+  "odin3_version": 1,
+  "modules": {
+    "index": {
+      "attributes": {
+        "top": "00000000000000000000000000000001",
+        "src": "index.v:1.1-3.10"
+      },
+      "ports": {
+        "clk": {
+          "direction": "input",
+          "bits": [ 2 ]
+        },
+        "v": {
+          "direction": "input",
+          "bits": [ 3, 4, 5, 6, 7, 8, 9, 10 ]
+        },
+        "idx": {
+          "direction": "input",
+          "bits": [ 11, 12, 13 ]
+        },
+        "o": {
+          "direction": "output",
+          "bits": [ 14 ]
+        }
+      },
+      "cells": {
+        "hzz5n7ksjzs": {
+          "hide_name": 0,
+          "type": "$shiftx",
+          "parameters": {
+            "A_SIGNED": "00000000000000000000000000000000",
+            "B_SIGNED": "00000000000000000000000000000000",
+            "A_WIDTH": "00000000000000000000000000001000",
+            "B_WIDTH": "00000000000000000000000000000011",
+            "Y_WIDTH": "00000000000000000000000000000001"
+          },
+          "attributes": {
+            "src": "index.v:2.30-2.36"
+          },
+          "port_directions": {
+            "A": "input",
+            "B": "input",
+            "Y": "output"
+          },
+          "connections": {
+            "A": [ 3, 4, 5, 6, 7, 8, 9, 10 ],
+            "B": [ 11, 12, 13 ],
+            "Y": [ 15 ]
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "index",
+            "hdl": [ "index.v:2.30-2.36" ]
+          }
+        },
+        "hmdtxszb3ay": {
+          "hide_name": 0,
+          "type": "$dff",
+          "parameters": {
+            "WIDTH": "00000000000000000000000000000001",
+            "CLK_POLARITY": "00000000000000000000000000000001"
+          },
+          "attributes": {
+            "src": "index.v:2.3-2.37"
+          },
+          "port_directions": {
+            "CLK": "input",
+            "D": "input",
+            "Q": "output"
+          },
+          "connections": {
+            "CLK": [ 2 ],
+            "D": [ 15 ],
+            "Q": [ 14 ]
+          },
+          "odin3_prov": {
+            "kind": "DERIVED",
+            "hier": "",
+            "hdl": [ "index.v:2.3-2.37" ]
+          }
+        }
+      },
+      "netnames": {
+        "clk": {
+          "hide_name": 0,
+          "bits": [ 2 ],
+          "attributes": {
+            "src": "index.v:1.14-1.23"
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "index",
+            "hdl": [ "index.v:1.14-1.23" ]
+          }
+        },
+        "v": {
+          "hide_name": 0,
+          "bits": [ 3, 4, 5, 6, 7, 8, 9, 10 ],
+          "attributes": {
+            "src": "index.v:1.25-1.38"
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "index",
+            "hdl": [ "index.v:1.25-1.38" ]
+          }
+        },
+        "idx": {
+          "hide_name": 0,
+          "bits": [ 11, 12, 13 ],
+          "attributes": {
+            "src": "index.v:1.40-1.55"
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "index",
+            "hdl": [ "index.v:1.40-1.55" ]
+          }
+        },
+        "o": {
+          "hide_name": 0,
+          "bits": [ 14 ],
+          "attributes": {
+            "src": "index.v:1.57-1.69"
+          },
+          "odin3_prov": {
+            "kind": "SOURCE",
+            "hier": "index",
+            "hdl": [ "index.v:1.57-1.69" ]
+          }
+        }
+      },
+      "odin3_prov": {
+        "kind": "SOURCE",
+        "hier": "index",
+        "hdl": [ "index.v:1.1-3.10" ]
+      }
+    }
+  }
+}
