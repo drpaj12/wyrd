@@ -1,0 +1,43 @@
+# odin3-names 2 hash=sha256 width=10 prov=1 ast=refs
+O	index	net	hjt3pb74cwq	index/$n15@index.v:2	index	index.v	2	r4	lut
+O	index	net	hjwlp6budeb	index/$n13@index.v:2	index	index.v	2	r2	gate
+O	index	net	hosaqv3wdgs	index/$n17@index.v:2	index	index.v	2	r5	lut
+O	index	net	hyptbubaoff	index/$n16@index.v:2	index	index.v	2	r6	lut
+N	index	net	clk	r7	stmt
+N	index	net	idx[0]	r8	stmt
+N	index	net	idx[1]	r8	stmt
+N	index	net	idx[2]	r8	stmt
+N	index	net	o	r11	gate
+N	index	net	v[0]	r12	stmt
+N	index	net	v[1]	r12	stmt
+N	index	net	v[2]	r12	stmt
+N	index	net	v[3]	r12	stmt
+N	index	net	v[4]	r12	stmt
+N	index	net	v[5]	r12	stmt
+N	index	net	v[6]	r12	stmt
+N	index	net	v[7]	r12	stmt
+R	r1	S	expr	origin	t1.1		f1:2.30-2.36	c5	hier=index,uid=7
+R	r2	D	gate	refine:word	t2.1	r1			cell=$shiftx,cw=1,uid=10
+R	r3	D	lut	coarsen:gate	t3.1	r2			uid=12
+R	r4	D	lut	rewrite:lut	t3.2	r3			cut=approx,uid=14
+R	r5	D	lut	rewrite:lut	t3.4	r3			cut=approx,uid=16
+R	r6	D	lut	rewrite:lut	t3.3	r3			cut=approx,uid=15
+R	r7	S	stmt	origin	t1.1		f1:1.14-1.23	c6	hier=index,uid=2
+R	r8	S	stmt	origin	t1.1		f1:1.40-1.55	c7	hier=index,uid=4
+R	r9	S	block	origin	t1.1		f1:2.3-2.37	c2	hier=index,uid=6
+R	r10	D	word	refine:stmt	t4.1	r9			uid=9
+R	r11	D	gate	refine:word	t2.2	r10			cell=$dff,cw=1,uid=11
+R	r12	S	stmt	origin	t1.1		f1:1.25-1.38	c8	hier=index,uid=3
+C	c1	MODULE	module		f1	1.1-3.10	index
+C	c2	ALWAYS	block	c1	f1	2.3-2.37	
+C	c3	TIMING_STMT	stmt	c2	f1	2.10-2.37	
+C	c4	NONBLOCKING_ASSIGN	stmt	c3	f1	2.25-2.37	
+C	c5	SELECT	expr	c4	f1	2.30-2.36	
+C	c6	PORT_DECL	stmt	c1	f1	1.14-1.23	
+C	c7	PORT_DECL	stmt	c1	f1	1.40-1.55	
+C	c8	PORT_DECL	stmt	c1	f1	1.25-1.38	
+F	f1	index.v
+T	t1	read_verilog	--nolatches --vtr-compat --prov-ast refs "index.v"	
+T	t2	lower		modules=1 cells=2 nodes=26
+T	t3	abc	--lut 6 --prov-cut on	script=builtin:lib/abc/vtr.abc sha256=0d0d27670d8c71d6ae62366f0588ef445008fa9e824dab79cb751d8f6edcab62 abc=a3001b72edc5de22442e942165487fddf150e3d0 K=6 exchange=blif depth=2
+T	t4	proc		
